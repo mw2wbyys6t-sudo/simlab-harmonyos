@@ -1,0 +1,313 @@
+import { KnowledgePoint, KnowledgeLevel, makeKnowledge } from './KnowledgeTypes';
+import { MapSubject, SchoolStage, UNVERIFIED_PREFIX } from './CurriculumTypes';
+
+/**
+ * 大学化学知识点(无机化学 + 分析化学 + 有机化学)。
+ *
+ * **两张表的 `verified` 含义不同,别混着引用。** 实验表的出处为「这个实验确实开课」作证;
+ * 这里的 `source` 原本只能为**覆盖面与排列顺序**作证(即「大学化学确实教这些、按这个次序」),
+ * 2026-10-08 起另有 9 条为**该条化学事实本身**作证(见文末说明与 SRC_* 常量),两种含义必须分开引。
+ * 每条 statement 里的化学内容本身是可判对错的命题,它成立与否不依赖出处 ——
+ * 靠离线断言和人的专业判断核,不靠引用。
+ *
+ * 覆盖面按通用教材体系(无机及分析化学、有机化学的常见编排)整理,
+ * **我没有核对过任何一本教材的目录或公开清单**,所以第一轮全部标 `未核实:`、
+ * `verified` 一律为假(由 makeKnowledge 从前缀推出,不手写)。
+ *
+ * 一条原则:前置只引用**本文件内同一段落**存在的 id(无机 001–029、分析 030–045、有机 050–073)。
+ * 校验器 validateKnowledge 只在你传给它的数组里查引用,跨段或跨文件的引用会被判成悬挂引用 ——
+ * 浏览页顺前置链跳转时才暴露就晚了。
+ *
+ * **2026-10-08 逐条核过化学事实的那几条(用 `ks` 而不是 `k` 落笔)换了 `source` 的语义:**
+ * 它们的 `source` 记的是该条 statement 里那个常数/判据/机理结论的依据,`verified` 因而为真,
+ * 但这**只覆盖化学事实本身**,不覆盖「覆盖面与排列顺序」—— 那仍未逐章核对过任何一本教材目录。
+ * 引用这些条目时只能引「这个数是对的」,不能引「某校按这个次序教」。
+ * 其余仍走 COVERAGE、仍为未核实。
+ */
+const CHEM: MapSubject = MapSubject.CHEMISTRY;
+const U: SchoolStage = SchoolStage.UNIVERSITY;
+const COVERAGE: string = UNVERIFIED_PREFIX + '按通用教材体系整理覆盖面与顺序,未逐章核对目录';
+
+/** 下面几条是 2026-10-08 逐条查过的化学事实依据,出处直接进 source(verified 由 makeKnowledge 推) */
+const SRC_NA: string = 'NIST/CODATA 2022:NA = 6.022 140 76×10²³ mol⁻¹,标准不确定度一栏标 (exact)' +
+  '(2019 年 SI 重新定义后即为约定精确值),physics.nist.gov/cgi-bin/cuu/Value?na;' +
+  '覆盖面与顺序仍按通用教材整理、未逐章核对目录';
+const SRC_GAS: string = 'R 与标准大气压取 CODATA 精确值(R = 8.314 462 618 J·mol⁻¹·K⁻¹,' +
+  'physics.nist.gov/cgi-bin/cuu/Value?r;1 atm = 101 325 Pa,?stdatm),由 Vm = RT/p 算得 273.15 K 时 ' +
+  'p = 101.325 kPa 对应 22.414 L/mol、p = 100 kPa 对应 22.711 L/mol(数值自算可复核);' +
+  '标准压力改用 100 kPa 一事取到期刊条目《标准压力不再用101325Pa》' +
+  '(ccj.pku.edu.cn/article/info?aid=292854547,只拿到摘要说 1993-12-27 发布修订的量和单位国标,正文数值未取到)。' +
+  '覆盖面与顺序未逐章核对目录';
+const SRC_5PCT: string = '判据本身可算:c/Ka = 400 时电离度恰为 5.00%、最简式对 [H⁺] 的相对误差 2.53%,' +
+  'c/Ka = 500 时电离度 4.47%、误差 2.26%(与离解平衡二次方程的精确解逐项对比,数值自算)。' +
+  '取 400 还是 500 是教材口径松紧之差而非对错,本条按 5% 规则取 400。' +
+  '覆盖面与顺序未逐章核对目录';
+const SRC_RINGBOM: string = '林邦终点误差式 Et = (10^ΔpH − 10^−ΔpH)/√(cKa/Kw) 反算(数值自算,并用滴定曲线逐点数值校核):' +
+  'ΔpH = ±0.2、允许 Et ≤ 0.1% 时要求 cKa ≥ 9.1×10⁻⁹,取整即通行的 10⁻⁸;放宽到 Et ≤ 0.3% 阈值降到 1.0×10⁻⁹,' +
+  '而终点不确定度取 ΔpH = ±0.3 时要提到 2.2×10⁻⁸;同一算法校核得 cKa = 10⁻⁸ 时化学计量点前后 ±0.1% 区间的 pH 突跃只有 0.30。' +
+  '覆盖面与顺序未逐章核对目录';
+const SRC_EDTA: string = '同一林邦式用于配位滴定:ΔpM = ±0.2、Et ≤ 0.1% 要求 c_M,sp·K′ ≥ 9.1×10⁵,即 lg(cK′) ≥ 6;' +
+  'lgK′ ≥ 8 是再代入 c_M,sp ≈ 0.01 mol/L 得到的特例(数值自算,阈值随金属离子分析浓度一起平移)。' +
+  '覆盖面与顺序未逐章核对目录';
+const SRC_NERNST: string = '系数由 2.303RT/F 算得:R = 8.314 462 618、T = 298.15 K、F = NA·e = 96485.33 C/mol' +
+  '(NIST/CODATA 精确值)→ 0.059 159 V,故 0.0592 是三位有效数字下的正确取值;自然对数形式的系数是 RT/F = 0.025 69 V;' +
+  '0.0296 = 0.0592/2 出现在转移 2 个电子的电对(n 已在分母里)或二价离子的能斯特斜率 29.6 mV/十倍浓度。' +
+  '覆盖面与顺序未逐章核对目录';
+const SRC_SN1: string = '立体化学结论出自 Chemistry LibreTexts《Organic Chemistry (OpenStax)》11.4 The SN1 Reaction:' +
+  '"few SN1 displacements occur with complete racemization. Most give a minor (0–20%) excess of inversion",' +
+  '并把它归因于 ion pairs(chem.libretexts.org/Bookshelves/Organic_Chemistry/Organic_Chemistry_(OpenStax)/11…/11.4)。' +
+  '覆盖面与顺序未逐章核对目录';
+const SRC_E2: string = '扎伊采夫规则与大位阻碱例外,依据 ChemistrySteps《Zaitsev Rule — Regioselectivity of E2 Elimination》:' +
+  '常规碱下"the more substituted alkene is the major product",改用叔丁醇钾这类大位阻碱时"the less substituted alkene is the ' +
+  'major product",理由是碱只够得着未受阻的 β-氢(chemistrysteps.com/zaitsevs-rule-regioselectivity-of-e2-elimination-reactions/)。' +
+  '覆盖面与顺序未逐章核对目录';
+const SRC_MARKOV: string = '过氧化物效应只对 HBr 成立,依据 ChemistrySteps《Markovnikovs Rule》:' +
+  '"this anti-Markovnikov hydrohalogenation is only possible with HBr and not with HCl or HI",且 Br 落在取代较少的碳上' +
+  '(chemistrysteps.com/markovnikovs-rule/)。HCl/HI 失效按链传递两步的吸热那一步解释,这一步未取到逐字原文、由机理自证。' +
+  '覆盖面与顺序未逐章核对目录';
+
+function k(id: string, course: string, chapter: string, title: string, statement: string,
+  symbols: string[], level: KnowledgeLevel, prereq: string[]): KnowledgePoint {
+  return makeKnowledge(id, CHEM, U, course, chapter, title, statement, symbols,
+    level, prereq, COVERAGE);
+}
+
+/** 与 k 同形状,只是把 source 交回调用方:用于逐条查过化学事实的那几条 */
+function ks(id: string, course: string, chapter: string, title: string, statement: string,
+  symbols: string[], level: KnowledgeLevel, prereq: string[], source: string): KnowledgePoint {
+  return makeKnowledge(id, CHEM, U, course, chapter, title, statement, symbols,
+    level, prereq, source);
+}
+
+export class KnowledgeChemistry {
+  static readonly INORGANIC: string = '无机化学';
+  static readonly ANALYTICAL: string = '分析化学';
+  static readonly ORGANIC: string = '有机化学';
+
+  static inorganic(): KnowledgePoint[] {
+    const out: KnowledgePoint[] = [];
+    out.push(ks('kn-chem-u-001', KnowledgeChemistry.INORGANIC, '化学计量与气体', '物质的量与阿伏加德罗常数、摩尔质量',
+      '物质的量把微观粒子数与宏观质量连成一线:1 mol 含 6.022×10²³ 个基本单元(阿伏加德罗常数 NA,2019 年 SI 重新定义后为约定精确值 6.022 140 76×10²³ mol⁻¹,计算取到 6.022 即可),用 mol 必须指明基本单元(1 mol O 与 1 mol O₂ 含义不同);摩尔质量 M 数值上等于相对原子/分子质量而单位是 g/mol,由 m = n·M 在质量与物质的量间换算',
+      ['n = N/NA', 'm = n·M', 'NA = 6.022 140 76×10²³ mol⁻¹'], KnowledgeLevel.RECALL, [], SRC_NA));
+    out.push(ks('kn-chem-u-002', KnowledgeChemistry.INORGANIC, '化学计量与气体', '理想气体状态方程与道尔顿分压定律',
+      '平衡态理想气体满足 pV = nRT(R = 8.314 J/(mol·K),精确值 8.314 462 618),只在低压高温、分子间作用可忽略时近似成立;混合气体中某组分分压 p_i = x_i·p_总、总压等于各分压之和(道尔顿);22.4 L·mol⁻¹ 这个数只属于 273.15 K 与 101.325 kPa 的标准状况,压力按标准态的 100 kPa 取时同一算法给 22.7 L·mol⁻¹,故换算气体的量、密度与摩尔质量前要先确认所取压力',
+      ['pV = nRT', 'p_i = x_i·p_总', '22.4 L/mol 对应 273.15 K 与 101.325 kPa'], KnowledgeLevel.APPLY, ['kn-chem-u-001'], SRC_GAS));
+    out.push(k('kn-chem-u-003', KnowledgeChemistry.INORGANIC, '溶液与依数性', '溶液浓度的多种表示法',
+      '物质的量浓度 c = n/V 会随温度变(溶液体积热胀冷缩),而质量摩尔浓度 b = 溶质物质的量/溶剂质量(kg)与温度无关,故依数性公式统一用 b;此外还有质量分数、物质的量分数等,用错单位是依数性计算最常见的错误',
+      ['c (mol/L)', 'b (mol/kg)'], KnowledgeLevel.RECALL, []));
+    out.push(k('kn-chem-u-004', KnowledgeChemistry.INORGANIC, '溶液与依数性', '蒸气压下降与拉乌尔定律',
+      '难挥发非电解质稀溶液中溶剂蒸气压 p = p₀·x_溶剂,故下降值 Δp = p₀·x_溶质;本质是溶质微粒占据部分液面并阻碍溶剂逸出,下降幅度只取决于溶质微粒数而非其本性,这是其余三种依数性的共同根源',
+      ['p = p₀·x_溶剂', 'Δp = p₀·x_溶质'], KnowledgeLevel.APPLY, ['kn-chem-u-003']));
+    out.push(k('kn-chem-u-005', KnowledgeChemistry.INORGANIC, '溶液与依数性', '沸点升高与凝固点降低',
+      '因蒸气压下降,稀溶液沸点高于纯溶剂 ΔTb = Kb·b、凝固点低于纯溶剂 ΔTf = Kf·b,二者都只与质量摩尔浓度(微粒数)成正比、与溶质本性无关;Kb、Kf 是只由溶剂决定的摩尔常数,故可用凝固点降低法测溶质相对分子质量',
+      ['ΔTb = Kb·b', 'ΔTf = Kf·b'], KnowledgeLevel.APPLY, ['kn-chem-u-004']));
+    out.push(k('kn-chem-u-006', KnowledgeChemistry.INORGANIC, '溶液与依数性', '渗透压与范特霍夫因子',
+      '溶液与纯溶剂被半透膜隔开时溶剂净流入产生的压强 π = cRT(电解质写作 π = i·cRT,i 为每个溶质单元电离后实际产生的微粒数,如 NaCl 理想 i≈2);依数性大小统一由溶液中微粒总数决定,故电解质溶液的依数性比同浓度非电解质更大',
+      ['π = cRT', 'i = 实际微粒数/溶质单元数'], KnowledgeLevel.APPLY, ['kn-chem-u-004']));
+    out.push(k('kn-chem-u-007', KnowledgeChemistry.INORGANIC, '化学热力学基础', '反应热与焓变',
+      '恒压反应热 Qp 等于焓变 ΔH,ΔH<0 放热、>0 吸热;焓是状态函数,ΔH 只由始终态决定而与路径无关,所以写热化学方程式要标注物质聚集态,因为同一反应中反应物或产物状态不同则 ΔH 不同',
+      ['Qp = ΔH', 'ΔH<0 放热'], KnowledgeLevel.RECALL, []));
+    out.push(k('kn-chem-u-008', KnowledgeChemistry.INORGANIC, '化学热力学基础', '盖斯定律与标准生成焓',
+      '因焓是状态函数,反应无论一步或多步完成总焓变相同,故 ΔH° = ΣΔH°f(产物)−ΣΔH°f(反应物),此即盖斯定律;规定稳定单质的标准生成焓为 0,于是能由生成焓表算出难以用量热直接测定的反应焓',
+      ['ΔH° = ΣΔH°f(产物)−ΣΔH°f(反应物)'], KnowledgeLevel.APPLY, ['kn-chem-u-007']));
+    out.push(k('kn-chem-u-009', KnowledgeChemistry.INORGANIC, '化学热力学基础', '熵与熵变的趋势判断',
+      '熵 S 是体系混乱度(微观状态数)的量度,热力学第三定律规定完美晶体在 0 K 时 S = 0;判断 ΔS 符号的经验:气态分子数增多、固体溶解、温度升高都使 ΔS>0,气体摩尔熵远大于液态与固态',
+      ['ΔS>0 混乱度增大', 'S(g)≫S(l)>S(s)'], KnowledgeLevel.APPLY, ['kn-chem-u-007']));
+    out.push(k('kn-chem-u-010', KnowledgeChemistry.INORGANIC, '化学热力学基础', '吉布斯自由能与反应自发判据',
+      '恒温恒压下用 ΔG = ΔH − TΔS 判方向:ΔG<0 自发、=0 达平衡、>0 非自发(逆过程自发);当 ΔH、ΔS 同号时温度决定归属,ΔH>0、ΔS>0 只在高温自发,ΔH<0、ΔS<0 只在低温自发。标准态下 ΔG° = −RT lnK 把自发性判据与平衡常数直接连起来',
+      ['ΔG = ΔH − TΔS', 'ΔG° = −RT lnK'], KnowledgeLevel.TRANSFER, ['kn-chem-u-009', 'kn-chem-u-008']));
+    out.push(k('kn-chem-u-011', KnowledgeChemistry.INORGANIC, '反应速率与化学平衡', '活化能与阿伦尼乌斯方程',
+      '只有能量超过活化能 Ea 的分子经合适取向的有效碰撞才能反应;速率常数随温度按 k = A·e^(−Ea/RT) 增大,ln k 对 1/T 作图斜率为 −Ea/R。催化剂降低 Ea 使正、逆反应同等加速,却不改变 ΔG,因而不移动平衡、只缩短到达平衡的时间',
+      ['k = A·e^(−Ea/RT)', 'ln(k₂/k₁) = −(Ea/R)(1/T₂ − 1/T₁)'], KnowledgeLevel.APPLY, []));
+    out.push(k('kn-chem-u-012', KnowledgeChemistry.INORGANIC, '反应速率与化学平衡', '化学平衡与平衡常数表达式',
+      '正、逆反应速率相等、各组分浓度不再随时间改变即达动态平衡;K = 产物浓度幂之积比反应物浓度幂之积,纯固体与纯液体不写入式中。K 只随温度变而与起始浓度、催化剂无关,K 越大反应进行得越完全',
+      ['K = ∏c(产物)^ν / ∏c(反应物)^ν'], KnowledgeLevel.APPLY, ['kn-chem-u-011']));
+    out.push(k('kn-chem-u-013', KnowledgeChemistry.INORGANIC, '反应速率与化学平衡', '反应商 Q 与勒夏特列原理',
+      '任一时刻按平衡式同形式算出的浓度商叫 Q:Q<K 正向进行、Q=K 平衡、Q>K 逆向。改变浓度、分压或温度,平衡向削弱这种改变的方向移动(勒夏特列):增大某反应物浓度使平衡右移,压缩体积向气态分子数少的一边移,升温向吸热方向移;恒容加惰性气体不移动,恒压加惰性气体相当于稀释',
+      ['Q<K 正向', '升温向吸热方向移'], KnowledgeLevel.TRANSFER, ['kn-chem-u-012']));
+    out.push(k('kn-chem-u-014', KnowledgeChemistry.INORGANIC, '酸碱与电离平衡', 'Arrhenius、Brønsted 与 Lewis 酸碱理论',
+      'Arrhenius 酸在水中电离出 H⁺、碱电离出 OH⁻;Brønsted 把酸碱推广为质子的给体与受体,任何酸碱反应都是质子转移且总存在共轭酸碱对;Lewis 以电子对的接受与给予定义酸碱,能解释不含质子的反应(如 BF₃+NH₃)但最难作定量标度',
+      ['Lewis 酸:电子对受体'], KnowledgeLevel.RECALL, []));
+    out.push(ks('kn-chem-u-015', KnowledgeChemistry.INORGANIC, '酸碱与电离平衡', '弱酸弱碱的电离平衡与 Ka、Kb',
+      '一元弱酸 HA ⇌ H⁺+A⁻,Ka = [H⁺][A⁻]/[HA],同浓度下 Ka 越大酸性越强;近似 [H⁺]≈√(Ka·c) 只在电离度很小(经验判据 c/Ka≥400,即电离度恰不超 5%、此时最简式对 [H⁺] 的相对误差约 2.5%)时成立,另有教材把这条线画在 c/Ka≥500(误差约 2.3%),两者只是口径松紧不同不是对错。加水稀释使电离度增大但 [H⁺] 反而减小,加入含共同离子的强电解质则电离被抑制',
+      ['Ka = [H⁺][A⁻]/[HA]', '[H⁺]≈√(Ka·c) 条件 c/Ka≥400'], KnowledgeLevel.APPLY, ['kn-chem-u-014'], SRC_5PCT));
+    out.push(k('kn-chem-u-016', KnowledgeChemistry.INORGANIC, '酸碱与电离平衡', '水的离子积与 pH',
+      '纯水及稀水溶液中 [H⁺][OH⁻] = Kw,25 ℃ 时 Kw≈1.0×10⁻¹⁴;pH = −lg[H⁺],中性指 [H⁺]=[OH⁻]。温度升高 Kw 增大,中性点的 pH 会偏离 7,故不能死记 pH7 即中性',
+      ['Kw = [H⁺][OH⁻]', 'pH = −lg[H⁺]'], KnowledgeLevel.APPLY, ['kn-chem-u-015']));
+    out.push(k('kn-chem-u-017', KnowledgeChemistry.INORGANIC, '酸碱与电离平衡', '共轭酸碱对与 Ka·Kb = Kw',
+      '酸给出质子后剩下的部分是其共轭碱,酸越强其共轭碱越弱;同一共轭对满足 Ka·Kb = Kw,于是共轭碱的 Kb = Kw/Ka。这是求弱碱或弱酸盐溶液 [OH⁻](如 NH₃、NaAc)的桥梁',
+      ['Ka·Kb = Kw'], KnowledgeLevel.APPLY, ['kn-chem-u-015']));
+    out.push(k('kn-chem-u-018', KnowledgeChemistry.INORGANIC, '酸碱与电离平衡', '缓冲溶液原理与缓冲范围',
+      '缓冲溶液由足量弱酸及其共轭碱(或弱碱及其共轭酸)组成,靠抗酸成分与抗碱成分共同消耗外加的少量强酸、强碱;其 pH = pKa + lg([共轭碱]/[共轭酸]),当共轭碱与酸之比超出 10:1 或 1:10 时缓冲能力骤降,故有效缓冲范围是 pKa±1',
+      ['pH = pKa + lg([A⁻]/[HA])', '缓冲范围 pKa±1'], KnowledgeLevel.APPLY, ['kn-chem-u-017']));
+    out.push(k('kn-chem-u-019', KnowledgeChemistry.INORGANIC, '酸碱与电离平衡', '盐类水解规律与溶液酸碱性',
+      '盐中的弱离子与水电离出的 H⁺ 或 OH⁻ 结合生成弱电解质,破坏水的电离平衡而使溶液显酸碱性:强酸弱碱盐水解显酸性(如 NH₄Cl),强碱弱酸盐水解显碱性(如 NaAc),越弱越水解;水解是吸热过程,升温促进水解,加酸或碱可抑制相应方向的水解',
+      ['弱离子 + H₂O ⇌ 弱电解质 + OH⁻/H⁺'], KnowledgeLevel.APPLY, ['kn-chem-u-017']));
+    out.push(k('kn-chem-u-020', KnowledgeChemistry.INORGANIC, '沉淀溶解平衡', '溶度积 Ksp 与溶解度换算',
+      '难溶电解质 A_mB_n 的沉淀溶解平衡满足 Ksp = [Aⁿ⁺]^m·[Bᵐ⁻]^n,Ksp 反映溶解能力大小;由 Ksp 可换算溶解度,但只有同类型(阴阳离子比相同)的难溶物才能直接用 Ksp 比较溶解度大小,不同类型须先各自换算成溶解度再比',
+      ['Ksp = [Aⁿ⁺]^m·[Bᵐ⁻]^n'], KnowledgeLevel.APPLY, []));
+    out.push(k('kn-chem-u-021', KnowledgeChemistry.INORGANIC, '沉淀溶解平衡', '溶度积规则与沉淀的生成',
+      '用任意时刻的离子积 Q 与 Ksp 比较判断方向:Q>Ksp 有沉淀析出、Q=Ksp 处于饱和平衡、Q<Ksp 未饱和可继续溶解。据此可算开始沉淀所需的沉淀剂最低浓度,以及通过控制 pH 让某些金属氢氧化物先沉淀从而达到分离',
+      ['Q>Ksp 沉淀', 'Q<Ksp 溶解'], KnowledgeLevel.APPLY, ['kn-chem-u-020']));
+    out.push(k('kn-chem-u-022', KnowledgeChemistry.INORGANIC, '沉淀溶解平衡', '沉淀转化与分步沉淀',
+      '溶解度更小(同类型即 Ksp 更小)的沉淀容易由溶解度较大的沉淀转化而来,如 AgCl 遇 I⁻ 转为 AgI、再遇 S²⁻ 转为更难溶的 Ag₂S;分步沉淀则利用不同离子开始沉淀所需沉淀剂浓度不同,控制加入量使其按顺序逐个析出以达到分离',
+      ['AgCl→AgI→Ag₂S(Ksp 递减)'], KnowledgeLevel.TRANSFER, ['kn-chem-u-021']));
+    out.push(k('kn-chem-u-023', KnowledgeChemistry.INORGANIC, '原子结构与元素周期律', '四个量子数与核外电子运动状态',
+      '主量子数 n 定能层与能量主体,角量子数 l(取 0…n−1)定轨道形状与亚层,磁量子数 m(取 −l…+l)定空间取向,自旋磁量子数 m_s(取 ±1/2)定自旋方向;四个量子数合起来唯一确定基态原子中一个电子的运动状态,不会有两个电子四值全同',
+      ['l = 0…n−1', 'm = −l…+l'], KnowledgeLevel.RECALL, []));
+    out.push(k('kn-chem-u-024', KnowledgeChemistry.INORGANIC, '原子结构与元素周期律', '核外电子排布三规则与特例',
+      '能量最低原理要求电子优先占据低能级,泡利不相容原理使同一轨道最多容纳两个自旋相反的电子,洪特规则让同一亚层的简并轨道先各占一个且自旋平行;半满、全满或全空较稳定而出现特例,如 Cr 排 3d⁵4s¹、Cu 排 3d¹⁰4s¹ 而非 3d⁴4s²、3d⁹4s²',
+      ['泡利:一轨道最多 2 电子自旋相反', '洪特:简并轨道先单占平行'], KnowledgeLevel.APPLY, ['kn-chem-u-023']));
+    out.push(k('kn-chem-u-025', KnowledgeChemistry.INORGANIC, '原子结构与元素周期律', '屏蔽效应、钻穿效应与能级交错',
+      '内层及同层其他电子削弱原子核对该电子的吸引称为屏蔽,使有效核电荷 Z* = Z−σ 小于实际核电荷;角量子数小的电子(如 s)能钻近核区受屏蔽较少、能量降低,即钻穿效应。两者共同导致能级分组与交错,如 4s 能量低于 3d,这正是先填 4s 再填 3d 的原因',
+      ['Z* = Z − σ', '能级交错:4s<3d'], KnowledgeLevel.APPLY, ['kn-chem-u-024']));
+    out.push(k('kn-chem-u-026', KnowledgeChemistry.INORGANIC, '原子结构与元素周期律', '元素周期律:半径、电离能、电负性趋势及反常',
+      '同周期从左到右有效核电荷递增,原子半径减小、第一电离能与电负性总体增大;同主族自上而下半径增大、电离能减小。存在反常:N 的 2p 半满使其第一电离能反而高于 O,Be 的 2s 全满高于 B;第五、六周期同族元素因镧系收缩半径几乎相等(如 Zr 与 Hf),性质极相似、难以分离',
+      ['同周期:半径↓ 电离能↑ 电负性↑', '第一电离能反常 N>O、Be>B'], KnowledgeLevel.APPLY, ['kn-chem-u-025']));
+    out.push(k('kn-chem-u-027', KnowledgeChemistry.INORGANIC, '化学键与分子间作用力', '共价键、杂化轨道与分子构型',
+      '共价键由原子轨道重叠形成,具饱和性与方向性;为解释实际几何,原子轨道先杂化再成键——sp³ 呈正四面体(约 109.5°)、sp² 呈平面三角(约 120°)、sp 呈直线(180°)。配合价层电子对互斥(VSEPR)可由 σ 键数与孤对数推知构型,如 CH₄ 正四面体、H₂O 因两对孤对呈 V 形',
+      ['sp³ 109.5°', 'sp² 120°', 'sp 180°'], KnowledgeLevel.APPLY, ['kn-chem-u-024']));
+    out.push(k('kn-chem-u-028', KnowledgeChemistry.INORGANIC, '化学键与分子间作用力', '分子间作用力与氢键',
+      '分子间存在比化学键弱得多的范德华力,包括色散、诱导与取向作用,它决定物质的沸点、熔点与溶解性等物理性质,随相对分子质量增大、极性增强而增大;凡含与电负性大的原子(F、O、N)相连的 H 的分子间还能形成更强的氢键,使 H₂O、HF、NH₃ 的沸点在同族氢化物中反常偏高',
+      ['氢键 X−H···Y(X,Y=F,O,N)'], KnowledgeLevel.APPLY, ['kn-chem-u-027']));
+    out.push(k('kn-chem-u-029', KnowledgeChemistry.INORGANIC, '配位化合物', '配合物的组成、命名与配位数',
+      '配合物由内界与外界构成:中心离子(原子)与配体靠配位键结合成带电荷的内界,写于方括号内,括号外为外界;直接与中心结合的配位原子数目叫配位数(常见 4 或 6)。命名按先阴离子后中性分子、数目用一、二、三前缀、最后接合某酸某或合某的顺序,如 [Cu(NH₃)₄]SO₄ 为硫酸四氨合铜(II)',
+      ['[Cu(NH₃)₄]²⁺ 配位数 4', '内界写在[]内'], KnowledgeLevel.RECALL, ['kn-chem-u-014']));
+    return out;
+  }
+
+  static analytical(): KnowledgePoint[] {
+    const out: KnowledgePoint[] = [];
+    out.push(k('kn-chem-u-030', KnowledgeChemistry.ANALYTICAL, '误差与数据处理', '系统误差与随机误差、准确度与精密度',
+      '系统误差由方法、仪器、试剂等固定原因造成,大小方向恒定、可校正,决定准确度(用误差衡量);随机误差由不可控偶然因素造成,正负出现概率相近、服从正态分布,决定精密度(用标准偏差衡量)。精密度高是准确度高的前提,但精密度高不一定准确,可能只是重复地偏离真值',
+      ['准确度用误差 E 表示', '精密度用标准偏差 s 表示'], KnowledgeLevel.RECALL, []));
+    out.push(k('kn-chem-u-031', KnowledgeChemistry.ANALYTICAL, '误差与数据处理', '减免误差:对照、空白与增加平行测定',
+      '对照实验(用标准试样比对或改用另一标准方法)能检出并校正方法上的系统误差;空白实验(除不加试样外按完全相同步骤进行)可扣除试剂与器皿引入的杂质,减小试剂误差;增加平行测定次数取平均只能减小随机误差、对系统误差无能为力,三者各有所指不能互相替代',
+      ['对照→校正方法误差', '空白→扣试剂误差', '平行测定→减随机误差'], KnowledgeLevel.APPLY, ['kn-chem-u-030']));
+    out.push(k('kn-chem-u-032', KnowledgeChemistry.ANALYTICAL, '误差与数据处理', '有效数字与修约运算规则',
+      '有效数字是全部准确数字再加末位一位可疑数字,由测量仪器的精度决定、不可凭计算任意添减;加减法结果以绝对误差最大(即小数位数最少)的那个数据为准定保留位数,乘除法以相对误差最大(即有效数字位数最少)的那个数据为准;数据修约用四舍六入五成双(凑奇偶),忌连续多次修约',
+      ['加减看小数位', '乘除看有效数字位数', '四舍六入五成双'], KnowledgeLevel.APPLY, ['kn-chem-u-030']));
+    out.push(k('kn-chem-u-033', KnowledgeChemistry.ANALYTICAL, '滴定分析概述', '滴定分析对反应的要求与四大类型',
+      '能用于滴定分析的反应必须按确定的计量关系定量完成(通常要求反应完全度达 99.9% 以上)、反应速率快、有简便可靠的方法确定滴定终点、且无干扰主反应的副反应;满足这些的即酸碱中和、氧化还原、配位(络合)与沉淀四类反应,据此把滴定法相应分为酸碱、氧化还原、配位与沉淀滴定四类',
+      ['完成度≥99.9%', '四类:酸碱/氧化还原/配位/沉淀'], KnowledgeLevel.RECALL, []));
+    out.push(k('kn-chem-u-034', KnowledgeChemistry.ANALYTICAL, '滴定分析概述', '基准物质与标准溶液的配制标定',
+      '标准溶液的准确浓度有两种来路:凡能满足基准物质要求者(组成与化学式完全相符、纯度足够高、性质稳定不吸水和 CO₂、摩尔质量尽量大以减小称量相对误差)可用直接法准确称量配制;不满足者(如易吸水的 NaOH、易挥发的 HCl、见光分解的 KMnO₄)只能先粗配,再用基准物质标定其准确浓度',
+      ['直接法 vs 标定法'], KnowledgeLevel.APPLY, ['kn-chem-u-033']));
+    out.push(k('kn-chem-u-035', KnowledgeChemistry.ANALYTICAL, '滴定分析概述', '等物质的量规则与滴定结果计算',
+      '达化学计量点时两反应物按反应式的系数比恰好完全作用,即 n_A∶n_B = a∶b,这就是等物质的量规则,写成 a·c_B·V_B = b·c_A·V_A;滴定分析的一切定量计算都建立在此比例上,因此第一步永远是配平反应式、找出正确的计量系数比再代入',
+      ['a·n_B = b·n_A'], KnowledgeLevel.APPLY, ['kn-chem-u-034']));
+    out.push(k('kn-chem-u-036', KnowledgeChemistry.ANALYTICAL, '酸碱滴定法', '酸碱滴定曲线与突跃范围',
+      '以 NaOH 滴定 HCl,pH 随加入量先缓慢升高,但在化学计量点前后各约 ±0.1% 这一极窄区间内 pH 从约 4.3 猛跳到约 9.7,形成一段近乎垂直的突跃;突跃就是可选指示剂变色区间的所在,溶液越浓突跃越长,反之越短,滴定时必须据此判断能否准确滴定',
+      ['计量点前后±0.1% 引起 pH 突变'], KnowledgeLevel.APPLY, ['kn-chem-u-035']));
+    out.push(k('kn-chem-u-037', KnowledgeChemistry.ANALYTICAL, '酸碱滴定法', '指示剂选择原则',
+      '酸碱指示剂本身是有机弱酸或弱碱,其酸式型体与碱式型体颜色不同,理论变色范围约为 pH = pKa±1;选择指示剂的原则是让其变色范围全部或部分落入滴定的 pH 突跃范围之内,变色点尽量接近化学计量点,以减小终点误差——强酸强碱滴定突跃大,酚酞或甲基橙皆可用',
+      ['指示剂变色范围 ≈ pKa±1'], KnowledgeLevel.APPLY, ['kn-chem-u-036']));
+    out.push(ks('kn-chem-u-038', KnowledgeChemistry.ANALYTICAL, '酸碱滴定法', '弱酸被滴定的可行性判据',
+      '弱酸能否被强碱准确滴定取决于浓度与强度的乘积:通常要求 c·Ka≥10⁻⁸,但它是随允许终点误差走的而不是常数——它由林邦终点误差式取目测变色不确定 ΔpH=±0.2、允许误差 0.1% 反算而得(算得 9.1×10⁻⁹,取整成 10⁻⁸);误差放宽到 0.3% 时阈值降到约 10⁻⁹,而 ΔpH 取 ±0.3 时要提到约 2×10⁻⁸。Ka 太小或溶液太稀则突跃消失、找不到合适指示剂(c·Ka=10⁻⁸ 时计量点前后 ±0.1% 的突跃只剩 0.30 个 pH)。多元弱酸还要求相邻两级电离常数之比约≥10⁴,才能把各级电离分开、实现分步滴定',
+      ['c·Ka ≥ 10⁻⁸ 可准确滴定(ΔpH±0.2, Et 0.1%)', '多元酸分步:ΔKa≥10⁴'], KnowledgeLevel.APPLY, ['kn-chem-u-036'], SRC_RINGBOM));
+    out.push(ks('kn-chem-u-039', KnowledgeChemistry.ANALYTICAL, '配位滴定法', 'EDTA、酸效应与条件稳定常数',
+      'EDTA 是六齿配体,与多数金属离子按 1∶1 生成稳定的螯合物;但实际体系中 H⁺ 会与金属离子竞争 EDTA(酸效应),使 EDTA 有效浓度降低,应改用条件稳定常数 lgK′_MY = lgK_MY − lgα_Y(H)。定量滴定的判据实为 lg(c_M,sp·K′)≥6(同样来自 ΔpM=±0.2、允许误差 0.1% 的林邦式),lgK′≥8 是把金属离子分析浓度取作约 0.01 mol/L 后的特例,浓度更稀时要求的 lgK′ 还要更高;pH 越低 α_Y(H) 越大、lgK′ 越小,故每种金属离子都对应一个能准确滴定的最低允许 pH',
+      ['lgK′ = lgK − lgα_Y(H)', 'lg(c_M,sp·K′) ≥ 6 可定量(c≈0.01 时即 lgK′≥8)', 'α_Y(H) 随 pH↓ 增大'], KnowledgeLevel.APPLY, ['kn-chem-u-033'], SRC_EDTA));
+    out.push(k('kn-chem-u-040', KnowledgeChemistry.ANALYTICAL, '配位滴定法', '金属指示剂及其封闭与僵化',
+      '金属指示剂是一种有机配体,滴定前与少量金属离子生成有色配合物 MIn,到达计量点时 EDTA 把金属从其配合物中夺出、指示剂游离而变色;若被测离子或某些杂质离子与指示剂结合过于牢固以致 EDTA 置换不出金属,称为指示剂的封闭,须加掩蔽剂克服;若生成的 MIn 溶解度太小使变色过程拖长迟缓,称为僵化',
+      ['封闭:EDTA 置换不动 MIn', '僵化:变色迟缓'], KnowledgeLevel.APPLY, ['kn-chem-u-039']));
+    out.push(ks('kn-chem-u-041', KnowledgeChemistry.ANALYTICAL, '氧化还原滴定', '电极电势与条件电极电势',
+      '氧化还原反应的方向由电对比大小决定,电极电势代数值大的电对作氧化剂;能斯特方程 φ = φ° + (0.0592/n)lg([氧化型]/[还原型]) 里的 0.0592 V 就是 298.15 K 下以 10 为底时的 2.303RT/F(精确算为 0.059 16 V),只在 25 ℃ 成立、n 为该电对转移的电子数——所以 n=2 的电对系数即 0.0296 V(每十倍浓度 29.6 mV),改用自然对数则系数为 RT/nF = 0.025 7/n V,温度不是 25 ℃ 时必须按 2.303RT/F 重算。由于真实溶液中存在副反应与较大离子强度,理论标准电极电势 φ° 常不准,工程上多用实验测得的条件电极电势 φ°′ 来判算实际方向',
+      ['φ = φ° + (0.0592/n)lg([Ox]/[Red])', '0.0592 V = 2.303RT/F @ 298.15 K'], KnowledgeLevel.APPLY, [], SRC_NERNST));
+    out.push(k('kn-chem-u-042', KnowledgeChemistry.ANALYTICAL, '氧化还原滴定', 'KMnO₄ 法与 K₂Cr₂O₇ 法',
+      'KMnO₄ 氧化力强,强酸性介质中 MnO₄⁻ 被还原为几乎无色的 Mn²⁺,故其自身紫红色可作自身指示剂,酸度须用 H₂SO₄ 调节而不能用 HCl(以免 Cl⁻ 被氧化);K₂Cr₂O₇ 氧化性稍弱但标准溶液极稳定、可直接配制、受酸度与 Cl⁻ 干扰小,常用二苯胺磺酸钠等氧化还原指示剂,是测定铁矿石全铁的经典方法',
+      ['MnO₄⁻ + 5e⁻ → Mn²⁺(强酸性)'], KnowledgeLevel.APPLY, ['kn-chem-u-041']));
+    out.push(k('kn-chem-u-043', KnowledgeChemistry.ANALYTICAL, '氧化还原滴定', '碘量法与淀粉指示剂',
+      '碘量法基于 I₃⁻/I⁻ 电对:直接碘量法用 I₂ 标准液直接滴定较强还原剂,间接碘量法让氧化性试样与过量 I⁻ 定量析出 I₂、再用 Na₂S₂O₃ 标准液滴定所生成的 I₂;用淀粉作专属指示剂须在近终点时加入以免吸附包夹,终点蓝色恰好消失。全程须控制酸度并防止 I₂ 挥发与 I⁻ 被空气氧化',
+      ['I₂ + 2S₂O₃²⁻ → 2I⁻ + S₄O₆²⁻'], KnowledgeLevel.APPLY, ['kn-chem-u-041']));
+    out.push(k('kn-chem-u-044', KnowledgeChemistry.ANALYTICAL, '重量分析法', '沉淀形式与称量形式的要求及陈化',
+      '重量分析靠称量沉淀质量求结果,涉及两种固体形态:沉淀形式是刚生成的,须溶解度极小、纯净、颗粒大易过滤洗涤;称量形式是烘干或灼烧后称取的,须组成与化学式完全相符、性质稳定、且摩尔质量尽量大以减小称量误差。生成沉淀后让其与母液一起加热放置进行陈化,小晶粒逐渐溶解、大晶粒继续长大并排出包藏杂质,使沉淀更纯、更易过滤',
+      ['沉淀形式→(灼烧)→称量形式', '陈化:小晶溶、大晶长'], KnowledgeLevel.APPLY, []));
+    out.push(k('kn-chem-u-045', KnowledgeChemistry.ANALYTICAL, '吸光光度法', '朗伯-比尔定律及偏离原因',
+      '一束单色光通过吸光溶液时,吸光度 A = lg(I₀/I) = εbc,与溶液浓度和液层厚度的乘积成正比,这就是光度法定量的依据,摩尔吸光系数 ε 随入射波长与物质本性而变,故选最大吸收波长测定最灵敏;但 A–c 关系只在稀溶液(约 <0.01 mol/L)和真正单色光下才保持线性,浓度过高、使用非单色光、溶液中的解离缔合等化学变化以及杂散光都会造成正或负的偏离',
+      ['A = −lg T = εbc', '线性限:稀溶液、单色光'], KnowledgeLevel.APPLY, ['kn-chem-u-041']));
+    return out;
+  }
+
+  static organic(): KnowledgePoint[] {
+    const out: KnowledgePoint[] = [];
+    out.push(k('kn-chem-u-050', KnowledgeChemistry.ORGANIC, '结构基础', '碳的四面体与 sp³、sp²、sp 杂化',
+      '碳有四个价电子,成键前先杂化再成键:sp³ 杂化生成四个等性轨道、键角约 109.5° 呈四面体(甲烷),sp² 呈平面三角约 120° 并余一个未杂化 p 轨道形成 π 键(乙烯),sp 呈直线 180°(乙炔);四面体模型正好解释甲烷的二元取代物只有一种而非两种',
+      ['sp³ 109.5°', 'sp² 120°', 'sp 180°'], KnowledgeLevel.RECALL, []));
+    out.push(k('kn-chem-u-051', KnowledgeChemistry.ORGANIC, '结构基础', '同分异构:构造、构型与构象',
+      '同分异构分两大类:构造异构是原子相互连接的次序不同(碳链、位置、官能团异构);立体异构连接次序相同而空间排列不同,又分为构象异构(仅靠单键旋转即相互转化,如乙烷的交叉式与重叠式)与构型异构(必须断开化学键才能互变,包含顺反异构与对映异构)',
+      ['构象:单键旋转即互变', '构型:须断键才互变'], KnowledgeLevel.RECALL, ['kn-chem-u-050']));
+    out.push(k('kn-chem-u-052', KnowledgeChemistry.ORGANIC, '立体异构', '手性与对映异构',
+      '一个分子与其镜像不能完全重合即具有手性,最常见的来源是分子中含一个连有四个互不相同基团的 sp³ 手性碳;这样的一对镜像异构体叫对映异构体,除使偏振光旋转方向相反外其余物理性质相同、化学性质在非手性环境中相同,其构型用 R/S 依次序规则标定',
+      ['手性碳 C* 连 4 个不同基团', 'R/S 构型'], KnowledgeLevel.APPLY, ['kn-chem-u-051']));
+    out.push(k('kn-chem-u-053', KnowledgeChemistry.ORGANIC, '系统命名法', '有机物系统命名要点',
+      '系统命名四步:选含主官能团且碳数最多的连续碳链为主链定母体名称,从靠近主官能团的一端开始给主链编号使官能团及各取代基的位次组尽可能最小,把取代基按由简到繁的顺序列于母体名称前并逐一标出位次,相同取代基合并用二、三、四前缀,双键或三键位置用较低位次标明',
+      ['选主链→定编号使位次最小→列取代基'], KnowledgeLevel.APPLY, ['kn-chem-u-051']));
+    out.push(k('kn-chem-u-054', KnowledgeChemistry.ORGANIC, '烃', '烷烃的自由基卤代机理',
+      '烷烃在光照或加热下与卤素发生自由基链式取代,机理分链引发(卤素分子均裂产生卤原子自由基)、链增长(卤原子夺氢生成烷基自由基、烷基自由基再夺卤续生卤原子)与链终止三步;产物分布由中间体自由基稳定性决定,叔氢最活泼(3°>2°>1°),且溴代的选择性明显高于氯代',
+      ['引发·增长·终止', '自由基稳定性 3°>2°>1°'], KnowledgeLevel.APPLY, ['kn-chem-u-050']));
+    out.push(ks('kn-chem-u-055', KnowledgeChemistry.ORGANIC, '烃', '烯烃亲电加成与马氏规则',
+      '碳碳双键的 π 电子富电子,易受亲电试剂进攻,先加成生成碳正离子中间体;当不对称试剂 HX 加到不对称烯烃上时,氢加到含氢较多(取代较少)的双键碳、卤素加到取代较多的碳,即马氏规则,其本质在于反应经由更稳定的碳正离子进行——烷基的给电子与超共轭使叔碳正离子>仲>伯,故正离子倾向生成在取代较多的碳上。但这条规则要补一句例外:有过氧化物存在时 HBr 按自由基链机理加成,Br 落到取代较少的碳上而得反马氏产物,此过氧化物效应只对 HBr 成立——HCl 的链传递中 R· 向 HCl 夺氢那一步吸热(H–Cl 键太强)、HI 的 I· 加到双键那一步吸热(C–I 键太弱),两步都放热的只有 HBr,链传不下去',
+      ['马氏:H→含 H 较多的碳', '碳正离子 3°>2°>1°', 'ROOR 下只 HBr 反马氏'], KnowledgeLevel.APPLY, ['kn-chem-u-050'], SRC_MARKOV));
+    out.push(k('kn-chem-u-056', KnowledgeChemistry.ORGANIC, '烃', '炔烃加成与共轭二烯的 1,2、1,4 加成',
+      '炔烃含碳碳三键,亲电加成通常比烯烃慢,可分步加一或两分子试剂;端位炔(三键在链端)上的 C–H 具弱酸性,能与银氨或亚铜氨溶液生成沉淀,可用于鉴别。共轭二烯发生亲电加成时首步生成烯丙基正离子、正电荷分散于两个碳,试剂既可进攻 C2 得 1,2 加成产物也可进攻 C4 得 1,4 加成产物:低温下以活化能较低的 1,2 产物为主(动力学控制),高温或久置则以取代多、更稳定的 1,4 产物为主(热力学控制)',
+      ['端炔氢弱酸性可鉴别', '低温 1,2(动力学)、高温 1,4(热力学)'], KnowledgeLevel.APPLY, ['kn-chem-u-055']));
+    out.push(k('kn-chem-u-057', KnowledgeChemistry.ORGANIC, '芳香烃', '芳香性与休克尔规则',
+      '环状共平面、π 电子完全离域成闭合共轭体系且 π 电子数符合 4n+2(n=0,1,2…)的分子具有芳香性,电子离域使体系特别稳定、倾向发生取代而非加成,如苯的 6 个、环戊二烯负离子的 6 个、萘的 10 个 π 电子;反之 π 电子数为 4n 的平面共轭环具反芳香性而不稳定,这是判断有无芳香性的定量判据',
+      ['π 电子数 = 4n+2 具芳香性'], KnowledgeLevel.RECALL, ['kn-chem-u-050']));
+    out.push(k('kn-chem-u-058', KnowledgeChemistry.ORGANIC, '芳香烃', '苯环的亲电取代反应',
+      '苯因芳香体系稳定而不发生加成,主要进行亲电取代:环上 π 电子首先进攻亲电试剂生成σ 络合物(失去芳香性),随即失去一个 H⁺ 重新恢复芳香体系得到取代产物。典型反应有硝化、卤代、磺化以及傅-克烷基化与酰基化,都需催化剂或强酸先产生足够强的亲电试剂',
+      ['亲电取代:恢复并保持芳环体系'], KnowledgeLevel.APPLY, ['kn-chem-u-057']));
+    out.push(k('kn-chem-u-059', KnowledgeChemistry.ORGANIC, '芳香烃', '取代基定位规律与活化钝化',
+      '苯环上原有的取代基既决定新引入基团的位置又改变反应快慢:给电子基(如烷基、−OH、−NH₂)使新基团主要上邻位与对位并活化环,但卤素特殊,虽属邻对位定位基却因强吸电子诱导而钝化环;吸电子基(如 −NO₂、−COOH、−SO₃H)使新基团主要上间位并钝化环。这是诱导与共轭两种效应叠加、改变环上电子云分布的结果',
+      ['给电子基→邻对位并活化', '吸电子基→间位并钝化,卤素例外'], KnowledgeLevel.TRANSFER, ['kn-chem-u-058']));
+    out.push(k('kn-chem-u-060', KnowledgeChemistry.ORGANIC, '卤代烃', '卤代烃亲核取代 SN2 机理',
+      'SN2 反应中亲核试剂从离去基团(卤素)的背面进攻中心碳,旧 C–X 键的断裂与新 C–Nu 键的生成同步完成,只经过一个过渡态;其速率 = k[RX][Nu⁻],既依赖底物又依赖亲核试剂浓度。因需背面进攻,空间位阻对速率影响极大,反应活性甲基>伯>仲≫叔,且产物构型发生翻转(瓦尔登翻转)',
+      ['一步协同,背面进攻', '速率 = k[RX][Nu⁻]'], KnowledgeLevel.APPLY, []));
+    out.push(ks('kn-chem-u-061', KnowledgeChemistry.ORGANIC, '卤代烃', '卤代烃亲核取代 SN1 机理',
+      'SN1 反应分两步:先 C–X 键异裂生成平面结构的碳正离子(这一步最慢,是决速步),随后亲核试剂从任意一面与正离子结合;其速率 = k[RX],只取决于底物浓度而与亲核试剂浓度无关。叔卤代烃因易生成稳定的叔碳正离子而最易发生 SN1,极性溶剂与好的离去基团也促进之。立体化学上要说清:产物并不是完全外消旋,而是部分消旋且构型翻转的一方略占多数(翻转过量通常 0–20%),因为按离子对机理离去卤素还暂留在正离子一侧、挡住了那一面,只有扩散成自由离子后才两面等价;反应还常伴随重排',
+      ['两步,经碳正离子', '速率 = k[RX]', '部分消旋:翻转略多(离子对)'], KnowledgeLevel.APPLY, ['kn-chem-u-060'], SRC_SN1));
+    out.push(ks('kn-chem-u-062', KnowledgeChemistry.ORGANIC, '卤代烃', '消除反应 E1、E2 与取代的竞争',
+      '卤代烃遇到试剂时既可被亲核取代又可脱去一分子 HX 发生消除:E2 是碱一步夺取 β-氢、同时使 X 带着电子对离去而生成烯烃,要求被夺的 H 与 X 处于反式共平面,产物一般遵循扎伊采夫规则(生成取代基较多、较稳定的烯烃);但换成大位阻强碱(如叔丁醇钾)时方向反过来——碱够不着位阻大的内部 β-氢,只夺取易接近的末端 β-氢,产物以取代较少的烯烃为主(霍夫曼方向)。E1 则与 SN1 一样经碳正离子。强碱、高温、底物空间位阻大都会偏向消除,弱碱利于取代',
+      ['E2 反式共平面,一般为扎伊采夫', '大位阻碱(t-BuOK)→取代较少的烯烃', '高温/强碱/叔底物偏消除'], KnowledgeLevel.TRANSFER, ['kn-chem-u-061'], SRC_E2));
+    out.push(k('kn-chem-u-063', KnowledgeChemistry.ORGANIC, '烃的含氧衍生物', '醇的分类与氧化',
+      '醇按所连羟基的碳分为伯、仲、叔三类,反应集中在 O–H 与 C–O 键的断裂以及羟基活化下的 α-H;氧化时伯醇先被氧化成醛、进一步成羧酸,仲醇氧化成酮,而叔醇因羟基碳上没有 α-H,在一般条件下难以被氧化,故常用氧化产物的差异以及卢卡斯试剂与醇反应的快慢来区别这三类醇',
+      ['伯→醛→酸,仲→酮,叔难氧化'], KnowledgeLevel.APPLY, []));
+    out.push(k('kn-chem-u-064', KnowledgeChemistry.ORGANIC, '烃的含氧衍生物', '酚的酸性与显色反应',
+      '酚中羟基氧上的孤对电子与苯环发生 p-π 共轭,使 O–H 键极性增大、更易电离出 H⁺,因此酚有弱酸性,但酸性比碳酸还弱,只能溶于 NaOH 而一般不溶于 NaHCO₃,向酚钠溶液通入 CO₂ 即可析出苯酚;酚遇 FeCl₃ 溶液会生成有色配合物而显出紫、蓝、绿等特定颜色,是鉴别酚羟基的特征反应',
+      ['酚酸性 < 碳酸', '酚 + FeCl₃ → 显色'], KnowledgeLevel.APPLY, ['kn-chem-u-063']));
+    out.push(k('kn-chem-u-065', KnowledgeChemistry.ORGANIC, '烃的含氧衍生物', '醚的形成与环氧化物开环',
+      '醚是 R–O–R′ 结构,极性较弱、化学性质不活泼,常用作溶剂;可由醇在酸催化下分子间脱水,或用威廉姆逊合成法(烷氧负离子对伯卤代烃作 SN2 反应)制取,故后者只宜用伯卤代烃。三元环氧化物因环张力大极易被亲核试剂开环:酸催化下亲核试剂进攻取代较多、正电荷较集中的碳,碱或中性条件下则按 SN2 进攻取代较少、位阻小的碳',
+      ['威廉姆逊合成须伯卤代烃', '环氧化物易开环'], KnowledgeLevel.APPLY, ['kn-chem-u-063']));
+    out.push(k('kn-chem-u-066', KnowledgeChemistry.ORGANIC, '醛酮', '醛酮的亲核加成',
+      '羰基 C=O 是极性双键,碳带部分正电荷、氧带部分负电荷,故醛酮的特征反应是亲核试剂首先进攻羰基碳、氧随后质子化,生成醇或其衍生物,例如与 HCN、亚硫酸氢钠、醇(生成缩醛)、格氏试剂以及氨的衍生物加成。加成活性醛大于酮,因为酮的两个烃基既供电子削弱碳的正电性又造成更大的空间位阻;芳香醛酮因芳环共轭也较脂肪醛酮不活泼',
+      ['C=O 亲核加成', '活性:醛>酮'], KnowledgeLevel.APPLY, ['kn-chem-u-050']));
+    out.push(k('kn-chem-u-067', KnowledgeChemistry.ORGANIC, '醛酮', '醛酮的氧化与碘仿反应',
+      '醛易被托伦(银镜)试剂或斐林试剂这类弱氧化剂氧化成羧酸,而酮在一般条件下不被这些试剂氧化,据此既可区别醛与酮,又说明醛的还原性强于酮;碘仿反应是用 I₂ 的 NaOH 溶液作用,含 CH₃CO 基的化合物或能被氧化成 CH₃CO 的 CH₃CH(OH) 结构,都生成有特殊气味的黄色碘仿 CHI₃ 沉淀,故乙醛与甲基酮、乙醇与甲基型仲醇呈正反应',
+      ['托伦/斐林:醛阳性、酮阴性', '碘仿:CH₃CO 或 CH₃CH(OH)'], KnowledgeLevel.TRANSFER, ['kn-chem-u-066']));
+    out.push(k('kn-chem-u-068', KnowledgeChemistry.ORGANIC, '羧酸及衍生物', '羧酸酸性、酯化与水解',
+      '羧基 −COOH 电离出的羧酸根负离子因两个碳氧键被共振平均化而稳定,所以羧酸显酸性,且明显强于酚;当 α-碳上连有吸电子基时通过诱导效应使酸性增强,吸电子基越多、距羧基越近则酸性越强。酯化是羧酸与醇在酸催化下生成酯和水的可逆反应,同位素示踪证明通常是酸脱羟基、醇脱氢;酯的碱性水解生成羧酸盐把平衡拉向产物因而不可逆,即皂化反应',
+      ['羧酸根共振 → 酸性>酚', '碱水解(皂化)不可逆'], KnowledgeLevel.APPLY, []));
+    out.push(k('kn-chem-u-069', KnowledgeChemistry.ORGANIC, '羧酸及衍生物', '羧酸衍生物酰基上的亲核取代',
+      '酰卤、酸酐、酯与酰胺都含有酰基,它们的水解、氨解、醇解以及相互转化,机理都是亲核试剂先加到羰基碳生成四面体中间体、再把离去基团赶出,即加成-消除型亲核取代,与醛酮单纯的加成不同(醛酮没有可离去基团)。反应活性取决于离去基团的优劣,顺序为酰卤>酸酐>酯>酰胺,故酰卤最活泼、酰胺最稳定',
+      ['加成-消除机理', '活性:酰卤>酸酐>酯>酰胺'], KnowledgeLevel.APPLY, ['kn-chem-u-068']));
+    out.push(k('kn-chem-u-070', KnowledgeChemistry.ORGANIC, '含氮化合物', '胺的碱性与重氮化偶合',
+      '胺的氮原子上有孤对电子,能接受质子而显碱性:脂肪胺的碱性一般强于氨,而芳香胺(如苯胺)因氮上孤对与苯环共轭、电子云被拉向环上而结合质子能力下降,碱性明显减弱。伯芳香胺在低温与强酸存在下与亚硝酸反应生成重氮盐(重氮化),重氮盐再与酚或芳香胺偶合生成有颜色的偶氮化合物,是染料与药物合成的关键反应',
+      ['碱性:脂肪胺>氨>芳香胺', '重氮化 → 偶合(偶氮染料)'], KnowledgeLevel.APPLY, []));
+    out.push(k('kn-chem-u-071', KnowledgeChemistry.ORGANIC, '生物分子有机化学', '糖类的还原性与变旋光',
+      '单糖是多羟基醛或多羟基酮,在水溶液中其羰基与分子内的一个羟基发生分子内亲核加成,形成环状的半缩醛(或半缩酮),并与开链式保持动态平衡;正是这种环式与链式相互转化使单糖溶液的比旋光度随时间改变、最终恒定,即变旋现象。凡仍保留游离半缩醛羟基、能开链露出潜在醛基的糖都可还原托伦或斐林试剂,称为还原糖(如葡萄糖、麦芽糖);而苷键把异头碳锁死、无游离半缩醛羟基的蔗糖为非还原糖',
+      ['变旋:环式↔链式互变', '还原糖须有游离半缩醛羟基'], KnowledgeLevel.RECALL, ['kn-chem-u-066']));
+    out.push(k('kn-chem-u-072', KnowledgeChemistry.ORGANIC, '生物分子有机化学', '氨基酸与蛋白质的两性、等电点与变性',
+      '氨基酸同时含碱性的氨基与酸性的羧基,在水溶液中主要以偶极离子(内盐)形式存在而呈两性,既能给质子也能受质子;调节溶液 pH 使分子净电荷为零,此 pH 即等电点 pI,此时溶解度最小、在电场中不迁移,可由侧链基团的酸碱性算出 pI,据此做氨基酸的分离与鉴定。蛋白质是氨基酸以肽键连成多肽链再折叠成特定空间结构的高分子,加热、强酸强碱、重金属盐或有机溶剂会破坏维持高级结构的次级键,使构象改变而生物活性丧失,即变性,变性通常不可逆且不水解肽键,一级结构仍在',
+      ['pI 时净电荷为零', '变性:高级结构破坏、肽键不断'], KnowledgeLevel.APPLY, ['kn-chem-u-070']));
+    out.push(k('kn-chem-u-073', KnowledgeChemistry.ORGANIC, '高分子化合物', '加聚与缩聚',
+      '高分子由小分子单体聚合而成,按机理分两大类:加聚是含不饱和键的单体(如乙烯、丙烯、氯乙烯)打开 π 键彼此首尾相连成链,链节的化学组成与单体完全相同、不丢失任何原子、无小分子副产物,产物多为碳链高分子;缩聚则由带两个或两个以上可反应官能团的单体逐步相互缩合,每形成一个新的共价键就放出水、醇或氯化氢等小分子,产物链节比单体少了这些原子(如涤纶、尼龙)',
+      ['加聚:无小分子放出', '缩聚:放出小分子'], KnowledgeLevel.RECALL, []));
+    return out;
+  }
+
+  static all(): KnowledgePoint[] {
+    return KnowledgeChemistry.inorganic().concat(KnowledgeChemistry.analytical())
+      .concat(KnowledgeChemistry.organic());
+  }
+}

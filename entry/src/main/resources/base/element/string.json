@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "仿真实验室主模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "无设备场景下的虚拟实验"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "仿真实验室"
+    }
+  ]
+}
