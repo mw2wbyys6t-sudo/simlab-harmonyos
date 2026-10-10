@@ -4107,7 +4107,7 @@ function checkRel(label, actual, expected, relTolerance) {
   const knChemProblems = MapValidator.validateKnowledge(knChem);
   assertTrue('大学化学知识表通过校验', knChemProblems.length === 0,
     knChemProblems.slice(0, 5).map((p) => `${p.id}.${p.field}:${p.message}`).join(' | '));
-  check('大学化学知识条数', knChem.length, 69, 0);
+  check('大学化学知识条数', knChem.length, 96, 0);
   // 2026-10-10 逐条核完代理交回的"不确定"清单:9 条查到权威来源并改了值/补了出处。
   // 把 9 钉死 —— 以后谁把出处改回"未核实"或者把常数改回去,这里立刻红。
   check('大学化学知识已核实条数(逐条对过 NIST/LibreTexts/ChemistrySteps)',
@@ -4452,7 +4452,7 @@ function checkRel(label, actual, expected, relTolerance) {
   const exps = CurriculumIndex.experiments();
   const kps = CurriculumIndex.knowledge();
   check('查询口的实验总数', exps.length, 331, 0);
-  check('查询口的知识总数', kps.length, 743, 0);
+  check('查询口的知识总数', kps.length, 770, 0);
   check('查询口的元素总数', CurriculumIndex.elements().length, 118, 0);
 
   let sumExp = 0;
