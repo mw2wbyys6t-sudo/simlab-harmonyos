@@ -3936,8 +3936,8 @@ function checkRel(label, actual, expected, relTolerance) {
   const { KnowledgeBiology } = require(join(OUT, 'content/map/KnowledgeBiology.cjs'));
   const { KnowledgeElectronics } = require(join(OUT, 'content/map/KnowledgeElectronics.cjs'));
   const tables = [
-    ['大学生物', KnowledgeBiology.all(), 45],
-    ['大学电子', KnowledgeElectronics.all(), 32]];
+    ['大学生物', KnowledgeBiology.all(), 82],
+    ['大学电子', KnowledgeElectronics.all(), 54]];
   for (const [name, rows, expected] of tables) {
     const probs = MapValidator.validateKnowledge(rows);
     assertTrue(`${name}知识表全部通过校验`, probs.length === 0,
@@ -3956,6 +3956,10 @@ function checkRel(label, actual, expected, relTolerance) {
     // 比例记在 spec 里。这里只查一件不会过期的事:自称已核实的条目必须真带出处。
     const bareClaims = rows.filter((r) => r.verified && r.source.length < 12).length;
     assertTrue(`${name}没有"自称已核实却给不出出处"的条目`, bareClaims === 0, `${bareClaims} 条`);
+    // 实测这两张表补判点后都是 100%,地板就取 100 —— 不是留余量,是照实测钉:
+    // 谁把某条的判点删回一句光秃秃的定义,这里立刻红(已用变异测确认单条失效即红)。
+    const rate = discriminatorRate(rows);
+    assertTrue(`${name}判点率保持 100%`, rate === 100, `实得 ${rate}%`);
   }
 }
 
@@ -4448,7 +4452,7 @@ function checkRel(label, actual, expected, relTolerance) {
   const exps = CurriculumIndex.experiments();
   const kps = CurriculumIndex.knowledge();
   check('查询口的实验总数', exps.length, 331, 0);
-  check('查询口的知识总数', kps.length, 684, 0);
+  check('查询口的知识总数', kps.length, 743, 0);
   check('查询口的元素总数', CurriculumIndex.elements().length, 118, 0);
 
   let sumExp = 0;
