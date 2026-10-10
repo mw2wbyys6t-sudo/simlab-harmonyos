@@ -66,6 +66,7 @@ const MODULES = [
   'content/map/CurriculumIndex',
   'bench/Rubric',
   'bench/Judgment',
+  'bench/RubricSpring',
   'bench/RubricBrine',
   'bench/RubricMeasure',
   'bench/BrineScenario',
@@ -85,6 +86,7 @@ const MODULES = [
   'chemistry/BenchEngine',
   'physics/World2D',
   'physics/Physics2DRunner',
+  'physics/SpringForceRunner',
   'physics/MnaSolver',
   'physics/circuit/CircuitModel',
   'physics/circuit/CircuitRunner',
@@ -2691,7 +2693,9 @@ function checkRel(label, actual, expected, relTolerance) {
 
   // 格式化:标签列与数值列分开,因为事实表就是两栏布局
   checkText('数值列带单位', FactLabels.valueText('yieldPct', 88.5), '88.50%');
-  checkText('数值列质量单位带空格', FactLabels.valueText('saltRecoveredG', 4), '4.00 g');
+  checkText('数值列质量单位带空格', FactLabels.valueText('saltRecoveredG', 4.2), '4.20 g');
+  // 计数与布尔类事实是整数,印成 4.00 会被读成"量出来的";单位前空格由上一行守住
+  checkText('整数事实不印小数位', FactLabels.valueText('saltRecoveredG', 4), '4 g');
   checkText('缺值显示破折号而不是 NaN', FactLabels.valueText('yieldPct', Number.NaN), '—');
   checkText('标签列未知键退回键名', FactLabels.labelOf('brandNewKey'), 'brandNewKey');
   assertTrue('查不到的键 of 返回 null 而不是猜一个', FactLabels.of('nope') === null, '猜了一个');
@@ -4315,8 +4319,8 @@ function checkRel(label, actual, expected, relTolerance) {
   check('其中高中', rows.filter((e) => e.stage === SchoolStage.SENIOR).length, 22, 0);
   // 这一档的 RUNNABLE 是拿去和注册表对账的,多一条就是虚报
   const shippedHere = rows.filter((e) => e.feasibility === Feasibility.RUNNABLE).map((e) => e.id).sort();
-  assertTrue('中学表里 RUNNABLE 正好是注册表真装着的四条',
-    shippedHere.join(',') === ['phy-jr-001', 'phy-jr-002', 'phy-sr-001', 'phy-sr-002'].join(','),
+  assertTrue('中学表里 RUNNABLE 正好是注册表真装着的五条',
+    shippedHere.join(',') === ['phy-jr-001', 'phy-jr-002', 'phy-sr-001', 'phy-sr-002', 'phy-sr-004'].join(','),
     shippedHere.join(','));
   // 出处:代理取到了湖南省教育厅《初中必做实验目录(2023版)》与教育部《中小学实验教学基本目录》
   // 两份政府发布页原文。这条断言把"已核实"钉在一个数上 —— 往下掉说明有人把出处改浅了。
@@ -4502,7 +4506,7 @@ function checkRel(label, actual, expected, relTolerance) {
   // 现有场景确实给得出这条曲线,所以两门课今天都能开这一个实验。但记账要说明白,
   // 否则"完成度"会被一次实现记两次功劳。
   const SHIPPED_RUNNABLE = ['chem-u-004', 'ele-u-003', 'ele-u-007', 'phy-jr-001', 'phy-jr-002',
-    'phy-sr-001', 'phy-sr-002', 'phy-u-014'];
+    'phy-sr-001', 'phy-sr-002', 'phy-sr-004', 'phy-u-014'];
   const runnableIds = runnable.map((e) => e.id).sort();
   assertTrue('地图自称可打开的条目必须等于应用真装了的实验',
     runnableIds.join(',') === SHIPPED_RUNNABLE.join(','),
@@ -4513,24 +4517,25 @@ function checkRel(label, actual, expected, relTolerance) {
   const BASIS = {
     'phy-jr-001': 'series-circuit', 'phy-jr-002': 'parallel-circuit',
     'phy-sr-001': 'incline-block', 'phy-sr-002': 'spring-mass', 'ele-u-003': 'kirchhoff',
-    'ele-u-007': 'max-power'
+    'ele-u-007': 'max-power', 'phy-sr-004': 'spring-force'
   };
   const lostBasis = Object.keys(BASIS)
     .filter((mapId) => registered.indexOf(BASIS[mapId]) < 0)
     .map((mapId) => `${mapId} 声称可打开,但注册表里没有 ${BASIS[mapId]}`);
   assertTrue('每条按注册表登记的 RUNNABLE 都指得到一个真注册了的场景', lostBasis.length === 0,
     lostBasis.join(' | '));
-  check('注册表里的场景数', registered.length, 6, 0);
+  check('注册表里的场景数', registered.length, 7, 0);
   assertTrue('生物学科现在一条可打开的都没有(与地图自己的判断一致)',
     CurriculumIndex.experimentsOf(MapSubject.BIOLOGY)
       .every((e) => e.feasibility !== Feasibility.RUNNABLE), '生物出现了 RUNNABLE 条目');
   // 「待补场景」这一档是为电子那 8 条而加的(引擎够、场景没有)。
   // 一条新枚举值若没有数据在用,它就是死代码 —— 这条断言同时守住"最低成本的施工面"别被误降级。
-  // 电子 6 + 中学物理 9 + 中学化学 11 = 26 条最低成本的施工面。
-  // (电子原有 8 条,已做成场景的 ele-u-003 与 ele-u-007 各减一条;中学化学那 11 条
+  // 电子 6 + 中学物理 8 + 中学化学 11 = 25 条最低成本的施工面。
+  // (中学物理原有 9 条,phy-sr-004 已做成场景 spring-force 并配细则,减一条;
+  //  电子原有 8 条,已做成场景的 ele-u-003 与 ele-u-007 各减一条;中学化学那 11 条
   //  是"台架能拖出反应但没有细则",见 #54)
   check('待补场景的实验条数(引擎够用,只差场景与细则)',
-    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 26, 0);
+    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 25, 0);
 
   let periodSum = 0;
   for (let p = 1; p <= 7; p++) {
@@ -4717,6 +4722,232 @@ function checkRel(label, actual, expected, relTolerance) {
   }
   check('内阻改成 40 Ω 后峰值搬到 R_L=40', best2.rl, 40, 0);
   check('内阻 40 Ω 时的峰值功率 = E²/4R₀', best2.p, 36 / 160, 1e-4);
+}
+
+// ---- L3 示踪弹:学生的离散动作进事实。phy-sr-004 探究弹簧弹力与形变量的关系 ----
+// 立论是「判分依据来自学生自己造成的可测量后果」。这里断言的不是画面,
+// 而是三件能被算出来的事:加砝码确实改变了平衡伸长、超过弹性限度确实留下永久变形、
+// 以及「在动的弹簧上按记录」和「停下来再按」在事实里是两个不同的数。
+{
+  const { SpringForceRunner } = require(join(OUT, 'physics/SpringForceRunner.cjs'));
+  const { RubricSpring } = require(join(OUT, 'bench/RubricSpring.cjs'));
+  const { RubricValidator, FactSheet } = require(join(OUT, 'bench/Rubric.cjs'));
+  const { Judgment } = require(join(OUT, 'bench/Judgment.cjs'));
+  const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
+  const { MechanicsScenes } = require(join(OUT, 'scenes/MechanicsScenes.cjs'));
+  const { ElectricalScenes } = require(join(OUT, 'scenes/ElectricalScenes.cjs'));
+  MechanicsScenes.registerAll();
+  ElectricalScenes.registerAll();
+
+  // 接口新增了两个方法,先确认每条已注册实验都真能接住动作与出事实,
+  // 而不是只有新 runner 有 —— 否则外壳的按钮对老实验是哑的。
+  const metas = ExperimentRegistry.all();
+  assertTrue('注册表里至少有三条实验可查', metas.length >= 3, `实得 ${metas.length}`);
+  let noAction = 0;
+  let noFacts = 0;
+  for (const m of metas) {
+    const r = ExperimentRegistry.createRunner(m.id);
+    if (typeof r.doAction !== 'function') { noAction++; }
+    if (typeof r.collectFacts !== 'function') { noFacts++; }
+  }
+  check('每条注册 runner 都有 doAction', noAction, 0, 0);
+  check('每条注册 runner 都有 collectFacts', noFacts, 0, 0);
+
+  const G = 9.8;
+  const K = 20;
+  const PAN = 0.01;
+  const EACH = 0.05;
+  const DT = 1 / 240;
+  const spring = (weights) => {
+    const r = new SpringForceRunner();
+    const meta = ExperimentRegistry.find('spring-force').meta;
+    r.setup(meta);
+    r.setParam('stiffness', K);
+    r.setParam('panMass', PAN);
+    r.setParam('weightMass', EACH);
+    for (let i = 0; i < weights; i++) { r.doAction('weight+'); }
+    return r;
+  };
+  const run = (r, seconds) => {
+    for (let i = 0; i < Math.round(seconds / DT); i++) { r.step(DT); }
+  };
+
+  const s0 = spring(0);
+  run(s0, 6);
+  check('空盘静止时伸长 = m盘·g/k', s0.readObservable('extension'), PAN * G / K, 1e-4);
+  check('空盘时弹力读数 = 盘重', s0.readObservable('force'), PAN * G, 1e-4);
+
+  const s3 = spring(3);
+  run(s3, 6);
+  check('挂 3 个砝码静止伸长 = (盘+3·码)g/k', s3.readObservable('extension'), (PAN + 3 * EACH) * G / K, 2e-3);
+  check('加到 3 个砝码的载荷是 3·m·g', s3.readObservable('load'), 3 * EACH * G, 1e-6);
+  const x3 = s3.readObservable('extension');
+  s3.doAction('weight-');
+  run(s3, 6);
+  check('卸下一个后伸长回落到 2 个的水平', s3.readObservable('extension'), (PAN + 2 * EACH) * G / K, 2e-3);
+  assertTrue('卸载确实把伸长拉回去了', s3.readObservable('extension') < x3,
+    `卸载后 ${s3.readObservable('extension').toFixed(4)} vs 卸载前 ${x3.toFixed(4)}`);
+
+  // 超过弹性限度:模型必须留下永久变形,而不是"弹坏"只写在文案里
+  const bad = spring(10);
+  run(bad, 6);
+  const badFacts = new FactSheet();
+  bad.collectFacts(badFacts);
+  check('挂到 10 个确实越过弹性限度', badFacts.num('beyondLimit'), 1, 0);
+  assertTrue('越限时的最大伸长记进事实', badFacts.num('maxExtension') > 0.12,
+    `实得 ${badFacts.num('maxExtension').toFixed(3)} m`);
+  for (let i = 0; i < 10; i++) { bad.doAction('weight-'); }
+  run(bad, 6);
+  const residual = bad.readObservable('residual');
+  assertTrue('撤全部砝码后仍留下永久变形(>0)', residual > 1e-4, `实得 ${residual.toFixed(4)} m`);
+  check('永久变形量与越限超出量一致', residual, badFacts.num('maxExtension') - bad.readObservable('limitExtension'), 5e-3);
+
+  // 「在动的弹簧上按记录」与「停下来再按」必须是两个不同的事实
+  const rush = spring(2);
+  run(rush, 0.35);
+  rush.doAction('record');
+  const rushFacts = new FactSheet();
+  rush.collectFacts(rushFacts);
+  assertTrue('刚加码就记录 → 记录瞬间速度明显不为零', rushFacts.num('maxRecordSpeed') > 0.02,
+    `实得 ${rushFacts.num('maxRecordSpeed').toFixed(3)} m/s`);
+  const calm = spring(2);
+  run(calm, 6);
+  calm.doAction('record');
+  const calmFacts = new FactSheet();
+  calm.collectFacts(calmFacts);
+  assertTrue('静止后记录 → 记录瞬间速度接近零', calmFacts.num('maxRecordSpeed') <= 0.02,
+    `实得 ${calmFacts.num('maxRecordSpeed').toFixed(4)} m/s`);
+
+  const one = spring(2);
+  run(one, 6);
+  one.doAction('record');
+  const oneFacts = new FactSheet();
+  one.collectFacts(oneFacts);
+  check('只记一档时 distinctLoads 是 1', oneFacts.num('distinctLoads'), 1, 0);
+  const two = spring(2);
+  run(two, 6);
+  two.doAction('record');
+  two.doAction('weight+');
+  run(two, 6);
+  two.doAction('record');
+  two.doAction('weight-');
+  run(two, 6);
+  two.doAction('record');
+  const twoFacts = new FactSheet();
+  two.collectFacts(twoFacts);
+  check('同一载荷记两次只算一档(按载荷去重)', twoFacts.num('distinctLoads'), 2, 0);
+  assertTrue('做过卸载对照 → unloadSteps 计数', twoFacts.num('unloadSteps') >= 1,
+    `实得 ${twoFacts.num('unloadSteps')}`);
+
+  // 细则本身:自检、来源声明、分值守恒
+  const rubric = RubricSpring.create();
+  const issues = RubricValidator.validate(rubric);
+  check('弹簧细则通过自检', issues.length, 0, 0);
+  if (issues.length) { console.log('  细则问题:', issues); }
+  assertTrue('自建细则必须声明是非官方标准', rubric.source.includes('非官方标准'), rubric.source);
+  const sum = rubric.criteria.reduce((a, c) => a + c.points, 0);
+  check('弹簧细则分值合计 = 满分', sum, rubric.totalPoints, 0);
+
+  // 报告页的「关键事实」按 FactLabels 印显示名;判据引用了没配标签的键,
+  // 学生看到的就是 recordCount 这种内部名。这条把三张细则一起管住。
+  const { FactLabels } = require(join(OUT, 'model/FactLabels.cjs'));
+  const { RubricMeasure } = require(join(OUT, 'bench/RubricMeasure.cjs'));
+  const { RubricBrine } = require(join(OUT, 'bench/RubricBrine.cjs'));
+  const unlabeled = [];
+  for (const rb of [rubric, RubricMeasure.create(), RubricBrine.create()]) {
+    for (const c of rb.criteria) {
+      if (c.kind === 'numeric' && FactLabels.of(c.metric) === null) {
+        unlabeled.push(rb.id + ':' + c.metric);
+      }
+    }
+  }
+  check('每条数值判据引用的事实都配了显示名', unlabeled.length, 0, 0);
+  if (unlabeled.length) { console.log('  没配标签的事实键:', unlabeled); }
+
+  // 判定层:事实缺失一律放过(宁漏不误)
+  const empty = Judgment.score(rubric, new FactSheet());
+  check('没有任何事实时不扣分', empty.awarded, rubric.totalPoints, 0);
+  check('没有任何事实时零扣分', empty.deductions.length, 0, 0);
+
+  const hurt = new FactSheet();
+  hurt.set('beyondLimit', 1);
+  hurt.set('maxExtension', 0.25);
+  const hurtCard = Judgment.score(rubric, hurt);
+  assertTrue('拉坏弹簧要扣分', hurtCard.deductions.some((d) => d.metric === 'beyondLimit'),
+    hurtCard.deductions.map((d) => d.metric).join(','));
+  const hurtLine = hurtCard.deductions.find((d) => d.metric === 'beyondLimit');
+  assertTrue('扣分的证据里必须是实数而不是占位符', !hurtLine.evidence.includes('{') &&
+    hurtLine.evidence.includes('0.25'), hurtLine.evidence);
+  // 细则的证据会引用好几个事实。哪一个没被写进清单,报告里就不该留下 {花括号} ——
+  // 学生看到的必须是「—」而不是模板。
+  const leaked = hurtCard.deductions.filter((d) => d.evidence.includes('{'));
+  check('事实缺失时证据里不留模板占位符', leaked.length, 0, 0);
+  if (leaked.length) { console.log('  泄漏的占位符:', leaked.map((d) => d.evidence)); }
+  assertTrue('缺事实的那一项以破折号呈现', hurtLine.evidence.includes('—'), hurtLine.evidence);
+
+  const thin = new FactSheet();
+  thin.set('distinctLoads', 2);
+  const thinCard = Judgment.score(rubric, thin);
+  assertTrue('只测两档 → 判数据不足', thinCard.deductions
+    .some((d) => d.metric === 'distinctLoads'), '');
+  const thinLine = thinCard.deductions.find((d) => d.metric === 'distinctLoads');
+  assertTrue('计数类证据不印成小数(2 挡而不是 2.00 挡)',
+    thinLine.evidence.includes('2 挡') && !thinLine.evidence.includes('2.00'), thinLine.evidence);
+  const moving = new FactSheet();
+  moving.set('maxRecordSpeed', 0.3);
+  assertTrue('在振动中记录 → 判读数不稳', Judgment.score(rubric, moving).deductions
+    .some((d) => d.metric === 'maxRecordSpeed'), '');
+  const noUnload = new FactSheet();
+  noUnload.set('unloadSteps', 0);
+  assertTrue('只加不减 → 判缺卸载对照', Judgment.score(rubric, noUnload).deductions
+    .some((d) => d.metric === 'unloadSteps'), '');
+
+  // 关键一条:细则必须能被「认真做实验」满足,否则它是台永远扣光的机器
+  const proper = new SpringForceRunner();
+  proper.setup(ExperimentRegistry.find('spring-force').meta);
+  proper.setParam('stiffness', K);
+  proper.setParam('panMass', PAN);
+  proper.setParam('weightMass', EACH);
+  for (const n of [1, 2, 3, 4]) {
+    while (Math.round(proper.readObservable('weights')) !== n) { proper.doAction('weight+'); }
+    run(proper, 6);
+    proper.doAction('record');
+  }
+  for (const n of [3, 2, 1]) {
+    while (Math.round(proper.readObservable('weights')) !== n) { proper.doAction('weight-'); }
+    run(proper, 6);
+    proper.doAction('record');
+  }
+  const properFacts = new FactSheet();
+  proper.collectFacts(properFacts);
+  const properCard = Judgment.score(rubric, properFacts);
+  check('认真做完(四档增挂+三档卸载对照、每档静止后记录)不扣分',
+    properCard.deductions.length, 0, 0);
+  if (properCard.deductions.length) {
+    console.log('  意外扣分:', properCard.deductions.map((d) => `${d.metric}=${d.value}`));
+  }
+  check('满分记录的分值 = 满分', properCard.awarded, rubric.totalPoints, 0);
+  assertTrue('认真做完至少留下 7 条读数(四挡增挂 + 三挡卸载对照)',
+    properFacts.num('recordCount') >= 7, `实得 ${properFacts.num('recordCount')}`);
+
+  // 场景元数据:动作按钮与 F-x 图都得是数据,外壳不该为这条实验写特判
+  const sm = ExperimentRegistry.find('spring-force').meta;
+  assertTrue('场景声明了离散动作', sm.actions.length >= 3, `实得 ${sm.actions.length}`);
+  check('每个动作都有 key 与 label',
+    sm.actions.filter((a) => a.key.length === 0 || a.label.length === 0).length, 0, 0);
+  const fx = sm.charts.find((c) => c.xKey === 'force');
+  assertTrue('F-x 图以观测量 force 作横轴', fx !== undefined && fx.series.length > 0, '');
+  const keys = sm.observables.map((o) => o.key);
+  check('图线引用的键都在观测量里',
+    [fx.xKey].concat(fx.series.map((s) => s.observableKey)).filter((k) => k !== 't' && keys.indexOf(k) < 0).length, 0, 0);
+  // 场景声明了细则 id,注册表就必须认得它 —— 否则「交卷」按钮按下去是空的,
+  // 而地图那条实验会被当成"有细则"报出去。
+  const { Rubrics } = require(join(OUT, 'bench/RubricMeasure.cjs'));
+  const declared = metas.filter((m) => m.rubricId.length > 0);
+  const unresolved = declared.filter((m) => Rubrics.byId(m.rubricId) === null);
+  check('声明了 rubricId 的场景都能解析到细则', unresolved.length, 0, 0);
+  if (unresolved.length) { console.log('  解析不到:', unresolved.map((m) => `${m.id}→${m.rubricId}`)); }
+  assertTrue('弹簧场景确实声明了细则', sm.rubricId.length > 0, 'rubricId 为空');
 }
 
 if (failures.length > 0) {

@@ -1,6 +1,11 @@
 import { DeviceClass, Layout } from '../common/Layout';
 import { Theme } from '../common/Theme';
-import { ChartDef, ExperimentMeta, ObservableDef, ParamControl, ParamDef } from '../model/ExperimentTypes';
+import { ActionDef, ChartDef, ExperimentMeta, ObservableDef, ParamControl, ParamDef } from '../model/ExperimentTypes';
+import { fact, SessionRecord } from '../model/SessionRecord';
+import { FactSheet, Rubric } from '../bench/Rubric';
+import { Judgment } from '../bench/Judgment';
+import { Rubrics } from '../bench/RubricMeasure';
+import { SessionStore } from '../platform/SessionStore';
 import { Physics2DRunner } from '../physics/Physics2DRunner';
 import { ExperimentRegistry } from '../runner/ExperimentRegistry';
 import { IExperimentRunner } from '../runner/IExperimentRunner';
@@ -24,6 +29,10 @@ export struct ExperimentPage {
   /** 自增以触发图线重绘,取代让整棵树跟着帧率重建 */
   @State chartTick: number = 0;
   @State chartsVisible: boolean = true;
+  /** 交卷后的判定结果,含每条扣分的证据 */
+  @State verdict: string = '';
+  /** 这条实验有没有细则(meta.rubricId 且 Rubrics 认得);没有就不给「交卷」按钮 */
+  @State scorable: boolean = false;
 
   private runner: IExperimentRunner | null = null;
   private scene: Physics2DRunner | null = null;
@@ -51,6 +60,7 @@ export struct ExperimentPage {
       values.push(this.meta.params[i].defaultValue);
     }
     this.paramValues = values;
+    this.scorable = this.meta.rubricId.length > 0 && Rubrics.byId(this.meta.rubricId) !== null;
     this.refreshReadouts();
     // 手机竖屏纵向空间紧张,图线默认收起;平板与大屏直接展开
     this.chartsVisible = !Layout.isStacked(this.cls());
@@ -107,6 +117,73 @@ export struct ExperimentPage {
     const next = this.paramValues.slice();
     next[index] = value;
     this.paramValues = next;
+  }
+
+  /** 学生按下一个动作按钮。动作改变世界,读数与图线当场跟着变 —— 这是「他做的」唯一可见的证据 */
+  private pressAction(key: string): void {
+    if (this.runner === null) {
+      return;
+    }
+    this.runner.doAction(key);
+    // 挂上砝码就是松手:世界必须开始走,否则学生看到的是「砝码吊上去、弹簧一动不动」,
+    // 那比不动更误导 —— 它会教出一个错的物理。
+    if (!this.controller.running) {
+      this.controller.start();
+    }
+    // 暂停态下按动作也要在图线上留下新坐标,与拖动参数同一条规矩
+    this.controller.sampleNow();
+    this.refreshReadouts();
+  }
+
+  /**
+   * 交卷:把本次操作产生的事实交给判定层。
+   *
+   * 记录里存事实、不存分数(与量取页同一条规矩):细则换版本后,历史仍按当期细则重算,
+   * 不会留下一堆和判据脱钩的死分数。
+   */
+  private submitRun(): void {
+    const context: Context | undefined = this.getUIContext().getHostContext();
+    if (context === undefined || this.runner === null) {
+      return;
+    }
+    const rubric: Rubric | null = Rubrics.byId(this.meta.rubricId);
+    if (rubric === null) {
+      return;
+    }
+    const sheet = new FactSheet();
+    this.runner.collectFacts(sheet);
+    const card = Judgment.score(rubric, sheet);
+    const record = new SessionRecord();
+    record.id = this.experimentId + '-' + String(Date.now());
+    record.experimentId = this.meta.id;
+    record.title = this.meta.title;
+    record.subject = this.meta.subject;
+    record.endedAtMs = Date.now();
+    record.durationSec = this.runner.elapsedTime();
+    record.rubricId = rubric.id;
+    record.rubricVersion = rubric.version;
+    record.rubricSource = rubric.source;
+    record.total = rubric.totalPoints;
+    // awarded 刻意不写:回看时按当期细则重算(见 MeasurePage.recordRun 同一条理由)
+    record.facts = [];
+    sheet.numbers.forEach((value: number, key: string): void => {
+      record.facts.push(fact(key, value));
+    });
+    const ledger = SessionStore.load(context);
+    if (!ledger.add(record) || !SessionStore.save(context, ledger)) {
+      this.verdict = '本次记录没能保存:分数只在本页显示,不进历史';
+      return;
+    }
+    const lines: string[] = [];
+    lines.push(card.summaryLine());
+    for (let i = 0; i < card.deductions.length; i++) {
+      const hit = card.deductions[i];
+      lines.push('· ' + hit.title + '(扣 ' + hit.points + ' 分)' + (hit.evidence.length > 0 ? ':' + hit.evidence : ''));
+    }
+    if (card.deductions.length === 0) {
+      lines.push('没有扣分点。判据是' + rubric.source + ',不是官方标准。');
+    }
+    this.verdict = lines.join('\n');
   }
 
   @Builder
@@ -174,6 +251,68 @@ export struct ExperimentPage {
       }
       .width('100%')
       .justifyContent(FlexAlign.End)
+    }
+    .width('100%')
+  }
+
+  /**
+   * 操作区:学生主动按的按钮,由场景元数据渲染 —— 外壳不为某条实验写特判。
+   *
+   * 「交卷」只在场景声明了细则(且 Rubrics 认得)时出现。没有细则的实验
+   * 宁可没有评分,也不给一个永远满分的假分数。
+   */
+  @Builder
+  actionBar() {
+    Column({ space: 10 }) {
+      Text('操作')
+        .fontSize(Layout.sectionSize(this.cls()))
+        .fontWeight(FontWeight.Bold)
+        .fontColor(Theme.TEXT_PRIMARY)
+
+      ForEach(this.meta.actions, (def: ActionDef, index: number) => {
+        if (index === 0 || this.meta.actions[index - 1].group !== def.group) {
+          Text(def.group)
+            .fontSize(Layout.captionSize(this.cls()))
+            .fontColor(Theme.TEXT_SECONDARY)
+        }
+        Text(def.label)
+          .fontSize(Layout.bodySize(this.cls()))
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Color.White)
+          .textAlign(TextAlign.Center)
+          .height(Layout.touchMin(this.cls()))
+          .width('100%')
+          .borderRadius(Layout.controlRadius(this.cls()))
+          .backgroundColor(Theme.ACCENT)
+          .onClick((): void => {
+            this.pressAction(def.key);
+          })
+      }, (def: ActionDef) => def.key)
+
+      if (this.scorable) {
+        Text('交卷评分')
+          .fontSize(Layout.bodySize(this.cls()))
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Color.White)
+          .textAlign(TextAlign.Center)
+          .height(Layout.touchMin(this.cls()))
+          .width('100%')
+          .borderRadius(Layout.controlRadius(this.cls()))
+          .backgroundColor(Theme.RUNNING)
+          .onClick((): void => {
+            this.submitRun();
+          })
+      }
+
+      if (this.verdict.length > 0) {
+        Text(this.verdict)
+          .fontSize(Layout.labelSize(this.cls()))
+          .fontColor(Theme.TEXT_PRIMARY)
+          .width('100%')
+          .padding(Layout.cardPadding(this.cls()))
+          .borderRadius(Layout.controlRadius(this.cls()))
+          .backgroundColor(Theme.BG_PAGE)
+      }
     }
     .width('100%')
   }
@@ -253,6 +392,11 @@ export struct ExperimentPage {
           Text(this.meta.summary)
             .fontSize(Layout.bodySize(this.cls()))
             .fontColor(Theme.TEXT_SECONDARY)
+        }
+
+        if (this.meta.actions.length > 0) {
+          this.actionBar()
+          Divider().color(Theme.DIVIDER)
         }
 
         Text('参数')

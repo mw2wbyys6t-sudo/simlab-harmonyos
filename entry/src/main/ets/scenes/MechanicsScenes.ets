@@ -3,6 +3,8 @@ import { ExperimentRegistry } from '../runner/ExperimentRegistry';
 import { SceneBuilders } from './SceneBuilders';
 import { InclineRunner } from '../physics/InclineRunner';
 import { SpringMassRunner } from '../physics/SpringMassRunner';
+import { SpringForceRunner } from '../physics/SpringForceRunner';
+import { RubricSpring } from '../bench/RubricSpring';
 
 /**
  * 力学场景包。新增力学实验在这里加一段元数据 + 一个求解器注册,
@@ -12,6 +14,7 @@ export class MechanicsScenes {
   static registerAll(): void {
     ExperimentRegistry.register(MechanicsScenes.springMass(), (): SpringMassRunner => new SpringMassRunner());
     ExperimentRegistry.register(MechanicsScenes.incline(), (): InclineRunner => new InclineRunner());
+    ExperimentRegistry.register(MechanicsScenes.springForce(), (): SpringForceRunner => new SpringForceRunner());
   }
 
   private static springMass(): ExperimentMeta {
@@ -88,6 +91,52 @@ export class MechanicsScenes {
     ]));
     meta.tasks.push(SceneBuilders.task('critical-angle', '固定 μ=0.3，找到滑块恰好能自动下滑的临界倾角，与 arctan μ 比较。', 16.7, 1.5));
     meta.tasks.push(SceneBuilders.task('energy-balance', '取 μ=0、θ=30°、L=3.5 m 由静止释放，比较减少的重力势能与增加的动能。', 0, 0.02));
+    return meta;
+  }
+
+  /**
+   * 探究弹簧弹力与形变量的关系。这是第一条「靠学生按动作、不靠拖滑杆」做起来的实验:
+   * 加/减砝码与记录读数都是离散动作,判定层读的是这些动作留下的后果(超没超弹性限度、
+   * 记录瞬间弹簧还在不在动、测了几挡、有没有卸载对照)。
+   */
+  private static springForce(): ExperimentMeta {
+    const meta = new ExperimentMeta();
+    meta.id = 'spring-force';
+    meta.title = '探究弹簧弹力与形变量的关系';
+    meta.subject = Subject.PHYSICS_MECHANICS;
+    meta.renderer = RendererKind.PHYSICS_2D;
+    meta.summary = '逐次增挂钩码，待弹簧静止后读出形变量，作 F-x 图并检验它是否过原点；超过弹性限度后弹簧会留下回不去的变形。';
+    meta.gradeBand = '高中物理 · 必修一';
+    meta.durationMinutes = 20;
+    meta.worldWidth = 1.1;
+    meta.worldHeight = 0.9;
+    meta.params.push(SceneBuilders.param('stiffness', '弹簧劲度系数 k', 'N/m', 5, 60, 1, 20, '器材'));
+    meta.params.push(SceneBuilders.param('naturalLength', '弹簧原长', 'm', 0.1, 0.4, 0.01, 0.2, '器材'));
+    meta.params.push(SceneBuilders.param('limitExtension', '弹性限度(伸长超过它即塑性)', 'm', 0.05, 0.3, 0.01, 0.16, '器材'));
+    meta.params.push(SceneBuilders.param('panMass', '砝码盘质量', 'kg', 0.005, 0.05, 0.005, 0.01, '器材'));
+    meta.params.push(SceneBuilders.param('weightMass', '每只砝码质量', 'kg', 0.01, 0.1, 0.005, 0.05, '器材'));
+    meta.actions.push(SceneBuilders.action('weight+', '加一个砝码', '砝码'));
+    meta.actions.push(SceneBuilders.action('weight-', '取下一个砝码', '砝码'));
+    meta.actions.push(SceneBuilders.action('record', '记录这一读数', '记录'));
+    meta.rubricId = RubricSpring.ID;
+    meta.observables.push(SceneBuilders.observable('force', '弹力 F', 'N', 4, true));
+    meta.observables.push(SceneBuilders.observable('extension', '形变量 x', 'm', 4, true));
+    meta.observables.push(SceneBuilders.observable('load', '砝码总重', 'N', 3, false));
+    meta.observables.push(SceneBuilders.observable('weights', '已挂砝码数', '只', 0, false));
+    meta.observables.push(SceneBuilders.observable('length', '弹簧总长', 'm', 4, false));
+    meta.observables.push(SceneBuilders.observable('limitExtension', '弹性限度', 'm', 2, false));
+    meta.observables.push(SceneBuilders.observable('residual', '撤去载荷后的残余形变', 'm', 4, false));
+    meta.observables.push(SceneBuilders.observable('maxExtension', '本次到过的最大伸长', 'm', 4, false));
+    meta.observables.push(SceneBuilders.observable('beyondLimit', '是否超过弹性限度', '', 0, false));
+    meta.observables.push(SceneBuilders.observable('recordCount', '已记录读数', '条', 0, false));
+    meta.charts.push(SceneBuilders.xyChart('弹力-形变量 F-x', 'force', 'F', 'N', 'x', 'm',
+      [SceneBuilders.trace('extension', 'x', SceneBuilders.palette(0))]));
+    meta.charts.push(SceneBuilders.timeChart('形变量-时间 x-t', 'x', 'm',
+      [SceneBuilders.trace('extension', 'x', SceneBuilders.palette(0))]));
+    meta.tasks.push(SceneBuilders.task('slope-stiffness',
+      '把各挡记录的 F 与 x 描在 F-x 图上作直线：斜率的物理意义是什么？它与器材面板里的 k 相符吗？', Number.NaN, 0));
+    meta.tasks.push(SceneBuilders.task('origin-check',
+      '图线是否过原点？若横轴改用弹簧总长而不是形变量，图线会怎么变？', Number.NaN, 0));
     return meta;
   }
 }

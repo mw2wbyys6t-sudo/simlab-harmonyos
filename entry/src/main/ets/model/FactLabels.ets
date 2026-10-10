@@ -49,6 +49,14 @@ export class FactLabels {
     table.set('eyeCm', new FactLabel('视线高度', ' cm'));
     table.set('deviationMl', new FactLabel('量取偏差', ' mL'));
     table.set('readErrorMl', new FactLabel('读数与实际的差', ' mL'));
+    // 弹簧:弹力与形变量(计数类单位留空,值由 valueText 原样印成整数)
+    table.set('recordCount', new FactLabel('记录读数次数', ' 条'));
+    table.set('distinctLoads', new FactLabel('测过的载荷挡数', ' 挡'));
+    table.set('maxRecordSpeed', new FactLabel('记录瞬间指针速度', ' m/s'));
+    table.set('maxExtension', new FactLabel('到过的最大伸长', ' m'));
+    table.set('beyondLimit', new FactLabel('是否超过弹性限度', ''));
+    table.set('unloadSteps', new FactLabel('卸载步数', ' 次'));
+    table.set('residual', new FactLabel('撤去载荷后的残余形变', ' m'));
     return table;
   }
 
@@ -59,6 +67,7 @@ export class FactLabels {
     moments.set('evaporate', '开始蒸发');
     moments.set('pourStart', '开始倾倒');
     moments.set('pourStop', '收手停倒');
+    moments.set('recorded', '第一次记录读数');
     return moments;
   }
 
@@ -85,6 +94,8 @@ export class FactLabels {
       return '—';
     }
     const hit = FactLabels.of(key);
-    return value.toFixed(2) + (hit === null ? '' : hit.unit);
+    // 整数原样印:挡数/步数/是否超限度这类计数与布尔量印成 7.00 会被读成量出来的数
+    const text = Number.isInteger(value) ? String(value) : value.toFixed(2);
+    return text + (hit === null ? '' : hit.unit);
   }
 }

@@ -1,4 +1,5 @@
 import { ExperimentMeta } from '../model/ExperimentTypes';
+import { FactSheet } from '../bench/Rubric';
 
 /**
  * 渲染器契约。实现者只负责「世界如何随时间演化」与「当前观测量是多少」,
@@ -17,6 +18,20 @@ export interface IExperimentRunner {
 
   /** 用户调节参数。实现需在下一 step 生效,不得要求重启实验 */
   setParam(key: string, value: number): void;
+
+  /**
+   * 学生按下一个动作按钮(加砝码、记读数)。
+   *
+   * 这是判定层唯一的「学生做过什么」入口:动作必须改变世界并留下时刻与后果,
+   * 而不是只弹一条提示。未知的 key 应被忽略而不是抛出。
+   */
+  doAction(key: string): void;
+
+  /**
+   * 把本次操作产生的事实写进给定清单(只放数值与时刻,不放意图)。
+   * 判定层拿不到事实时一律放过,所以宁可少写也不要编。
+   */
+  collectFacts(sheet: FactSheet): void;
 
   getParam(key: string): number;
 

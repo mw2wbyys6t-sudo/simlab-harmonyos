@@ -1,5 +1,6 @@
 import { ExperimentMeta } from '../model/ExperimentTypes';
 import { IExperimentRunner } from '../runner/IExperimentRunner';
+import { FactSheet } from '../bench/Rubric';
 import { WorldSnapshot } from './World2D';
 
 /**
@@ -36,6 +37,18 @@ export abstract class Physics2DRunner implements IExperimentRunner {
     return hit === undefined ? 0 : hit;
   }
 
+  /**
+   * 学生动作。默认实现转给 onAction;不认识这个 key 时什么都不做 ——
+   * 外壳的按钮由元数据渲染,老实验没声明动作时不该因为多按一次而崩。
+   */
+  doAction(key: string): void {
+    this.onAction(key);
+  }
+
+  collectFacts(sheet: FactSheet): void {
+    this.onCollectFacts(sheet);
+  }
+
   elapsedTime(): number {
     return this.time;
   }
@@ -60,5 +73,13 @@ export abstract class Physics2DRunner implements IExperimentRunner {
 
   /** 参数中途被改变时的补偿逻辑,如实时改质量要保留当前动量 */
   protected onParamChanged(key: string, value: number): void {
+  }
+
+  /** 学生按下某个动作。默认无操作:只有声明了 actions 的场景才需要实现 */
+  protected onAction(key: string): void {
+  }
+
+  /** 子类把本次操作产生的事实写进来 */
+  protected onCollectFacts(sheet: FactSheet): void {
   }
 }

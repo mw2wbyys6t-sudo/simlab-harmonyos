@@ -1,5 +1,6 @@
 import { ExperimentMeta } from '../model/ExperimentTypes';
 import { IExperimentRunner } from '../runner/IExperimentRunner';
+import { FactSheet } from './Rubric';
 import { Glassware, Profile } from './Profile';
 import { Calibration } from './Brine';
 import { Container, PourModel, ReadingModel } from './Container';
@@ -80,6 +81,20 @@ export class BenchWorld implements IExperimentRunner {
   /** 学生主动收手:之后的判定就是终局判定 */
   stop(): void {
     this.ended = true;
+  }
+
+  /** 量取世界里学生能主动做的就这一件:收手。其余是连续操纵,归手势层(M6) */
+  doAction(key: string): void {
+    if (key === 'stop') {
+      this.stop();
+    }
+  }
+
+  /**
+   * 事实仍由 MeasurePage 现读现算(它持有视线高度与读数视差那几项)。
+   * 这里刻意不重复算一遍 —— 两处各算一份同一个数,迟早会漂成两个答案。
+   */
+  collectFacts(sheet: FactSheet): void {
   }
 
   finished(): boolean {

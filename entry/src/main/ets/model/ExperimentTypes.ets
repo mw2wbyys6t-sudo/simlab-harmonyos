@@ -90,6 +90,20 @@ export class TaskDef {
   tolerance: number = 0
 }
 
+/**
+ * 学生主动按下的离散动作(加一个砝码、记下这一读数)。
+ *
+ * 它和 ParamDef 的区别是这条实验能不能被判定:滑杆给的是**我们施予的连续量**,
+ * 按下去的动作是**学生自己造成的事件**,世界据此产生后果、判定层才有东西可读。
+ * 所以动作只声明「有这么个按钮、叫什么」,做什么由 runner 实现。
+ */
+export class ActionDef {
+  key: string = ''
+  label: string = ''
+  /** 动作面板内的分组,如「砝码」「记录」 */
+  group: string = '操作'
+}
+
 /** 一个实验的完整元数据 + 交互契约。 */
 export class ExperimentMeta {
   id: string = ''
@@ -102,6 +116,13 @@ export class ExperimentMeta {
   /** 预计课堂用时(分钟),0 表示不限 */
   durationMinutes: number = 0
   params: ParamDef[] = []
+  /** 学生的离散动作。空数组表示这条实验没有可判定的操作 */
+  actions: ActionDef[] = []
+  /**
+   * 判这条实验的细则 id(由 `Rubrics.byId` 解析)。
+   * 空串 = 目前没有细则,运行页不给「交卷」按钮 —— 不给一个永远满分的假评分。
+   */
+  rubricId: string = ''
   observables: ObservableDef[] = []
   charts: ChartDef[] = []
   tasks: TaskDef[] = []

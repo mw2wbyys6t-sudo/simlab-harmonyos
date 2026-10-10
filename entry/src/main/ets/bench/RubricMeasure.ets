@@ -1,6 +1,7 @@
 import { SessionRecord } from '../model/SessionRecord';
 import { CriterionBuilder, CriterionOp, FactSheet, Rubric } from './Rubric';
 import { RubricBrine } from './RubricBrine';
+import { RubricSpring } from './RubricSpring';
 
 /**
  * 量取参考细则。
@@ -90,6 +91,9 @@ export class Rubrics {
     }
     if (id === RubricBrine.ID) {
       return RubricBrine.create();
+    }
+    if (id === RubricSpring.ID) {
+      return RubricSpring.create();
     }
     return null;
   }

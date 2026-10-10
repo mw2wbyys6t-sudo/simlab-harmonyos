@@ -139,12 +139,42 @@ export class Judgment {
     facts.numbers.forEach((factValue: number, key: string) => {
       out = out.split('{' + key + '}').join(Judgment.text(factValue));
     });
+    // 剩下的花括号只可能是「这条事实压根没被算出来」。留给学生看就是仪器在报告里漏模板,
+    // 一律换成破折号 —— 与上面 text() 对 NaN 的处理同一种说法。
+    return Judgment.scrub(out);
+  }
+
+  /** 把没被填掉的 {xxx} 换成破折号。不用正则:fill 的替换行为要能被离线断言逐字算出来 */
+  private static scrub(text: string): string {
+    let out = '';
+    let i = 0;
+    while (i < text.length) {
+      const open = text.indexOf('{', i);
+      if (open < 0) {
+        out += text.slice(i);
+        return out;
+      }
+      out += text.slice(i, open);
+      const close = text.indexOf('}', open + 1);
+      if (close < 0) {
+        // 落单的花括号按普通字符保留,不当占位符处理
+        out += text.slice(open);
+        return out;
+      }
+      out += '—';
+      i = close + 1;
+    }
     return out;
   }
 
   private static text(value: number): string {
     if (!Number.isFinite(value)) {
       return '—';
+    }
+    // 整数一律原样印:挡数、步数、「是否超限度」这类计数与布尔事实印成 1.00 挡,
+    // 学生会以为那是个量出来的数。
+    if (Number.isInteger(value)) {
+      return String(value);
     }
     const rounded = Math.abs(value) >= 100 ? value.toFixed(0) : value.toFixed(2);
     return rounded;

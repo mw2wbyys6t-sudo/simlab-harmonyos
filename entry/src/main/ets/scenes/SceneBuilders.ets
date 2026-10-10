@@ -1,4 +1,4 @@
-import { ChartDef, ChartSeries, ObservableDef, ParamControl, ParamDef, TaskDef } from '../model/ExperimentTypes';
+import { ChartDef, ChartSeries, ActionDef, ObservableDef, ParamControl, ParamDef, TaskDef } from '../model/ExperimentTypes';
 import { Theme } from '../common/Theme';
 
 /** 场景元数据的简写构造器,避免每个实验重复写赋值样板。 */
@@ -33,8 +33,16 @@ export class SceneBuilders {
     return def;
   }
 
-  static task(key: string, prompt: string, expected: number, tolerance: number): TaskDef {
-    const task = new TaskDef();
+  /** 学生主动按下的动作按钮。判定层读的是它留下的后果,不是按钮本身 */
+  static action(key: string, label: string, group: string): ActionDef {
+    const def = new ActionDef();
+    def.key = key;
+    def.label = label;
+    def.group = group;
+    return def;
+  }
+
+  static task(key: string, prompt: string, expected: number, tolerance: number): TaskDef {    const task = new TaskDef();
     task.key = key;
     task.prompt = prompt;
     task.expected = expected;
