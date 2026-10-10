@@ -4172,7 +4172,7 @@ function checkRel(label, actual, expected, relTolerance) {
     ['初中物理', KnowledgePhysicsJunior.all(), SchoolStage.JUNIOR, 'kn-phy-jr-', 45, 3],
     ['高中物理', KnowledgePhysicsSenior.all(), SchoolStage.SENIOR, 'kn-phy-sr-', 73, 5],
     ['初中生物', KnowledgeBiologyJunior.all(), SchoolStage.JUNIOR, 'kn-bio-jr-', 45, 3],
-    ['初中化学', KnowledgeChemistryJunior.all(), SchoolStage.JUNIOR, 'kn-chem-jr-', 30, 1],
+    ['初中化学', KnowledgeChemistryJunior.all(), SchoolStage.JUNIOR, 'kn-chem-jr-', 49, 1],
     ['高中化学', KnowledgeChemistrySenior.all(), SchoolStage.SENIOR, 'kn-chem-sr-', 71, 5],
     ['高中生物', KnowledgeBiologySenior.all(), SchoolStage.SENIOR, 'kn-bio-sr-', 68, 5],
     ['初中电子学', KnowledgeElectronicsJunior.all(), SchoolStage.JUNIOR, 'kn-ele-jr-', 33, 3],
@@ -4224,7 +4224,7 @@ function checkRel(label, actual, expected, relTolerance) {
   const jrBioRows = tables.find(([n]) => n === '初中生物')[1];
   check('初中生物知识表已全部核实', jrBioRows.filter((e) => e.verified).length, 45, 0);
   const jrChemRows = tables.find(([n]) => n === '初中化学')[1];
-  check('初中化学知识表已全部核实', jrChemRows.filter((e) => e.verified).length, 30, 0);
+  check('初中化学知识表已全部核实', jrChemRows.filter((e) => e.verified).length, 49, 0);
   const srChemRows = tables.find(([n]) => n === '高中化学')[1];
   check('高中化学知识表已全部核实', srChemRows.filter((e) => e.verified).length, 71, 0);
 
@@ -4448,7 +4448,7 @@ function checkRel(label, actual, expected, relTolerance) {
   const exps = CurriculumIndex.experiments();
   const kps = CurriculumIndex.knowledge();
   check('查询口的实验总数', exps.length, 331, 0);
-  check('查询口的知识总数', kps.length, 640, 0);
+  check('查询口的知识总数', kps.length, 659, 0);
   check('查询口的元素总数', CurriculumIndex.elements().length, 118, 0);
 
   let sumExp = 0;
