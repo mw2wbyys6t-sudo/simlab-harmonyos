@@ -66,11 +66,11 @@ const subjectName = (s) => SUBJECT_NAME[s] || s;
  * 刻度(clauses / hasDiscriminator)一律从 coverage-metrics.mjs 取,本文件不自带一份。
  * 探针、单表体检、地板断言必须用同一把尺子,否则「探针说达标而断言说没有」会退化成查仪器。
  */
-import { clauses, hasDiscriminator } from './coverage-metrics.mjs';
+import { clauses, hasDiscriminator, hasContrast } from './coverage-metrics.mjs';
 
 function score(rows) {
   const n = rows.length;
-  if (n === 0) return { n: 0, chapters: 0, perChapter: 0, loneRatio: 0, chars: 0, symbols: 0, prereq: 0, transfer: 0, clauses: 0, disc: 0 };
+  if (n === 0) return { n: 0, chapters: 0, perChapter: 0, loneRatio: 0, chars: 0, symbols: 0, prereq: 0, transfer: 0, clauses: 0, disc: 0, cont: 0 };
   const byChapter = new Map();
   for (const e of rows) byChapter.set(e.chapter, (byChapter.get(e.chapter) || 0) + 1);
   const chapters = byChapter.size;
@@ -81,6 +81,7 @@ function score(rows) {
   const transfer = rows.filter((e) => e.level === KnowledgeLevel.TRANSFER).length / n;
   const cl = rows.reduce((a, e) => a + clauses(e.statement), 0) / n;
   const disc = rows.filter((e) => hasDiscriminator(e.statement)).length / n;
+  const cont = rows.filter((e) => hasContrast(e.statement)).length / n;
   return {
     n, chapters,
     perChapter: n / chapters,
@@ -91,6 +92,7 @@ function score(rows) {
     transfer: +((transfer) * 100).toFixed(0),
     clauses: +cl.toFixed(1),
     disc: +((disc) * 100).toFixed(0),
+    cont: +((cont) * 100).toFixed(0),
   };
 }
 
@@ -99,14 +101,14 @@ const padL = (s, w) => String(s).padStart(w);
 
 function header() {
   console.log(pad('学科/学段', 16), padL('条数', 6), padL('章数', 6), padL('条/章', 7),
-    padL('独苗%', 7), padL('字数', 6), padL('判据', 6), padL('前置', 6), padL('迁移%', 7), padL('分句', 6), padL('辨析%', 7));
-  console.log('-'.repeat(108));
+    padL('独苗%', 7), padL('字数', 6), padL('判据', 6), padL('前置', 6), padL('迁移%', 7), padL('分句', 6), padL('判点%', 7), padL('对照%', 7));
+  console.log('-'.repeat(118));
 }
 
 function row(label, s) {
   console.log(pad(label, 16), padL(s.n, 6), padL(s.chapters, 6), padL(s.perChapter.toFixed(1), 7),
     padL((s.loneRatio * 100).toFixed(0), 7), padL(s.chars, 6), padL(s.symbols, 6), padL(s.prereq, 6),
-    padL(s.transfer, 7), padL(s.clauses, 6), padL(s.disc, 7));
+    padL(s.transfer, 7), padL(s.clauses, 6), padL(s.disc, 7), padL(s.cont, 7));
 }
 
 console.log('=== 知识覆盖度(按 学科 × 学段) ===\n');
@@ -192,6 +194,7 @@ mustLower('字数 更少', degenerate.chars, real.chars);
 mustLower('判据 更少', degenerate.symbols, real.symbols);
 mustLower('迁移% 更低', degenerate.transfer, real.transfer);
 mustLower('辨析% 更低', degenerate.disc, real.disc);
+mustLower('对照% 更低', degenerate.cont, real.cont);
 for (const [label, ok, detail] of verdicts) console.log(`${ok ? '✓' : '✗'} ${label}  ${detail}`);
 const bad = verdicts.filter(([, ok]) => !ok);
 if (bad.length) {

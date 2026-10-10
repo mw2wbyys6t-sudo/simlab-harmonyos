@@ -19,6 +19,22 @@ export function hasDiscriminator(text) {
   return DISCRIMINATOR.test(text);
 }
 
+/**
+ * 第二档深度:这条有没有把**易错处摆出来再驳掉**,而不是只写一句限制条件。
+ *
+ * 判点率只回答「有一句能判对错的话吗」—— 「必须考虑温度」也算过。可是学生错的地方
+ * 往往是「以为 X 而其实是 Y」,所以这一档只认对照/驳误类的确凿写法(而不是、不等于、
+ * 易把、常见误、看似、反例),不认裸的限制词(必须/只有/仅当/前提/适用)。
+ * 词表刻意取 DISCRIMINATOR 的**子集**:对照若是判点的子集,就不会出现「这条有对照却被
+ * 报成缺判点」的仪器互相打脸。同样是粗代理,只做读数、不做地板:方向上它只会低估
+ * 「真写了对照」的条目(如「最常犯的错」这类自然写法仍会被漏计)。
+ */
+export const CONTRAST = /(而不是|不是|不等于|不同于|区别于|而非|误认|易把|易错|常见误|混淆|看似|恰恰|刚好|未必|一般不|通常不|反例|漏掉|漏了|不再)/;
+
+export function hasContrast(text) {
+  return CONTRAST.test(text);
+}
+
 /** 一条 statement 里可判对错的分句数(按分号粗切,不做语义分析)。 */
 export function clauses(text) {
   return text.split(/[;；]/).filter((s) => s.trim().length > 6).length;
