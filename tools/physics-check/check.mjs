@@ -14,6 +14,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import { makeRecorder } from './record-ctx.mjs';
+import { discriminatorRate } from '../coverage-metrics.mjs';
 
 const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -51,6 +52,8 @@ const MODULES = [
   'content/map/KnowledgeBiologyJunior',
   'content/map/KnowledgeBiologySenior',
   'content/map/KnowledgeElectronics',
+  'content/map/KnowledgeElectronicsJunior',
+  'content/map/KnowledgeElectronicsSenior',
   'content/map/PeriodicTable',
   'content/map/KnowledgeChemistry',
   'content/map/KnowledgeChemistryJunior',
@@ -4158,6 +4161,8 @@ function checkRel(label, actual, expected, relTolerance) {
   const { KnowledgeBiologySenior } = require(join(OUT, 'content/map/KnowledgeBiologySenior.cjs'));
   const { KnowledgeChemistryJunior } = require(join(OUT, 'content/map/KnowledgeChemistryJunior.cjs'));
   const { KnowledgeChemistrySenior } = require(join(OUT, 'content/map/KnowledgeChemistrySenior.cjs'));
+  const { KnowledgeElectronicsJunior } = require(join(OUT, 'content/map/KnowledgeElectronicsJunior.cjs'));
+  const { KnowledgeElectronicsSenior } = require(join(OUT, 'content/map/KnowledgeElectronicsSenior.cjs'));
   const { makeKnowledge } = require(join(OUT, 'content/map/KnowledgeTypes.cjs'));
   const { MapSubject, SchoolStage } = require(join(OUT, 'content/map/CurriculumTypes.cjs'));
   const { KnowledgeLevel } = require(join(OUT, 'content/map/KnowledgeTypes.cjs'));
@@ -4165,11 +4170,13 @@ function checkRel(label, actual, expected, relTolerance) {
 
   const tables = [
     ['初中物理', KnowledgePhysicsJunior.all(), SchoolStage.JUNIOR, 'kn-phy-jr-', 45, 3],
-    ['高中物理', KnowledgePhysicsSenior.all(), SchoolStage.SENIOR, 'kn-phy-sr-', 53, 5],
-    ['初中生物', KnowledgeBiologyJunior.all(), SchoolStage.JUNIOR, 'kn-bio-jr-', 24, 3],
+    ['高中物理', KnowledgePhysicsSenior.all(), SchoolStage.SENIOR, 'kn-phy-sr-', 73, 5],
+    ['初中生物', KnowledgeBiologyJunior.all(), SchoolStage.JUNIOR, 'kn-bio-jr-', 45, 3],
     ['初中化学', KnowledgeChemistryJunior.all(), SchoolStage.JUNIOR, 'kn-chem-jr-', 30, 1],
-    ['高中化学', KnowledgeChemistrySenior.all(), SchoolStage.SENIOR, 'kn-chem-sr-', 53, 5],
-    ['高中生物', KnowledgeBiologySenior.all(), SchoolStage.SENIOR, 'kn-bio-sr-', 40, 5]];
+    ['高中化学', KnowledgeChemistrySenior.all(), SchoolStage.SENIOR, 'kn-chem-sr-', 71, 5],
+    ['高中生物', KnowledgeBiologySenior.all(), SchoolStage.SENIOR, 'kn-bio-sr-', 68, 5],
+    ['初中电子学', KnowledgeElectronicsJunior.all(), SchoolStage.JUNIOR, 'kn-ele-jr-', 33, 3],
+    ['高中电子学', KnowledgeElectronicsSenior.all(), SchoolStage.SENIOR, 'kn-ele-sr-', 49, 5]];
   for (const [name, rows, stage, prefix, expected, minCourses] of tables) {
     const probs = MapValidator.validateKnowledge(rows);
     assertTrue(`${name}知识表通过校验`, probs.length === 0,
@@ -4215,17 +4222,26 @@ function checkRel(label, actual, expected, relTolerance) {
   // 2026-10-10:三张中学知识表经在线目录核实,去掉未核实前缀后全部 verified。
   // 谁再把 UNVERIFIED_PREFIX 加回去,这里立刻红。
   const jrBioRows = tables.find(([n]) => n === '初中生物')[1];
-  check('初中生物知识表已全部核实', jrBioRows.filter((e) => e.verified).length, 24, 0);
+  check('初中生物知识表已全部核实', jrBioRows.filter((e) => e.verified).length, 45, 0);
   const jrChemRows = tables.find(([n]) => n === '初中化学')[1];
   check('初中化学知识表已全部核实', jrChemRows.filter((e) => e.verified).length, 30, 0);
   const srChemRows = tables.find(([n]) => n === '高中化学')[1];
-  check('高中化学知识表已全部核实', srChemRows.filter((e) => e.verified).length, 53, 0);
+  check('高中化学知识表已全部核实', srChemRows.filter((e) => e.verified).length, 71, 0);
 
-  // 学段这一排现在该在物理上出现,在化学/生物/电子上不该出现(它们只有大学一格)
+  // 判点率地板:深不深看的是「有没有能判对错的分界」,不是字数。
+  // 2026-10-10 补判点前的实测最低是 21%(大学物理),补完后全表最低 64%(物理·初中),
+  // 地板取 60 —— 谁把判点删掉或写回一句光秃秃的定义,这里会红。
+  // 地板值来自实测,不是先定一个数再去凑(那条教训记在处置断言上)。
+  for (const [name, rows] of tables) {
+    const rate = discriminatorRate(rows);
+    assertTrue(`${name}判点率 ≥60%`, rate >= 60, `实得 ${rate}%`);
+  }
+
+  // 四个学科现在都该有三个学段 —— 电子学曾长期只有大学一格,2026-10-10 补了中学两张表后补齐
   check('物理学段数', CurriculumIndex.stagesOf(MapSubject.PHYSICS).length, 3, 0);
   check('化学学段数', CurriculumIndex.stagesOf(MapSubject.CHEMISTRY).length, 3, 0);
   check('生物学段数', CurriculumIndex.stagesOf(MapSubject.BIOLOGY).length, 3, 0);
-  check('电子学段数', CurriculumIndex.stagesOf(MapSubject.ELECTRONICS).length, 1, 0);
+  check('电子学段数', CurriculumIndex.stagesOf(MapSubject.ELECTRONICS).length, 3, 0);
   let stageSum = 0;
   for (const s of CurriculumIndex.subjects()) {
     for (const st of CurriculumIndex.STAGE_ORDER) {
@@ -4432,7 +4448,7 @@ function checkRel(label, actual, expected, relTolerance) {
   const exps = CurriculumIndex.experiments();
   const kps = CurriculumIndex.knowledge();
   check('查询口的实验总数', exps.length, 331, 0);
-  check('查询口的知识总数', kps.length, 471, 0);
+  check('查询口的知识总数', kps.length, 640, 0);
   check('查询口的元素总数', CurriculumIndex.elements().length, 118, 0);
 
   let sumExp = 0;

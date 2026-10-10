@@ -10,6 +10,8 @@ import { KnowledgeChemistrySenior } from './KnowledgeChemistrySenior';
 import { KnowledgeBiology } from './KnowledgeBiology';
 import { KnowledgeBiologyJunior } from './KnowledgeBiologyJunior';
 import { KnowledgeBiologySenior } from './KnowledgeBiologySenior';
+import { KnowledgeElectronicsJunior } from './KnowledgeElectronicsJunior';
+import { KnowledgeElectronicsSenior } from './KnowledgeElectronicsSenior';
 import { KnowledgeElectronics } from './KnowledgeElectronics';
 import { UniversityPhysics } from './UniversityPhysics';
 import { SchoolPhysics } from './SchoolPhysics';
@@ -39,7 +41,8 @@ export class CurriculumIndex {
       .concat(KnowledgePhysics.all()).concat(KnowledgeChemistryJunior.all())
       .concat(KnowledgeChemistrySenior.all()).concat(KnowledgeChemistry.all())
       .concat(KnowledgeBiologyJunior.all()).concat(KnowledgeBiologySenior.all())
-      .concat(KnowledgeBiology.all()).concat(KnowledgeElectronics.all());
+      .concat(KnowledgeBiology.all()).concat(KnowledgeElectronicsJunior.all())
+      .concat(KnowledgeElectronicsSenior.all()).concat(KnowledgeElectronics.all());
   }
 
   static elements(): ChemicalElement[] {
