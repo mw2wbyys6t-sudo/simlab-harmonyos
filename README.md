@@ -152,4 +152,6 @@ node tools/physics-check/check.mjs
 
 ## License
 
-MIT
+Licensed under the Apache License, Version 2.0.
+
+本产品遵循 Apache License 2.0 开源协议。
