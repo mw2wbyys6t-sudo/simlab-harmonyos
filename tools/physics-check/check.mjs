@@ -4169,7 +4169,7 @@ function checkRel(label, actual, expected, relTolerance) {
   const { CurriculumIndex } = require(join(OUT, 'content/map/CurriculumIndex.cjs'));
 
   const tables = [
-    ['初中物理', KnowledgePhysicsJunior.all(), SchoolStage.JUNIOR, 'kn-phy-jr-', 45, 3],
+    ['初中物理', KnowledgePhysicsJunior.all(), SchoolStage.JUNIOR, 'kn-phy-jr-', 70, 3],
     ['高中物理', KnowledgePhysicsSenior.all(), SchoolStage.SENIOR, 'kn-phy-sr-', 73, 5],
     ['初中生物', KnowledgeBiologyJunior.all(), SchoolStage.JUNIOR, 'kn-bio-jr-', 45, 3],
     ['初中化学', KnowledgeChemistryJunior.all(), SchoolStage.JUNIOR, 'kn-chem-jr-', 49, 1],
@@ -4448,7 +4448,7 @@ function checkRel(label, actual, expected, relTolerance) {
   const exps = CurriculumIndex.experiments();
   const kps = CurriculumIndex.knowledge();
   check('查询口的实验总数', exps.length, 331, 0);
-  check('查询口的知识总数', kps.length, 659, 0);
+  check('查询口的知识总数', kps.length, 684, 0);
   check('查询口的元素总数', CurriculumIndex.elements().length, 118, 0);
 
   let sumExp = 0;
