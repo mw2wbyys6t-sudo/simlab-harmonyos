@@ -20,8 +20,9 @@ export class RubricMeasure {
     const rubric = new Rubric();
     rubric.id = RubricMeasure.ID;
     rubric.label = '用量筒量取指定体积的液体';
-    rubric.source = '参考细则(非官方标准)';
-    rubric.version = '2026.09-draft1';
+    // 括号与版本号都是给学生看的字:半角括号、内部代号 draft1 属于工程词外泄
+    rubric.source = '参考细则（非官方标准）';
+    rubric.version = '2026.09 第1版';
     rubric.totalPoints = 100;
 
     rubric.criteria.push(CriterionBuilder.numeric('M01', '量取偏差超出允许范围', CriterionOp.ABS_GT,

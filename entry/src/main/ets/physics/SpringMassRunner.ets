@@ -8,6 +8,8 @@ const NATURAL_LEN = 2.2;
 const TABLE_Y = 0.9;
 const BLOCK_W = 0.7;
 const BLOCK_H = 0.5;
+/** 1 kg 是画面上那只标准块,其余质量按同种材料折算 */
+const MASS_REF = 1;
 /** 平衡位置:墙 + 弹簧自然长度 */
 const EQUILIBRIUM_X = WALL_X + NATURAL_LEN;
 
@@ -17,6 +19,7 @@ const C_SPRING = '#8E5BD9';
 const C_GUIDE = '#9AA7B8';
 const C_TEXT = '#1F2A3A';
 const C_V = '#E2574C';
+const C_BLOCK_TEXT = '#FFFFFF';
 
 /**
  * 弹簧振子:m x'' = -k x - c x'
@@ -97,10 +100,28 @@ export class SpringMassRunner extends Physics2DRunner {
     }
   }
 
+  /**
+   * 块边长随质量缩放:同种材料体积线性于质量,边长取立方根。
+   *
+   * 原来 snapshot() 用固定的 BLOCK_W/BLOCK_H,把振体质量从 1 kg 拖到 5 kg,
+   * 画布逐像素差的均值为 0(模拟器实测)—— 学生改了一个会改变周期的参数,
+   * 画面上却什么都没说。上限 1.8 倍是防止最大的块把位移标签顶出世界高度。
+   */
+  private blockScale(): number {
+    const m = this.getParam('mass');
+    if (!(m > 0)) {
+      return 1;
+    }
+    return Math.min(1.8, Math.cbrt(m / MASS_REF));
+  }
+
   snapshot(): WorldSnapshot {
     this.snap.clear();
+    const scale = this.blockScale();
+    const bw = BLOCK_W * scale;
+    const bh = BLOCK_H * scale;
     const cx = EQUILIBRIUM_X + this.x;
-    const cy = TABLE_Y + BLOCK_H / 2;
+    const cy = TABLE_Y + bh / 2;
 
     const wall = new SegmentShape();
     wall.x1 = WALL_X;
@@ -133,7 +154,7 @@ export class SpringMassRunner extends Physics2DRunner {
     const spring = new SpringShape();
     spring.x1 = WALL_X;
     spring.y1 = cy;
-    spring.x2 = cx - BLOCK_W / 2;
+    spring.x2 = cx - bw / 2;
     spring.y2 = cy;
     spring.coils = 9;
     spring.amplitude = 0.2;
@@ -143,10 +164,20 @@ export class SpringMassRunner extends Physics2DRunner {
     const block = new BoxShape();
     block.cx = cx;
     block.cy = cy;
-    block.w = BLOCK_W;
-    block.h = BLOCK_H;
+    block.w = bw;
+    block.h = bh;
     block.color = C_BODY;
     this.snap.boxes.push(block);
+
+    const mass = new LabelShape();
+    mass.x = cx;
+    mass.y = cy;
+    mass.text = this.getParam('mass').toFixed(1) + ' kg';
+    mass.color = C_BLOCK_TEXT;
+    // 锚点居中、字号压到 11:14vp 的「1.0 kg」比 1 kg 的块还宽,字会糊到块外(截图实测)
+    mass.sizeVp = 11;
+    mass.align = 'center';
+    this.snap.labels.push(mass);
 
     const anchor = new CircleShape();
     anchor.cx = WALL_X;
@@ -158,7 +189,7 @@ export class SpringMassRunner extends Physics2DRunner {
     if (Math.abs(this.v) > 0.02) {
       const arrow = new ArrowShape();
       arrow.x = cx;
-      arrow.y = cy + BLOCK_H + 0.25;
+      arrow.y = cy + bh + 0.25;
       arrow.dx = this.v > 0 ? Math.min(0.9, 0.25 + Math.abs(this.v) * 0.18) : -Math.min(0.9, 0.25 + Math.abs(this.v) * 0.18);
       arrow.dy = 0;
       arrow.label = 'v';
@@ -175,7 +206,7 @@ export class SpringMassRunner extends Physics2DRunner {
 
     const disp = new LabelShape();
     disp.x = cx - 0.35;
-    disp.y = cy + BLOCK_H + 0.45;
+    disp.y = cy + bh + 0.45;
     disp.text = 'x=' + this.x.toFixed(2) + ' m';
     disp.color = C_TEXT;
     this.snap.labels.push(disp);

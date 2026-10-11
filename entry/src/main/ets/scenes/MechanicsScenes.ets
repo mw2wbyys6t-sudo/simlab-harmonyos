@@ -31,7 +31,7 @@ export class MechanicsScenes {
     meta.params.push(SceneBuilders.param('mass', '振体质量', 'kg', 0.2, 5, 0.1, 1, '器材'));
     meta.params.push(SceneBuilders.param('stiffness', '弹簧劲度系数', 'N/m', 1, 100, 1, 20, '器材'));
     meta.params.push(SceneBuilders.param('damping', '阻尼系数', 'N·s/m', 0, 3, 0.05, 0, '条件'));
-    meta.params.push(SceneBuilders.param('amplitude', '初始位移(重置后生效)', 'm', -1.2, 1.2, 0.05, 0.9, '条件'));
+    meta.params.push(SceneBuilders.param('amplitude', '初始位移（重置后生效）', 'm', -1.2, 1.2, 0.05, 0.9, '条件'));
     meta.observables.push(SceneBuilders.observable('displacement', '位移 x', 'm', 3, true));
     meta.observables.push(SceneBuilders.observable('velocity', '速度 v', 'm/s', 3, true));
     meta.observables.push(SceneBuilders.observable('acceleration', '加速度 a', 'm/s²', 3, false));
@@ -68,8 +68,8 @@ export class MechanicsScenes {
     meta.params.push(SceneBuilders.param('length', '斜面长度', 'm', 1, 5, 0.1, 3.5, '装置'));
     meta.params.push(SceneBuilders.param('mass', '滑块质量', 'kg', 0.2, 5, 0.1, 2, '滑块'));
     meta.params.push(SceneBuilders.param('friction', '动摩擦因数 μ', '', 0, 0.8, 0.01, 0.15, '滑块'));
-    meta.params.push(SceneBuilders.param('initialVelocity', '初速度(沿坡向下为负即上滑，重置后生效)', 'm/s', -3, 3, 0.1, 0, '条件'));
-    meta.params.push(SceneBuilders.param('startDistance', '起始位置：距坡顶(重置后生效)', 'm', 0, 5, 0.1, 0, '条件'));
+    meta.params.push(SceneBuilders.param('initialVelocity', '初速度（沿坡向下为负即上滑，重置后生效）', 'm/s', -3, 3, 0.1, 0, '条件'));
+    meta.params.push(SceneBuilders.param('startDistance', '起始位置：距坡顶（重置后生效）', 'm', 0, 5, 0.1, 0, '条件'));
     meta.observables.push(SceneBuilders.observable('distance', '距坡顶 s', 'm', 3, true));
     meta.observables.push(SceneBuilders.observable('velocity', '速度 v', 'm/s', 3, true));
     meta.observables.push(SceneBuilders.observable('acceleration', '加速度 a', 'm/s²', 3, false));
@@ -78,7 +78,7 @@ export class MechanicsScenes {
     meta.observables.push(SceneBuilders.observable('potential', '重力势能 Ep', 'J', 3, true));
     meta.observables.push(SceneBuilders.observable('heat', '摩擦生热 Q', 'J', 3, true));
     meta.observables.push(SceneBuilders.observable('distanceMax', '上滑最远距离', 'm', 3, false));
-    meta.observables.push(SceneBuilders.observable('path', '路程(上滑与下滑之和)', 'm', 3, false));
+    meta.observables.push(SceneBuilders.observable('path', '路程（上滑与下滑之和）', 'm', 3, false));
     meta.observables.push(SceneBuilders.observable('velocityEnd', '端点速度 v_end', 'm/s', 3, false));
     meta.observables.push(SceneBuilders.observable('timeToEnd', '到达端点用时', 's', 3, false));
     meta.charts.push(SceneBuilders.timeChart('速度-时间 v-t', 'v', 'm/s', [
@@ -112,7 +112,7 @@ export class MechanicsScenes {
     meta.worldHeight = 0.9;
     meta.params.push(SceneBuilders.param('stiffness', '弹簧劲度系数 k', 'N/m', 5, 60, 1, 20, '器材'));
     meta.params.push(SceneBuilders.param('naturalLength', '弹簧原长', 'm', 0.1, 0.4, 0.01, 0.2, '器材'));
-    meta.params.push(SceneBuilders.param('limitExtension', '弹性限度(伸长超过它即塑性)', 'm', 0.05, 0.3, 0.01, 0.16, '器材'));
+    meta.params.push(SceneBuilders.param('limitExtension', '弹性限度（伸长超过它即塑性）', 'm', 0.05, 0.3, 0.01, 0.16, '器材'));
     meta.params.push(SceneBuilders.param('panMass', '砝码盘质量', 'kg', 0.005, 0.05, 0.005, 0.01, '器材'));
     meta.params.push(SceneBuilders.param('weightMass', '每只砝码质量', 'kg', 0.01, 0.1, 0.005, 0.05, '器材'));
     meta.actions.push(SceneBuilders.action('weight+', '加一个砝码', '砝码'));

@@ -61,7 +61,7 @@ export class ChartSeries {
   /** 取自 ExperimentMeta.observables 的键,须标为 sampled */
   observableKey: string = ''
   label: string = ''
-  color: string = '#2F6FB5'
+  color: Resource = $r('app.color.series_1')
 }
 
 /**

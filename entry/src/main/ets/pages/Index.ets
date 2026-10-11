@@ -1,6 +1,7 @@
 import { DeviceClass, Layout } from '../common/Layout';
 import { FeedItem, FilterChip, LibraryFeed } from '../common/LibraryFeed';
 import { Theme } from '../common/Theme';
+import { AppChips } from '../view/AppChips';
 import { ExperimentMeta } from '../model/ExperimentTypes';
 import { ExperimentRegistry } from '../runner/ExperimentRegistry';
 import { ElectricalScenes } from '../scenes/ElectricalScenes';
@@ -11,6 +12,7 @@ import { ExperimentPage } from './ExperimentPage';
 import { MapPage } from './MapPage';
 import { MeasurePage } from './MeasurePage';
 import { ReportPage } from './ReportPage';
+import { SettingsPage } from './SettingsPage';
 
 /**
  * 实验库首页。首屏只有一件事:挑实验。
@@ -53,38 +55,30 @@ struct Index {
   }
 
   /**
-   * 标题栏右侧的两个入口。
+   * 标题栏右侧的入口。
    *
    * 不用 NavigationMenuItem:实测它在 Mini 标题模式下只画图标位,`value` 的文字不显示,
    * 没有图标资源时就剩两个空心圆。CustomBuilder 直接画文字,标签自己说得清。
    */
   @Builder
+  menuItem(label: string, route: string) {
+    Text(label)
+      .fontSize(Layout.captionSize(this.cls()))
+      .fontColor(Theme.ACCENT)
+      .height(Layout.chipHeight(this.cls()))
+      .padding({ left: 8, right: 8 })
+      .onClick(() => {
+        this.pathStack.pushPath({ name: route });
+      })
+  }
+
+  @Builder
   menuBar() {
     Row({ space: 2 }) {
-      Text('课程地图')
-        .fontSize(Layout.captionSize(this.cls()))
-        .fontColor(Theme.ACCENT)
-        .height(Layout.chipHeight(this.cls()))
-        .padding({ left: 8, right: 8 })
-        .onClick(() => {
-          this.pathStack.pushPath({ name: 'curriculum' });
-        })
-      Text('速查表')
-        .fontSize(Layout.captionSize(this.cls()))
-        .fontColor(Theme.ACCENT)
-        .height(Layout.chipHeight(this.cls()))
-        .padding({ left: 8, right: 8 })
-        .onClick(() => {
-          this.pathStack.pushPath({ name: 'reactions' });
-        })
-      Text('报告')
-        .fontSize(Layout.captionSize(this.cls()))
-        .fontColor(Theme.ACCENT)
-        .height(Layout.chipHeight(this.cls()))
-        .padding({ left: 8, right: 8 })
-        .onClick(() => {
-          this.pathStack.pushPath({ name: 'report' });
-        })
+      this.menuItem('课程地图', 'curriculum')
+      this.menuItem('速查表', 'reactions')
+      this.menuItem('报告', 'report')
+      this.menuItem('深浅色', 'settings')
     }
     // 每项自带 8vp 右内边距,这里补到与标题左内缩等距 —— 否则最后一项的字贴着屏幕边
     .padding({ right: Layout.pageInset(this.cls()) - 8 })
@@ -113,34 +107,22 @@ struct Index {
       ReportPage({ hostWidth: this.widthVp })
     } else if (name === 'curriculum') {
       MapPage({ hostWidth: this.widthVp })
+    } else if (name === 'settings') {
+      SettingsPage({ hostWidth: this.widthVp })
     } else {
       NavDestination() {
-        Text('没有名为 ' + name + ' 的页面')
+        // 这条只在路由名写错时才会看到。原来直接把内部路由名印在屏幕上
+        // (「没有名为 bench2 的页面」+ 标题「路由缺失」),而路由名是我们自己的标识符
+        Text('这个页面还没做好，回首页看看其他实验')
           .fontSize(Layout.bodySize(this.cls()))
           .fontColor(Theme.TEXT_SECONDARY)
       }
-      .title('路由缺失')
+      .title('页面不存在')
     }
   }
 
-  @Builder
-  filterChip(chip: FilterChip, index: number) {
-    Text(chip.label)
-      .fontSize(Layout.bodySize(this.cls()))
-      .fontColor(this.activeChip === index ? Theme.textOn(Theme.ACCENT) : Theme.TEXT_SECONDARY)
-      .fontWeight(this.activeChip === index ? FontWeight.Medium : FontWeight.Normal)
-      .textAlign(TextAlign.Center)
-      .height(Layout.chipHeight(this.cls()))
-      .borderRadius(Layout.chipRadius(this.cls()))
-      .backgroundColor(this.activeChip === index ? Theme.ACCENT : Theme.BG_CARD)
-      .border({
-        width: 1,
-        color: this.activeChip === index ? Theme.ACCENT : Theme.DIVIDER
-      })
-      .layoutWeight(1)
-      .onClick(() => {
-        this.activeChip = index;
-      })
+  private chipLabels(): string[] {
+    return this.chips.map((chip: FilterChip): string => chip.label);
   }
 
   @Builder
@@ -159,11 +141,11 @@ struct Index {
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
-        if (item.durationMinutes > 0) {
-          Text('约 ' + item.durationMinutes + ' 分钟')
-            .fontSize(Layout.captionSize(this.cls()))
-            .fontColor(Theme.TEXT_SECONDARY)
-        }
+        // 这一格恒占位:只有化学实验台没有预设时长,原来直接不画,
+        // 于是那张卡比其余 8 张矮一截,首屏卡片节奏不齐
+        Text(item.durationMinutes > 0 ? '约 ' + item.durationMinutes + ' 分钟' : '不限时')
+          .fontSize(Layout.captionSize(this.cls()))
+          .fontColor(Theme.TEXT_SECONDARY)
       }
       .width('100%')
 
@@ -186,6 +168,7 @@ struct Index {
     .backgroundColor(Theme.BG_CARD)
     .borderRadius(Layout.cardRadius(this.cls()))
     .border({ width: 1, color: Theme.DIVIDER })
+    .clickEffect({ level: ClickEffectLevel.LIGHT })
     .onClick(() => {
       this.openItem(item);
     })
@@ -207,13 +190,16 @@ struct Index {
   build() {
     Navigation(this.pathStack) {
       Column({ space: Layout.listGap(this.cls()) }) {
-        Row({ space: LibraryFeed.CHIP_GAP_VP }) {
-          ForEach(this.chips, (chip: FilterChip, index: number) => {
-            this.filterChip(chip, index)
-          }, (chip: FilterChip) => chip.label)
-        }
-        .width('100%')
-        .constraintSize({ maxWidth: 520 })
+        // 系统筛选件:横向流式排布、按下有反馈、选中态能被读屏念出来
+        AppChips({
+          labels: this.chipLabels(),
+          selected: this.activeChip,
+          onPick: (index: number): void => {
+            this.activeChip = index;
+          }
+        })
+          .width('100%')
+          .constraintSize({ maxWidth: 520 })
 
         if (this.visible().length === 0) {
           this.emptyState()

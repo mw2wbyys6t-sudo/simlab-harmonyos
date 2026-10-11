@@ -1,4 +1,4 @@
-import { Theme } from '../common/Theme';
+import { Palette } from './Palette';
 import {
   ArrowShape, BoxShape, CircleShape, FillStyle, LabelShape, SegmentShape, SpringShape, Viewport, WorldSnapshot
 } from '../physics/World2D';
@@ -14,7 +14,7 @@ const DEG = Math.PI / 180;
  */
 export class CanvasPainter {
   static draw(ctx: CanvasRenderingContext2D, snap: WorldSnapshot, vp: Viewport): void {
-    ctx.fillStyle = Theme.BG_CANVAS;
+    ctx.fillStyle = Palette.canvasBg();
     ctx.fillRect(0, 0, ctx.width, ctx.height);
 
     CanvasPainter.drawSegments(ctx, snap.segments, vp);
@@ -165,15 +165,32 @@ export class CanvasPainter {
     }
   }
 
+  /**
+   * 文字逐条按锚点画,并把整行兜回画布内。
+   *
+   * 模型层只知道米、不知道一行字占多少像素,任何"往旁边挪 0.12"的偏移都只是估计;
+   * 越界的那一刀只能在有 measureText 的这一层补(V₂ 读数被裁成「3.6…」就是这么来的)。
+   */
   private static drawLabels(ctx: CanvasRenderingContext2D, items: LabelShape[], vp: Viewport): void {
     for (let i = 0; i < items.length; i++) {
       const lb = items[i];
       ctx.save();
       ctx.fillStyle = lb.color;
       ctx.font = lb.sizeVp + 'vp sans-serif';
-      ctx.textAlign = 'left';
+      // 逐条落到字面量上:canvas 的 textAlign 是有限枚举,直接喂 string 过不了类型检查
+      const align = lb.align === 'center' ? 'center' : (lb.align === 'right' ? 'right' : 'left');
+      ctx.textAlign = align;
       ctx.textBaseline = 'alphabetic';
-      ctx.fillText(lb.text, vp.px(lb.x), vp.py(lb.y));
+      const width = ctx.measureText(lb.text).width;
+      let px = vp.px(lb.x);
+      if (align === 'left') {
+        px = Math.min(Math.max(px, 0), ctx.width - width);
+      } else if (align === 'center') {
+        px = Math.min(Math.max(px, width / 2), ctx.width - width / 2);
+      } else {
+        px = Math.min(Math.max(px, width), ctx.width);
+      }
+      ctx.fillText(lb.text, px, vp.py(lb.y));
       ctx.restore();
     }
   }

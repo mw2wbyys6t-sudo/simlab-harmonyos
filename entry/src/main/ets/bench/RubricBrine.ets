@@ -20,8 +20,9 @@ export class RubricBrine {
     const rubric = new Rubric();
     rubric.id = RubricBrine.ID;
     rubric.label = '粗盐中难溶性杂质的去除';
-    rubric.source = '参考细则(非官方标准)';
-    rubric.version = '2026.09-draft1';
+    // 括号与版本号都是给学生看的字:半角括号、内部代号 draft1 属于工程词外泄
+    rubric.source = '参考细则（非官方标准）';
+    rubric.version = '2026.09 第1版';
     rubric.totalPoints = 100;
 
     rubric.criteria.push(CriterionBuilder.numeric('B01', '倾倒未用玻璃棒引流', CriterionOp.EQ,
@@ -46,7 +47,7 @@ export class RubricBrine {
 
     rubric.criteria.push(CriterionBuilder.numeric('B06', '精盐产率异常', CriterionOp.OUT_OF,
       'yieldPct', 85, 105, 15,
-      '回收产率 {value}%，应在 {threshold}~{threshold2}% 之间(回收 {saltRecoveredG} g / 投入 {saltAddedG} g)'));
+      '回收产率 {value}%，应在 {threshold}~{threshold2}% 之间（回收 {saltRecoveredG} g / 投入 {saltAddedG} g）'));
 
     rubric.criteria.push(CriterionBuilder.sequence('B07', '未先溶解就过滤',
       RubricBrine.ID_DISSOLVE, RubricBrine.ID_FILTER, 5,

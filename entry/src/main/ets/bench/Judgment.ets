@@ -23,8 +23,11 @@ export class ScoreCard {
   facts: FactSheet = new FactSheet();
 
   summaryLine(): string {
-    return this.awarded.toFixed(1) + ' / ' + this.total.toFixed(0) + ' 分(判据：'
-      + this.rubricSource + ' ' + this.rubricVersion + ')';
+    // 来源与版本必须露出(R1:参考细则不得伪装成官方标准),但不再括号套括号。
+    // 分数是整数就不印小数位:「30.0 分」会被读成一个量出来的数
+    const awarded = Number.isInteger(this.awarded) ? String(this.awarded) : this.awarded.toFixed(1);
+    return '得分 ' + awarded + ' / ' + this.total.toFixed(0)
+      + ' · 评分依据：' + this.rubricSource + ' · 版本 ' + this.rubricVersion;
   }
 }
 

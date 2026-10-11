@@ -34,9 +34,15 @@ export class LibraryFeed {
   static readonly ALL_LABEL: string = '全部';
   /** 手机内容区可用宽度:360vp 屏宽减去左右两侧页边距 */
   static readonly PHONE_CONTENT_WIDTH: number = 320;
-  /** 一枚 chip 的实测宽度构成:两个汉字 + 左右内边距。前提是短标签恒为双字 */
+  /**
+   * 一枚 chip 的宽度构成:两个汉字 + 左右内边距。前提是短标签恒为双字。
+   *
+   * 这组数在换成系统 `ChipGroup` 后重测过一次(2026-10-11,Pura 90 Pro 模拟器):
+   * SMALL 档一枚实测 56vp、间距 8vp。旧值 28+16=44 是按手搓 Text 量的,
+   * 用它算「五颗放得下」而屏幕上最右那颗被切掉半字 —— 护栏算的是已经不存在的布局。
+   */
   static readonly CHIP_TEXT_VP: number = 28;
-  static readonly CHIP_PADDING_VP: number = 16;
+  static readonly CHIP_PADDING_VP: number = 28;
   static readonly CHIP_GAP_VP: number = 8;
   /** chip 与分组的呈现顺序,与 Subject 声明顺序一致 */
   private static readonly ORDER: Subject[] = [

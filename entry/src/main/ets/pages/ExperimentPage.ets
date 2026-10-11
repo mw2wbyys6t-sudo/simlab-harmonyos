@@ -12,6 +12,8 @@ import { IExperimentRunner } from '../runner/IExperimentRunner';
 import { RunController } from '../runner/RunController';
 import { SeriesChart } from '../view/SeriesChart';
 import { SimCanvas } from '../view/SimCanvas';
+import { AppButton } from '../view/AppButton';
+import { AppChips } from '../view/AppChips';
 
 const SPEEDS: number[] = [0.25, 0.5, 1];
 
@@ -171,86 +173,123 @@ export struct ExperimentPage {
     });
     const ledger = SessionStore.load(context);
     if (!ledger.add(record) || !SessionStore.save(context, ledger)) {
-      this.verdict = '本次记录没能保存:分数只在本页显示,不进历史';
+      this.verdict = '本次记录没能保存：分数只在本页显示，不进历史';
       return;
     }
     const lines: string[] = [];
     lines.push(card.summaryLine());
     for (let i = 0; i < card.deductions.length; i++) {
       const hit = card.deductions[i];
-      lines.push('· ' + hit.title + '(扣 ' + hit.points + ' 分)' + (hit.evidence.length > 0 ? ':' + hit.evidence : ''));
+      lines.push('· ' + hit.title + '（扣 ' + hit.points + ' 分）'
+        + (hit.evidence.length > 0 ? '：' + hit.evidence : ''));
     }
     if (card.deductions.length === 0) {
-      lines.push('没有扣分点。判据是' + rubric.source + ',不是官方标准。');
+      lines.push('没有扣分项。评分依据是' + rubric.source + '，不是官方标准。');
     }
     this.verdict = lines.join('\n');
   }
 
+  /**
+   * 传输按钮。标签与底色都在 Builder 体内现读 @State,调用处只传一个常量下标。
+   *
+   * 按值传 label/颜色时 ArkUI 不跟踪依赖,按钮会永远停在首次渲染的那句上 ——
+   * 实测「开始」在仿真跑了 100 多秒后仍写着「开始」,界面在对学生撒谎。
+   */
   @Builder
-  transportButton(label: string, accent: string, action: () => void) {
-    Text(label)
-      .fontSize(Layout.bodySize(this.cls()))
-      .fontColor(Color.White)
-      .fontWeight(FontWeight.Medium)
-      .height(Layout.buttonHeight(this.cls()))
-      .padding({ left: 20, right: 20 })
-      .borderRadius(Layout.controlRadius(this.cls()))
-      .backgroundColor(accent)
-      .onClick(action)
+  transportButton(kind: number) {
+    AppButton({
+      label: this.buttonLabel(kind),
+      cls: this.cls(),
+      accent: this.buttonColor(kind),
+      onPress: (): void => {
+        this.pressTransport(kind);
+      }
+    })
+  }
+
+  private speedLabels(): string[] {
+    return SPEEDS.map((speed: number): string => speed + '×');
+  }
+
+  private buttonLabel(kind: number): string {
+    if (kind === 0) {
+      return this.running ? '暂停' : '开始';
+    }
+    if (kind === 1) {
+      return '重置';
+    }
+    return this.chartsVisible ? '收起图线' : '展开图线';
+  }
+
+  private buttonColor(kind: number): ResourceColor {
+    if (kind === 0) {
+      return this.running ? Theme.DANGER : Theme.RUNNING;
+    }
+    if (kind === 1) {
+      return Theme.TEXT_SECONDARY;
+    }
+    return this.chartsVisible ? Theme.ACCENT : Theme.TEXT_SECONDARY;
+  }
+
+  private pressTransport(kind: number): void {
+    if (kind === 0) {
+      if (this.controller.running) {
+        this.controller.pause();
+      } else {
+        this.controller.start();
+      }
+    } else if (kind === 1) {
+      this.controller.pause();
+      this.controller.restart();
+      this.verdict = '';
+    } else {
+      this.chartsVisible = !this.chartsVisible;
+    }
+    this.refreshReadouts();
   }
 
   @Builder
   transportBar() {
     Column({ space: 8 }) {
       Row({ space: 10 }) {
-        this.transportButton(this.running ? '暂停' : '开始',
-          this.running ? Theme.DANGER : Theme.RUNNING, (): void => {
-            if (this.controller.running) {
-              this.controller.pause();
-            } else {
-              this.controller.start();
-            }
-            this.refreshReadouts();
-          })
+        this.transportButton(0)
 
-        this.transportButton('重置', Theme.TEXT_SECONDARY, (): void => {
-          this.controller.pause();
-          this.controller.restart();
-          this.refreshReadouts();
+        this.transportButton(1)
+
+        if (this.meta.charts.length > 0) {
+          this.transportButton(2)
+        }
+      }
+      .width('100%')
+
+      // 倍速单独一行:和三个按钮挤在同一行时,手机档会把后两颗推出屏幕,
+      // 而推出去的控件既看不见也点不着。
+      // 靠左并给「倍速」二字:原来整行右对齐,左边 636px 空着,
+      // 谁也不知道这四颗是干什么的
+      Row({ space: 8 }) {
+        Text('倍速')
+          .fontSize(Layout.captionSize(this.cls()))
+          .fontColor(Theme.TEXT_SECONDARY)
+
+        AppChips({
+          labels: this.speedLabels(),
+          selected: this.speedIndex,
+          onPick: (index: number): void => {
+            this.speedIndex = index;
+            this.controller.timeScale = SPEEDS[index];
+          }
         })
+          .layoutWeight(1)
 
-        this.transportButton('图线', this.chartsVisible ? Theme.ACCENT : Theme.TEXT_SECONDARY, (): void => {
-          this.chartsVisible = !this.chartsVisible;
-        })
-
-        Blank()
-
+        // 仿真钟从传输行挪到这里:三颗按钮 + 时钟挤一行时,时钟被右边界裁掉(实测 t=0.00 s 顶到 1256),
+        // 而这一行右侧本来就空着 400 多像素
         Text('t = ' + this.simTime.toFixed(2) + ' s')
           .fontSize(Layout.sectionSize(this.cls()))
           .fontColor(Theme.TEXT_PRIMARY)
           .fontFamily('HarmonyOS Sans')
       }
       .width('100%')
-
-      // 倍速单独一行:和三个按钮挤在同一行时,手机档会把后两颗推出屏幕,
-      // 而推出去的控件既看不见也点不着。
-      Row({ space: 8 }) {
-        ForEach(SPEEDS, (speed: number, index: number) => {
-          Text(speed + '×')
-            .fontSize(Layout.labelSize(this.cls()))
-            .fontColor(this.speedIndex === index ? Color.White : Theme.TEXT_SECONDARY)
-            .height(Layout.touchMin(this.cls()))
-            .padding({ left: 12, right: 12 })
-            .borderRadius(Layout.controlRadius(this.cls()))
-            .backgroundColor(this.speedIndex === index ? Theme.ACCENT : Theme.BG_PAGE)
-            .onClick(() => {
-              this.speedIndex = index;
-              this.controller.timeScale = SPEEDS[index];
-            })
-        }, (speed: number) => speed.toString())
-      }
-      .width('100%')
-      .justifyContent(FlexAlign.End)
+      .justifyContent(FlexAlign.Start)
     }
     .width('100%')
   }
@@ -275,33 +314,26 @@ export struct ExperimentPage {
             .fontSize(Layout.captionSize(this.cls()))
             .fontColor(Theme.TEXT_SECONDARY)
         }
-        Text(def.label)
-          .fontSize(Layout.bodySize(this.cls()))
-          .fontWeight(FontWeight.Medium)
-          .fontColor(Color.White)
-          .textAlign(TextAlign.Center)
-          .height(Layout.touchMin(this.cls()))
-          .width('100%')
-          .borderRadius(Layout.controlRadius(this.cls()))
-          .backgroundColor(Theme.ACCENT)
-          .onClick((): void => {
+        AppButton({
+          label: def.label,
+          cls: this.cls(),
+          fullWidth: true,
+          onPress: (): void => {
             this.pressAction(def.key);
-          })
+          }
+        })
       }, (def: ActionDef) => def.key)
 
       if (this.scorable) {
-        Text('交卷评分')
-          .fontSize(Layout.bodySize(this.cls()))
-          .fontWeight(FontWeight.Medium)
-          .fontColor(Color.White)
-          .textAlign(TextAlign.Center)
-          .height(Layout.touchMin(this.cls()))
-          .width('100%')
-          .borderRadius(Layout.controlRadius(this.cls()))
-          .backgroundColor(Theme.RUNNING)
-          .onClick((): void => {
+        AppButton({
+          label: '交卷评分',
+          cls: this.cls(),
+          accent: Theme.RUNNING,
+          fullWidth: true,
+          onPress: (): void => {
             this.submitRun();
-          })
+          }
+        })
       }
 
       if (this.verdict.length > 0) {
@@ -314,6 +346,7 @@ export struct ExperimentPage {
           .backgroundColor(Theme.BG_PAGE)
       }
     }
+    .alignItems(HorizontalAlign.Start)
     .width('100%')
   }
 
@@ -371,22 +404,27 @@ export struct ExperimentPage {
     .width('100%')
   }
 
+  /**
+   * 图线列。每张图按 `Layout.chartHeight` 占高,不再平分一个固定值 ——
+   * 手机档两张图平分 190vp 时净高算出来是负数,图线就静默不画了(见 view/PlotFrame)。
+   * 高度由外层滚动容器消化,这里只声明内容高。
+   */
   @Builder
   chartStrip() {
     Column({ space: 10 }) {
       ForEach(this.meta.charts, (chart: ChartDef) => {
         SeriesChart({ chart: chart, controller: this.controller, hostWidth: this.hostWidth, tick: this.chartTick })
-          .layoutWeight(1)
           .width('100%')
+          .height(Layout.chartHeight(this.cls()))
       }, (chart: ChartDef) => chart.title)
     }
     .width('100%')
-    .height(Layout.chartAreaHeight(this.cls()))
   }
 
+  /** 参数与读数面板的内容本体。滚动与卡片外壳由调用方决定:侧栏布局自带滚动,
+   *  竖屏下与图线共用一个滚动区 —— 否则图线一开,画面就被挤成一条。 */
   @Builder
-  panel() {
-    Scroll() {
+  panelContent() {
       Column({ space: 16 }) {
         if (this.meta.summary.length > 0) {
           Text(this.meta.summary)
@@ -444,12 +482,19 @@ export struct ExperimentPage {
       .alignItems(HorizontalAlign.Start)
       .width('100%')
       .padding(Layout.cardPadding(this.cls()))
+  }
+
+  /** 侧栏布局(平板、大屏)下的面板:自带滚动与卡片底 */
+  @Builder
+  panel() {
+    Scroll() {
+      this.panelContent()
     }
     .scrollBar(BarState.Auto)
     .backgroundColor(Theme.BG_CARD)
     .borderRadius(Layout.cardRadius(this.cls()))
-    .width(Layout.isStacked(this.cls()) ? '100%' : Layout.panelWidth(this.cls()))
-    .height(Layout.isStacked(this.cls()) ? Layout.stackedChartHeight() : '100%')
+    .width(Layout.panelWidth(this.cls()))
+    .height('100%')
     .align(Alignment.TopStart)
   }
 
@@ -457,7 +502,9 @@ export struct ExperimentPage {
     NavDestination() {
       if (this.scene === null) {
         Column() {
-          Text('该实验的渲染器尚未实现')
+          // 原来写「该实验的渲染器尚未实现」—— 渲染器是我们自己的分层词,
+          // 学生看到的应该是"这条还没做出来",而不是我们缺哪一层
+          Text('这个实验还没做出来，先做清单里标了「能动手做」的那几条')
             .fontColor(Theme.TEXT_SECONDARY)
         }
         .width('100%')
@@ -465,13 +512,25 @@ export struct ExperimentPage {
         .justifyContent(FlexAlign.Center)
       } else if (Layout.isStacked(this.cls())) {
         Column({ space: 10 }) {
+          // 画面高度给死而不是 layoutWeight:开图线时被挤成一条,2D 世界就没法读了
           SimCanvas({ controller: this.controller, scene: this.scene, meta: this.meta, hostWidth: this.hostWidth })
-            .layoutWeight(1)
+            .width('100%')
+            .height(Layout.minSceneHeight(this.cls()))
           this.transportBar()
-          if (this.chartsVisible && this.meta.charts.length > 0) {
-            this.chartStrip()
+          // 图线与参数面板共用一个滚动区:各自带滚动时,图线一开就把画面顶出屏幕
+          Scroll() {
+            Column({ space: 10 }) {
+              if (this.chartsVisible && this.meta.charts.length > 0) {
+                this.chartStrip()
+              }
+              this.panelContent()
+            }
+            .width('100%')
+            .alignItems(HorizontalAlign.Start)
           }
-          this.panel()
+          .layoutWeight(1)
+          .scrollBar(BarState.Auto)
+          .width('100%')
         }
         .padding(Layout.pageInset(this.cls()))
         .width('100%')
@@ -481,9 +540,15 @@ export struct ExperimentPage {
           Column({ space: 10 }) {
             SimCanvas({ controller: this.controller, scene: this.scene, meta: this.meta, hostWidth: this.hostWidth })
               .layoutWeight(1)
+              .constraintSize({ minHeight: Layout.minSceneHeight(this.cls()) })
             this.transportBar()
             if (this.chartsVisible && this.meta.charts.length > 0) {
-              this.chartStrip()
+              Scroll() {
+                this.chartStrip()
+              }
+              .scrollBar(BarState.Auto)
+              .width('100%')
+              .height(Layout.chartViewportHeight(this.cls(), this.meta.charts.length))
             }
           }
           .layoutWeight(1)

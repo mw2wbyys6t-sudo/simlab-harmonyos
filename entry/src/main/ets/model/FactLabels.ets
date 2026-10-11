@@ -2,10 +2,13 @@
 export class FactLabel {
   label: string = '';
   unit: string = '';
+  /** 0/1 类事实印成数字,学生读到「是否超过弹性限度 = 0」会以为缺数;给 true 就印是/否 */
+  boolean: boolean = false;
 
-  constructor(label: string, unit: string) {
+  constructor(label: string, unit: string, isBoolean: boolean = false) {
     this.label = label;
     this.unit = unit;
+    this.boolean = isBoolean;
   }
 }
 
@@ -37,8 +40,8 @@ export class FactLabels {
     table.set('filtrateTurbidity', new FactLabel('滤液浊度', ' NTU'));
     table.set('splashSaltG', new FactLabel('蒸发飞溅损失盐', ' g'));
     table.set('powderStuckSaltG', new FactLabel('沾壁损失的盐', ' g'));
-    table.set('rodUsed', new FactLabel('玻璃棒引流', ''));
-    table.set('evapStirred', new FactLabel('蒸发时搅拌', ''));
+    table.set('rodUsed', new FactLabel('玻璃棒引流', '', true));
+    table.set('evapStirred', new FactLabel('蒸发时搅拌', '', true));
     table.set('aimOffsetCm', new FactLabel('对准偏差', ' cm'));
     table.set('elapsedSec', new FactLabel('总用时', ' s'));
     // 量取
@@ -51,10 +54,10 @@ export class FactLabels {
     table.set('readErrorMl', new FactLabel('读数与实际的差', ' mL'));
     // 弹簧:弹力与形变量(计数类单位留空,值由 valueText 原样印成整数)
     table.set('recordCount', new FactLabel('记录读数次数', ' 条'));
-    table.set('distinctLoads', new FactLabel('测过的载荷挡数', ' 挡'));
+    table.set('distinctLoads', new FactLabel('测过的载荷档数', ' 档'));
     table.set('maxRecordSpeed', new FactLabel('记录瞬间指针速度', ' m/s'));
     table.set('maxExtension', new FactLabel('到过的最大伸长', ' m'));
-    table.set('beyondLimit', new FactLabel('是否超过弹性限度', ''));
+    table.set('beyondLimit', new FactLabel('是否超过弹性限度', '', true));
     table.set('unloadSteps', new FactLabel('卸载步数', ' 次'));
     table.set('residual', new FactLabel('撤去载荷后的残余形变', ' m'));
     return table;
@@ -94,7 +97,10 @@ export class FactLabels {
       return '—';
     }
     const hit = FactLabels.of(key);
-    // 整数原样印:挡数/步数/是否超限度这类计数与布尔量印成 7.00 会被读成量出来的数
+    if (hit !== null && hit.boolean) {
+      return value >= 0.5 ? '是' : '否';
+    }
+    // 整数原样印:档数/步数这类计数印成 7.00 会被读成量出来的数
     const text = Number.isInteger(value) ? String(value) : value.toFixed(2);
     return text + (hit === null ? '' : hit.unit);
   }

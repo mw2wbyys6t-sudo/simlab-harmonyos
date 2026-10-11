@@ -121,12 +121,18 @@ export class Layout {
     return cls === DeviceClass.LARGE ? 56 : 44;
   }
 
-  /** 量取页器皿画布高度:量筒要的是竖向空间 */
+  /**
+   * 量取页器皿画布高度。
+   *
+   * 手机档给 180vp 而不是"能多大多大":这一页要一屏装下读数卡、两只器皿、图例、引导、
+   * 判定卡、两根滑杆和三个动作按钮。224vp 时按钮整排掉到屏幕下沿之外(实测按一次要滚一次),
+   * 而 180vp 仍能把 10 mL 的十分之一格画到可读。
+   */
   static gaugeHeight(cls: DeviceClass): number {
     if (cls === DeviceClass.LARGE) {
       return 400;
     }
-    return cls === DeviceClass.PAD ? 320 : 252;
+    return cls === DeviceClass.PAD ? 320 : 180;
   }
 
   /** 量取页器皿画布宽度。回转体加宽后需要留出判读游标的位置 */
@@ -154,7 +160,7 @@ export class Layout {
     if (cls === DeviceClass.LARGE) {
       return 210;
     }
-    return cls === DeviceClass.PAD ? 176 : 140;
+    return cls === DeviceClass.PAD ? 176 : 112;
   }
 
   /** 实验台一张容器卡的宽度 */
@@ -205,17 +211,42 @@ export class Layout {
     return cls === DeviceClass.PAD ? 170 : 130;
   }
 
-  /** 实验页图表区高度 */
-  static chartAreaHeight(cls: DeviceClass): number {
+  /**
+   * 单张图线的宿主高度。
+   *
+   * 这个值不是"看着舒服"的量,是由 view/PlotFrame 的算术反推的下限:扣掉标题行与
+   * 底部两行刻度后,绘图区净高还得 ≥ 40vp 才有读图价值。原来手机档把 190vp 平分给
+   * 两张图(每张 90vp),净高算出来是负数,于是图线区静默不画。
+   */
+  static chartHeight(cls: DeviceClass): number {
     if (cls === DeviceClass.LARGE) {
-      return 300;
+      return 190;
     }
-    return cls === DeviceClass.PAD ? 240 : 190;
+    return cls === DeviceClass.PAD ? 170 : 150;
   }
 
-  /** 竖屏堆叠时图表宿主的高度;侧栏布局直接吃满高,不用这个值 */
-  static stackedChartHeight(): number {
-    return 300;
+  /** 图线内容总高:按图数给,不再让 N 张图平分一个固定值 */
+  static chartAreaHeight(cls: DeviceClass, count: number): number {
+    const n = count < 1 ? 1 : count;
+    return n * Layout.chartHeight(cls) + (n - 1) * 10;
+  }
+
+  /** 图线可视窗:最多露出两张多一点点,其余靠滚动,免得把仿真画面挤出屏幕 */
+  static chartViewportHeight(cls: DeviceClass, count: number): number {
+    const needed = Layout.chartAreaHeight(cls, count);
+    const cap = 2.35 * Layout.chartHeight(cls);
+    return needed < cap ? needed : Math.round(cap);
+  }
+
+  /**
+   * 仿真画面的最小高度。开启图线后画面被 layoutWeight 挤成一条,2D 世界就没有可读性了
+   * —— 下限由这里说一次,而不是让布局在运行时碰运气。
+   */
+  static minSceneHeight(cls: DeviceClass): number {
+    if (cls === DeviceClass.LARGE) {
+      return 280;
+    }
+    return cls === DeviceClass.PAD ? 240 : 210;
   }
 
   static isStacked(cls: DeviceClass): boolean {

@@ -4,6 +4,7 @@ import { CurriculumIndex } from '../content/map/CurriculumIndex';
 import { ExperimentEntry, Feasibility, MapSubject, SchoolStage } from '../content/map/CurriculumTypes';
 import { ChemicalElement } from '../content/map/PeriodicTable';
 import { KnowledgeLevel, KnowledgePoint } from '../content/map/KnowledgeTypes';
+import { AppChips } from '../view/AppChips';
 
 /**
  * 课程地图页:只读浏览。
@@ -38,6 +39,8 @@ export struct MapPage {
   @State mode: number = 0;
   @State rows: MapRow[] = [];
   @State selected: number = -1;
+  /** 列表滚动控制器:展开详情时把这一行顶到视口上沿,不然正文可能全在屏幕外 */
+  private listScroller: Scroller = new Scroller();
 
   private subjects: MapSubject[] = [MapSubject.PHYSICS, MapSubject.CHEMISTRY,
     MapSubject.BIOLOGY, MapSubject.ELECTRONICS];
@@ -73,20 +76,20 @@ export struct MapPage {
     return this.stages[this.stageIndex];
   }
 
+  /**
+   * 可行性徽章。
+   *
+   * 枚举里分「缺场景 / 缺模型 / 缺渲染器」是我们排产用的,学生不需要知道少了哪一层 ——
+   * 对他们只有三种事实:现在就能做、还没做出来、这实验本来就得用真器材。
+   */
   private static badgeOf(feasibility: Feasibility): string {
     if (feasibility === Feasibility.RUNNABLE) {
-      return '可打开';
+      return '能动手做';
     }
-    if (feasibility === Feasibility.NEEDS_SCENE) {
-      return '待补场景';
+    if (feasibility === Feasibility.NEEDS_REAL_GEARS) {
+      return '要用真器材';
     }
-    if (feasibility === Feasibility.NEEDS_MODEL) {
-      return '待补模型';
-    }
-    if (feasibility === Feasibility.NEEDS_RENDERER) {
-      return '待补渲染器';
-    }
-    return '不宜仿真';
+    return '还没做出来';
   }
 
   private static levelOf(level: KnowledgeLevel): string {
@@ -178,38 +181,39 @@ export struct MapPage {
    * 「共 75 个实验 · 现在能打开 1 个」和「高中 15 个 · 能打开 2 个」是两个不同的问题,
    * 后者才是学生站在这屏前想问的。周期表那一档不属于任何学段,它报的是全表。
    */
+  /**
+   * 顶部计数行。
+   *
+   * 原来印的是「共 18 个实验 · 现在能打开 2 个 · 出处未核实 2 个」—— 后半句是核对数据时
+   * 用的工艺术语,学生读到只会问"未核实跟我有什么关系"。核实状态本来就标在每一行上,
+   * 这一行只留两件事:这里有多少条,其中几条现在就能动手做。
+   */
   private totalLabel(): string {
     const subject = this.currentSubject();
     const stage = this.currentStage();
     const stageName = CurriculumIndex.stageName(stage);
+    const where = stageName + this.subjectNames[this.subjectIndex];
     if (this.mode === 0) {
       const list = CurriculumIndex.experimentsOfStage(subject, stage);
+      if (list.length === 0) {
+        return where + ' · 这里还没有可做的实验';
+      }
       let runnable = 0;
-      let unverified = 0;
       for (let i = 0; i < list.length; i++) {
         if (list[i].feasibility === Feasibility.RUNNABLE) {
           runnable++;
         }
-        if (!list[i].verified) {
-          unverified++;
-        }
       }
-      return stageName + this.subjectNames[this.subjectIndex] + ' · 共 ' + list.length +
-        ' 个实验 · 现在能打开 ' + runnable + ' 个 · 出处未核实 ' + unverified + ' 个';
+      return where + ' · 共 ' + list.length + ' 个实验，其中 ' + runnable + ' 个现在就能动手做';
     }
     if (this.mode === 1) {
       const list = CurriculumIndex.knowledgeOfStage(subject, stage);
-      let unverified = 0;
-      for (let i = 0; i < list.length; i++) {
-        if (!list[i].verified) {
-          unverified++;
-        }
-      }
-      return stageName + this.subjectNames[this.subjectIndex] + ' · 共 ' + list.length +
-        ' 条知识点 · 其中未核实 ' + unverified + ' 条';
+      return list.length === 0
+        ? where + ' · 这里还没有知识点'
+        : where + ' · 共 ' + list.length + ' 条知识点';
     }
-    return '共 ' + CurriculumIndex.elements().length + ' 种元素 (1-118 全收) · ' +
-      '原子量取教学常用值, 未逐项对照 IUPAC 最新表';
+    return '共 ' + CurriculumIndex.elements().length + ' 种元素 · ' +
+      '相对原子质量取教学常用值';
   }
 
   /** 选中条目的正文。取不到就返回空 —— 列表重建后下标会失效,这里不猜 */
@@ -224,7 +228,7 @@ export struct MapPage {
       }
       let text = '第 ' + el.period + ' 周期 · 第 ' + el.group + ' 族 · ' + el.block + ' 区\n' +
         '相对原子质量 ' + el.mass + ' · 常温' + el.state + ' · ' + el.kind + '\n' +
-        '常见化合价:' + el.valenceLabel();
+        '常见化合价：' + el.valenceLabel();
       if (el.note.length > 0) {
         text = text + '\n\n' + el.note;
       }
@@ -238,10 +242,10 @@ export struct MapPage {
       }
       let text = e.principle;
       if (e.dataHandling.length > 0) {
-        text = text + '\n\n数据处理:' + e.dataHandling;
+        text = text + '\n\n数据处理：' + e.dataHandling;
       }
-      text = text + '\n\n器材与试剂:' + e.apparatus.join('、');
-      text = text + '\n\n涉及知识点:' + e.knowledge.join('、');
+      text = text + '\n\n器材与试剂：' + e.apparatus.join('、');
+      text = text + '\n\n涉及的知识点：' + e.knowledge.join('、');
       return text;
     }
     const k = CurriculumIndex.findKnowledge(id);
@@ -250,7 +254,7 @@ export struct MapPage {
     }
     let text = k.statement;
     if (k.symbols.length > 0) {
-      text = text + '\n\n符号与单位:' + k.symbols.join('、');
+      text = text + '\n\n符号与单位：' + k.symbols.join('、');
     }
     const prereqNames: string[] = [];
     for (let i = 0; i < k.prerequisites.length; i++) {
@@ -258,7 +262,8 @@ export struct MapPage {
       prereqNames.push(one === null ? k.prerequisites[i] : one.title);
     }
     if (prereqNames.length > 0) {
-      text = text + '\n\n先修:' + prereqNames.join('、');
+      // 「先修」是课程设计的行话,学生要的是"这条得先会哪些"
+      text = text + '\n\n要先会这些：' + prereqNames.join('、');
     }
     return text;
   }
@@ -293,81 +298,36 @@ export struct MapPage {
     const where = CurriculumIndex.stageName(stage) + this.subjectNames[this.subjectIndex];
     if (this.mode === 0) {
       const kn = CurriculumIndex.knowledgeOfStage(subject, stage).length;
-      return '这张地图上' + where + '还没有登记实验条目' +
-        (kn > 0 ? ' · 已有 ' + kn + ' 条知识点,可切到「知识点」' : '');
+      return '这张地图上' + where + '还没有收录实验' +
+        (kn > 0 ? ' · 已有 ' + kn + ' 条知识点，可切到「知识点」' : '');
     }
     const exp = CurriculumIndex.experimentsOfStage(subject, stage).length;
-    return '这张地图上' + where + '还没有登记知识点' +
-      (exp > 0 ? ' · 已有 ' + exp + ' 个实验,可切到「实验清单」' : '');
+    return '这张地图上' + where + '还没有收录知识点' +
+      (exp > 0 ? ' · 已有 ' + exp + ' 个实验，可切到「实验清单」' : '');
   }
 
-  @Builder
-  subjectChip(index: number) {
-    Text(this.subjectNames[index])
-      .fontSize(Layout.labelSize(this.cls()))
-      .fontColor(this.subjectIndex === index ? Theme.textOn(Theme.ACCENT) : Theme.TEXT_SECONDARY)
-      .textAlign(TextAlign.Center)
-      .height(Layout.touchMin(this.cls()))
-      .borderRadius(Layout.chipRadius(this.cls()))
-      .backgroundColor(this.subjectIndex === index ? Theme.ACCENT : Theme.BG_CARD)
-      .border({
-        width: 1,
-        color: this.subjectIndex === index ? Theme.ACCENT : Theme.DIVIDER
-      })
-      .layoutWeight(1)
-      .onClick(() => {
-        this.subjectIndex = index;
-        // 周期表只属于化学:切到别的学科时不能停留在一个已经没有意义的视图上
-        if (this.mode === 2 && this.subjects[index] !== MapSubject.CHEMISTRY) {
-          this.mode = 0;
-        }
-        this.computeStages();
-        this.rebuild();
-      })
+  private stageLabels(): string[] {
+    return this.stages.map((stage: SchoolStage): string => CurriculumIndex.stageName(stage));
   }
 
-  /**
-   * 学段标签。只在该学科真有多个学段时才摆出来 ——
-   * 一排只有一个选项的筛选器是噪声,而化学/生物/电子现在就是这样。
-   */
-  @Builder
-  stageChip(index: number) {
-    Text(CurriculumIndex.stageName(this.stages[index]))
-      .fontSize(Layout.captionSize(this.cls()))
-      .fontColor(this.stageIndex === index ? Theme.textOn(Theme.ACCENT) : Theme.TEXT_SECONDARY)
-      .textAlign(TextAlign.Center)
-      .height(Layout.chipHeight(this.cls()))
-      .borderRadius(Layout.chipRadius(this.cls()))
-      .backgroundColor(this.stageIndex === index ? Theme.ACCENT : Theme.BG_CARD)
-      .border({
-        width: 1,
-        color: this.stageIndex === index ? Theme.ACCENT : Theme.DIVIDER
-      })
-      .layoutWeight(1)
-      .onClick(() => {
-        this.stageIndex = index;
-        this.rebuild();
-      })
+  /** 周期表只属于化学,所以这一排只有化学是三个选项 */
+  private modeLabels(): string[] {
+    const count = this.hasPeriodicTable() ? 3 : 2;
+    const out: string[] = [];
+    for (let i = 0; i < count; i++) {
+      out.push(this.modeName(i));
+    }
+    return out;
   }
 
-  @Builder
-  modeChip(index: number) {
-    Text(this.modeName(index))
-      .fontSize(Layout.captionSize(this.cls()))
-      .fontColor(this.mode === index ? Theme.textOn(Theme.SUBJECT_CHEMISTRY) : Theme.TEXT_SECONDARY)
-      .textAlign(TextAlign.Center)
-      .height(Layout.chipHeight(this.cls()))
-      .borderRadius(Layout.chipRadius(this.cls()))
-      .backgroundColor(this.mode === index ? Theme.SUBJECT_CHEMISTRY : Theme.BG_CARD)
-      .border({
-        width: 1,
-        color: this.mode === index ? Theme.SUBJECT_CHEMISTRY : Theme.DIVIDER
-      })
-      .layoutWeight(1)
-      .onClick(() => {
-        this.mode = index;
-        this.rebuild();
-      })
+  private pickSubject(index: number): void {
+    this.subjectIndex = index;
+    // 周期表只属于化学:切到别的学科时不能停留在一个已经没有意义的视图上
+    if (this.mode === 2 && this.subjects[index] !== MapSubject.CHEMISTRY) {
+      this.mode = 0;
+    }
+    this.computeStages();
+    this.rebuild();
   }
 
   /**
@@ -405,12 +365,26 @@ export struct MapPage {
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
+      // 整行就是命中区(「详情」只是提示),所以反馈也加在行上而不是那两个字上
+      .clickEffect({ level: ClickEffectLevel.LIGHT })
       .onClick(() => {
-        this.selected = this.selected === index ? -1 : index;
+        const opening = this.selected !== index;
+        this.selected = opening ? index : -1;
+        // 展开后立刻把这一行滚到视口上沿:否则点在屏幕下沿的条目时,
+        // 刚展开的正文整段落在折叠线以下,看着像点了没反应
+        if (opening) {
+          this.listScroller.scrollToIndex(index, true, ScrollAlign.START);
+        }
       })
 
       if (this.selected === index) {
         Column({ space: 6 }) {
+          // 正文自带抬头:点在视口下沿的行上,标题行会被顶出屏幕,
+          // 429 字的正文就成了没有名字的一段(模拟器实测 bounds 高 2px)
+          Text(this.rows[index].title)
+            .fontSize(Layout.sectionSize(this.cls()))
+            .fontWeight(FontWeight.Medium)
+            .fontColor(Theme.TEXT_PRIMARY)
           Text(this.detailBody())
             .fontSize(Layout.labelSize(this.cls()))
             .fontColor(Theme.TEXT_PRIMARY)
@@ -442,31 +416,37 @@ export struct MapPage {
           .fontColor(Theme.TEXT_SECONDARY)
           .width('100%')
 
-        Row({ space: 6 }) {
-          this.subjectChip(0)
-          this.subjectChip(1)
-          this.subjectChip(2)
-          this.subjectChip(3)
-        }
-        .width('100%')
+        AppChips({
+          labels: this.subjectNames,
+          selected: this.subjectIndex,
+          onPick: (index: number): void => {
+            this.pickSubject(index);
+          }
+        })
+          .width('100%')
 
         if (this.stages.length > 1) {
-          Row({ space: 6 }) {
-            ForEach(this.stages, (stage: SchoolStage, index: number) => {
-              this.stageChip(index)
-            }, (stage: SchoolStage): string => stage)
-          }
-          .width('100%')
+          AppChips({
+            labels: this.stageLabels(),
+            selected: this.stageIndex,
+            onPick: (index: number): void => {
+              this.stageIndex = index;
+              this.rebuild();
+            }
+          })
+            .width('100%')
         }
 
-        Row({ space: 6 }) {
-          this.modeChip(0)
-          this.modeChip(1)
-          if (this.hasPeriodicTable()) {
-            this.modeChip(2)
+        AppChips({
+          labels: this.modeLabels(),
+          selected: this.mode,
+          accent: Theme.SUBJECT_CHEMISTRY,
+          onPick: (index: number): void => {
+            this.mode = index;
+            this.rebuild();
           }
-        }
-        .width('100%')
+        })
+          .width('100%')
 
         if (this.rows.length === 0) {
           Column() {
@@ -480,7 +460,7 @@ export struct MapPage {
           .justifyContent(FlexAlign.Center)
           .alignItems(HorizontalAlign.Center)
         } else {
-          List({ space: 4 }) {
+          List({ space: 4, scroller: this.listScroller }) {
             ForEach(this.rows, (row: MapRow, index: number) => {
               ListItem() {
                 this.rowCell(index)
@@ -502,5 +482,6 @@ export struct MapPage {
       })
     }
     .title('课程地图')
+    .backgroundColor(Theme.BG_PAGE)
   }
 }

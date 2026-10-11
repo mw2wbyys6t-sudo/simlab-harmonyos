@@ -4,7 +4,11 @@ import { CircuitSpec, Component, ComponentKind, WirePath } from '../physics/circ
 import { ExperimentRegistry } from '../runner/ExperimentRegistry';
 import { SceneBuilders } from './SceneBuilders';
 
-const WORLD_W = 9;
+/**
+ * 世界宽 10 而不是刚好包住电路:最右侧支路上的电压表要往圆的外侧印读数
+ * (V₂ 在 x=8.25,一行读数约占 1 米),按 9 收边时读数被画布右边界裁成「3.6…」。
+ */
+const WORLD_W = 10;
 const WORLD_H = 5.4;
 
 /**
@@ -284,7 +288,7 @@ export class ElectricalScenes {
     meta.title = '基尔霍夫定律的验证';
     meta.subject = Subject.PHYSICS_ELECTRICAL;
     meta.renderer = RendererKind.PHYSICS_2D;
-    meta.summary = '两条含源支路与一条纯电阻支路并接在节点 A 与底轨之间,按参考方向读三条支路电流,检验 ΣI=0 与回路 ΣU=0。';
+    meta.summary = '两条含源支路与一条纯电阻支路并接在节点 A 与底轨之间，按参考方向读三条支路电流，检验 ΣI=0 与回路 ΣU=0。';
     meta.gradeBand = '大学电工电子 · 大一下';
     meta.durationMinutes = 90;
     meta.worldWidth = WORLD_W;
@@ -298,26 +302,26 @@ export class ElectricalScenes {
      * 三条支路电流一律用 SIGNED_I:本实验要验的是"代数和为零",
      * 取绝对值的 I: 会把方向信息抹掉,三个正数相加永远不为零,实验就变成错的。
      */
-    meta.observables.push(SceneBuilders.observable('SIGNED_I:a1', '支路 1 电流 I₁(流入节点 A 为正)', 'A', 4, true));
-    meta.observables.push(SceneBuilders.observable('SIGNED_I:a2', '支路 2 电流 I₂(流入节点 A 为正)', 'A', 4, true));
-    meta.observables.push(SceneBuilders.observable('SIGNED_I:a3', '支路 3 电流 I₃(流入节点 A 为正)', 'A', 4, true));
-    meta.observables.push(SceneBuilders.observable('V:1', '节点 A 的电位 U_A(对底轨)', 'V', 3, false));
+    meta.observables.push(SceneBuilders.observable('SIGNED_I:a1', '支路 1 电流 I₁（流入节点 A 为正）', 'A', 4, true));
+    meta.observables.push(SceneBuilders.observable('SIGNED_I:a2', '支路 2 电流 I₂（流入节点 A 为正）', 'A', 4, true));
+    meta.observables.push(SceneBuilders.observable('SIGNED_I:a3', '支路 3 电流 I₃（流入节点 A 为正）', 'A', 4, true));
+    meta.observables.push(SceneBuilders.observable('V:1', '节点 A 的电位 U_A（对底轨）', 'V', 3, false));
     meta.observables.push(SceneBuilders.observable('U:r1', 'R₁ 两端电压', 'V', 3, false));
     meta.observables.push(SceneBuilders.observable('U:r2', 'R₂ 两端电压', 'V', 3, false));
     meta.observables.push(SceneBuilders.observable('U:r3', 'R₃ 两端电压', 'V', 3, false));
-    meta.observables.push(SceneBuilders.observable('U:src1', 'E₁ 两端电压(路端电压)', 'V', 3, false));
-    meta.observables.push(SceneBuilders.observable('U:src2', 'E₂ 两端电压(路端电压)', 'V', 3, false));
+    meta.observables.push(SceneBuilders.observable('U:src1', 'E₁ 两端电压（路端电压）', 'V', 3, false));
+    meta.observables.push(SceneBuilders.observable('U:src2', 'E₂ 两端电压（路端电压）', 'V', 3, false));
     meta.charts.push(SceneBuilders.timeChart('三条支路电流', 'I', 'A', [
       SceneBuilders.trace('SIGNED_I:a1', 'I₁', SceneBuilders.palette(0)),
       SceneBuilders.trace('SIGNED_I:a2', 'I₂', SceneBuilders.palette(1)),
       SceneBuilders.trace('SIGNED_I:a3', 'I₃', SceneBuilders.palette(2))
     ]));
     meta.tasks.push(SceneBuilders.task('kcl-closure',
-      '把 I₁、I₂、I₃ 按参考方向(流入节点 A 为正)相加,给出节点 A 的电流闭合差。', 0, 0.02));
+      '把 I₁、I₂、I₃ 按参考方向（流入节点 A 为正）相加，给出节点 A 的电流闭合差。', 0, 0.02));
     meta.tasks.push(SceneBuilders.task('kcl-ratio',
-      '令 E₁=E₂=6 V、R₁=R₃=10 Ω、R₂=20 Ω,读出中支路电流与一条源支路电流的比值 I₂/I₁。', 2, 0.05));
+      '令 E₁=E₂=6 V、R₁=R₃=10 Ω、R₂=20 Ω，读出中支路电流与一条源支路电流的比值 I₂/I₁。', 2, 0.05));
     meta.tasks.push(SceneBuilders.task('kvl-loop',
-      '把 E₁ 调到 0(或反接),说明 I₂ 的符号为什么可能翻转;再按顺时针与逆时针各累加一次回路 1 的电压,给回路相对闭合差。',
+      '把 E₁ 调到 0（或反接），说明 I₂ 的符号为什么可能翻转；再按顺时针与逆时针各累加一次回路 1 的电压，给回路相对闭合差。',
       Number.NaN, 0));
     return meta;
   }

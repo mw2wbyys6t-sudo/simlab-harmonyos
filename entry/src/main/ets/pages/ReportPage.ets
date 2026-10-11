@@ -8,6 +8,7 @@ import { SessionRecord } from '../model/SessionRecord';
 import { FactLabels } from '../model/FactLabels';
 import { Subject } from '../model/ExperimentTypes';
 import { SessionStore } from '../platform/SessionStore';
+import { AppButton, ButtonVariant } from '../view/AppButton';
 
 /** 报告里展示的一行事实 */
 class FactLine {
@@ -158,12 +159,13 @@ export struct ReportPage {
     line.factText = this.factLineOf(record);
     const rubric = Rubrics.byId(record.rubricId);
     if (rubric === null) {
-      line.scoreText = '未评分(没有匹配的参考细则)';
+      line.scoreText = '这次操作只留下了数据，暂时没有对应的评分参考';
       return line;
     }
     const card = Judgment.score(rubric, Rubrics.factsFor(record));
-    line.scoreText = '得分 ' + card.awarded.toFixed(0) + ' / ' + card.total.toFixed(0)
-      + '(' + rubric.source + ' ' + rubric.version + ')';
+    // 措辞只有一处来源:实验页判完、报告页回看,同一句话不能长成两个样子
+    // (来源与版本都必须露出 —— R1:自建细则不能看起来像官方标准)
+    line.scoreText = card.summaryLine();
     if (card.deductions.length > 0) {
       const titles: string[] = [];
       for (const item of card.deductions) {
@@ -348,7 +350,7 @@ export struct ReportPage {
           this.header()
 
           Column({ space: 2 }) {
-            Text(this.deductions.length === 0 ? '操作全部规范，无扣分项' : '扣分项(每条均可复算)')
+            Text(this.deductions.length === 0 ? '操作全部规范，无扣分项' : '扣分项（每条都附当时的数据）')
               .fontSize(Layout.sectionSize(this.cls()))
               .fontWeight(FontWeight.Bold)
               .fontColor(Theme.TEXT_PRIMARY)
@@ -363,7 +365,9 @@ export struct ReportPage {
           .borderRadius(Layout.cardRadius(this.cls()))
 
           Column({ space: 2 }) {
-            Text('关键事实')
+            // 「关键事实 / 步骤时序」是判分层的内部叫法(fact / moment),
+            // 学生要的是"当时记下了哪些数"和"每一步是什么时候做的"
+            Text('记录到的数据')
               .fontSize(Layout.sectionSize(this.cls()))
               .fontWeight(FontWeight.Bold)
               .fontColor(Theme.TEXT_PRIMARY)
@@ -378,12 +382,14 @@ export struct ReportPage {
           .borderRadius(Layout.cardRadius(this.cls()))
 
           Column({ space: 4 }) {
-            Text('步骤时序')
+            Text('分步过程')
               .fontSize(Layout.sectionSize(this.cls()))
               .fontWeight(FontWeight.Bold)
               .fontColor(Theme.TEXT_PRIMARY)
             if (this.timeline.length === 0) {
-              Text('这次操作没有分步时刻可显示。量取链路只记录结果量，不记录溶解/过滤/蒸发的节点。')
+              // 原来这句写死了「量取链路…不记录溶解/过滤/蒸发」:物理实验的报告上
+              // 冒出化学台架的术语,而这一格对任何没有时刻的记录都成立
+              Text('这次操作只记录了结果数值，没有记下每一步的时间。')
                 .fontSize(Layout.captionSize(this.cls()))
                 .fontColor(Theme.TEXT_SECONDARY)
             } else {
@@ -406,7 +412,8 @@ export struct ReportPage {
               .fontWeight(FontWeight.Bold)
               .fontColor(Theme.TEXT_PRIMARY)
             if (this.history.length === 0) {
-              Text('还没有保存过任何一次操作。在量取训练里点「收手判定」就会留下一条。')
+              // 按钮上一批改叫「停止并判定」了,这里还写着旧名 —— 界面在指一个不存在的按钮
+              Text('还没有保存过任何一次操作。在量取训练里点「停止并判定」就会留下一条。')
                 .fontSize(Layout.captionSize(this.cls()))
                 .fontColor(Theme.TEXT_SECONDARY)
             } else {
@@ -434,15 +441,15 @@ export struct ReportPage {
                       Text(line.stamp)
                         .fontSize(Layout.captionSize(this.cls()))
                         .fontColor(Theme.TEXT_SECONDARY)
-                      Text('删除')
-                        .fontSize(Layout.captionSize(this.cls()))
-                        .fontColor(Theme.DANGER)
-                        .width(Layout.touchMin(this.cls()))
-                        .height(Layout.touchMin(this.cls()))
-                        .textAlign(TextAlign.Center)
-                        .onClick(() => {
+                      AppButton({
+                        label: '删除',
+                        cls: this.cls(),
+                        variant: ButtonVariant.LINK,
+                        accent: Theme.DANGER,
+                        onPress: (): void => {
                           this.confirmDelete(line);
-                        })
+                        }
+                      })
                     }
                     .width('100%')
 
@@ -461,6 +468,8 @@ export struct ReportPage {
                     width: 1,
                     color: this.selectedKey === line.key ? Theme.ACCENT : Theme.DIVIDER
                   })
+                  // 可点的卡片也要有按下反馈:没有它,"点中了没有"只能靠下一屏猜
+                  .clickEffect({ level: ClickEffectLevel.LIGHT })
                   .onClick(() => {
                     this.select(line.key);
                   })
@@ -476,8 +485,8 @@ export struct ReportPage {
           .backgroundColor(Theme.BG_CARD)
           .borderRadius(Layout.cardRadius(this.cls()))
 
-          Text('说明：表中产率、浊度等绝对数值来自教学演示标定(见 spec R2)，仅守恒关系与单调关系可信；'
-            + '判据为自建参考细则，不代表任何教育考试院标准。')
+          Text('说明：表里的产率、浊度等具体数值按教学演示设定，可信的是它们之间的大小关系与守恒关系；'
+            + '评分用的是自建参考细则，不代表任何教育考试院标准。')
             .fontSize(Layout.captionSize(this.cls()))
             .fontColor(Theme.TEXT_SECONDARY)
             .width('100%')
@@ -490,7 +499,7 @@ export struct ReportPage {
       .padding({ left: 14, right: 14 })
       .align(Alignment.TopStart)
     }
-    .title('操作诊断报告')
+    .title('操作记录与评分')
     .backgroundColor(Theme.BG_PAGE)
     .onAppear(() => {
       this.loadHistory();

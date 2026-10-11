@@ -17,6 +17,8 @@ const C_OPEN = '#E2574C';
 const SYMBOL_HALF = 0.42;
 const SYMBOL_THICK = 0.26;
 const METER_R = 0.26;
+/** 一行电表读数约占的宽度(米)。是下限估计:真越界时绘制层还会把文字兜回画布内 */
+const READOUT_SPAN = 1.0;
 
 /**
  * 直流电路求解与绘制。
@@ -398,7 +400,7 @@ export class CircuitRunner extends Physics2DRunner {
           this.snap.segments.push(this.seg(px, py,
             px + (qx - px) * 0.87, py + (qy - py) * 0.87 + 0.36, C_OPEN, 4));
         }
-        this.nameTag(item, px - 0.16, py + 0.26);
+        this.nameTag(item, px, py + 0.26, 'center');
         break;
       }
       default:
@@ -406,10 +408,10 @@ export class CircuitRunner extends Physics2DRunner {
     }
 
     if (item.kind !== ComponentKind.SWITCH && item.kind !== ComponentKind.SOURCE) {
-      this.nameTag(item, this.midX(item) - 0.22, this.midY(item) + SYMBOL_THICK + 0.16);
+      this.nameTag(item, this.midX(item), this.midY(item) + SYMBOL_THICK + 0.16, 'center');
       this.currentArrow(item);
     } else if (item.kind === ComponentKind.SOURCE) {
-      this.nameTag(item, (item.ax + item.bx) / 2 - 0.62, (item.ay + item.by) / 2);
+      this.sourceTag(item);
     }
   }
 
@@ -457,7 +459,7 @@ export class CircuitRunner extends Physics2DRunner {
     this.snap.segments.push(this.seg(cx - size, cy + size, cx + size, cy - size, C_LAMP, 2));
   }
 
-  private nameTag(item: Component, x: number, y: number): void {
+  private nameTag(item: Component, x: number, y: number, align: string): void {
     if (item.label.length === 0) {
       return;
     }
@@ -467,10 +469,36 @@ export class CircuitRunner extends Physics2DRunner {
     tag.text = item.label;
     tag.sizeVp = 14;
     tag.color = C_TEXT;
+    tag.align = align;
     this.snap.labels.push(tag);
   }
 
-  /** 电表读数标注:竖着的元件把数字放右边,横着的放下方,避免压住导线 */
+  /**
+   * 电源标签放在极板外侧。
+   *
+   * 原来写死 `(ax+bx)/2 - 0.62` 再左对齐:长极板本身向两侧伸出 0.42,
+   * 于是「电源」两个字有一半压在极板上(截图实测)。现在按极板的法线方向外移,
+   * 竖放的电源字在左边、横放的电源字在上边,都不碰符号。
+   */
+  private sourceTag(item: Component): void {
+    const dx = item.bx - item.ax;
+    const dy = item.by - item.ay;
+    const long = Math.sqrt(dx * dx + dy * dy);
+    if (long < 1e-6) {
+      return;
+    }
+    this.nameTag(item, (item.ax + item.bx) / 2 - dy / long * 0.56,
+      (item.ay + item.by) / 2 + dx / long * 0.56, 'center');
+  }
+
+  /**
+   * 电表读数标注:竖着的元件把数字放侧面,横着的放下方,避免压住导线。
+   *
+   * 侧面这一档以前只有"放右边":V₂ 挂在最右侧支路上时,`midX + METER_R + 0.12`
+   * 起头的字直接被画布右边界裁成「3.6…」。模型层只知道米、不知道一行字占多少像素,
+   * 所以这里用一个下限估宽判断放不放得下,放不下就退到圆的下方居中 ——
+   * 退到左边会压在同一条支路的电阻上(实测)。绘制层还会再兜一次不越界。
+   */
   private readout(item: Component, color: string): void {
     if (!this.solved) {
       return;
@@ -483,9 +511,17 @@ export class CircuitRunner extends Physics2DRunner {
     const vertical = Math.abs(this.dirX(item)) < 0.5;
     const isAmmeter = item.kind === ComponentKind.AMMETER;
     const text = (isAmmeter ? current.toFixed(2) + ' A' : Math.abs(voltage).toFixed(2) + ' V');
+    const gap = METER_R + 0.12;
     const label = new LabelShape();
-    label.x = vertical ? this.midX(item) + METER_R + 0.12 : this.midX(item) - 0.38;
-    label.y = vertical ? this.midY(item) + 0.06 : this.midY(item) - METER_R - 0.18;
+    if (vertical && this.midX(item) + gap + READOUT_SPAN <= this.meta.worldWidth) {
+      label.x = this.midX(item) + gap;
+      label.y = this.midY(item) + 0.06;
+      label.align = 'left';
+    } else {
+      label.x = this.midX(item);
+      label.y = this.midY(item) - METER_R - (vertical ? 0.26 : 0.18);
+      label.align = 'center';
+    }
     label.text = text;
     label.sizeVp = 13;
     label.color = color;

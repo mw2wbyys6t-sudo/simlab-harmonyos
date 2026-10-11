@@ -1,19 +1,29 @@
-import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
+import { AbilityConstant, Configuration, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
+import { AppearanceStore } from '../platform/AppearanceStore';
+import { Palette } from '../view/Palette';
 
 const DOMAIN = 0x0000;
 const TAG = 'SimLab';
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
-    // 主题色全部按浅色硬编码,跟随系统深色会让文字与底色错配;教室投影下也要可预期
-    try {
-      this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT);
-    } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'setColorMode failed: %{public}s', JSON.stringify(err));
-    }
+    // 深浅色是用户偏好,不再硬钉浅色:启动时把盘里的那档打回去,没存过就是「跟随系统」。
+    // 放在 onCreate 而不是 loadContent 之后 —— 资源在首帧就按这一档解析,晚一步就闪一次底色。
+    AppearanceStore.apply(this.context, AppearanceStore.load(this.context));
+    // 画布只吃字符串,而 ability 比任何组件都先活:在这里绑上解析器,
+    // 组件构造期取的色就不会拿到"还没绑"的占位值。
+    Palette.bind(this.context);
     hilog.info(DOMAIN, TAG, '%{public}s', 'Ability onCreate');
+  }
+
+  /**
+   * 跟随系统时,深浅色由系统翻。组件层的 Resource 会自己重解,
+   * 但画布吃的是 Palette 缓存下来的 hex —— 不重解就会停在旧模式的颜色上。
+   */
+  onConfigurationUpdate(newConfig: Configuration): void {
+    Palette.reset();
   }
 
   onDestroy(): void {

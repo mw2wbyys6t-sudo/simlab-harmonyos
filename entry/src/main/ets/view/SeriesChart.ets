@@ -1,25 +1,12 @@
 import { ChartDef, ChartSeries } from '../model/ExperimentTypes';
 import { RunController } from '../runner/RunController';
 import { Theme } from '../common/Theme';
+import { Palette } from './Palette';
 import { DeviceClass, Layout } from '../common/Layout';
+import { PlotFrame, PlotLayout } from './PlotFrame';
 
-const GRID = '#E1E6ED';
-const AXIS_TEXT = '#6B7A8D';
 /** 超过这个点数就抽稀。600 点在手绘曲线上已看不出折线感,再密只是白画。 */
 const MAX_POINTS = 600;
-
-/** 一次绘制内共享的坐标系,避免每条曲线重算量程。 */
-class PlotFrame {
-  left: number = 0;
-  top: number = 0;
-  width: number = 0;
-  height: number = 0;
-  xLow: number = 0;
-  xSpan: number = 1;
-  yLow: number = 0;
-  ySpan: number = 1;
-  font: number = 11;
-}
 
 /**
  * 通用图线:横轴取采样时间或任一观测量,纵轴叠若干同单位曲线。
@@ -35,6 +22,10 @@ export struct SeriesChart {
   @Prop hostWidth: number = 0;
   @Prop @Watch('redraw') tick: number = 0;
   private ctx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
+
+  aboutToAppear(): void {
+    Palette.bind(this.getUIContext().getHostContext());
+  }
 
   private cls(): DeviceClass {
     return Layout.classify(this.hostWidth);
@@ -98,31 +89,28 @@ export struct SeriesChart {
       return;
     }
     const ctx = this.ctx;
-    ctx.fillStyle = Theme.BG_CARD;
+    ctx.fillStyle = Palette.cardBg();
     ctx.fillRect(0, 0, w, h);
 
-    const fs = w > 700 ? 14 : 11;
-    ctx.fillStyle = Theme.TEXT_PRIMARY;
+    const fs = PlotLayout.fontFor(w);
+    ctx.fillStyle = Palette.textPrimary();
     ctx.font = 'bold ' + fs + 'vp sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
     ctx.fillText(this.chart.title, 10, fs + 4);
 
-    const frame = new PlotFrame();
-    frame.font = fs;
-    frame.left = fs * 3.6;
-    frame.top = fs + 16;
-    frame.width = w - frame.left - fs;
-    // 底部要同时放得下刻度行与轴标题行,原先只留 2.2 个字号,两行会叠在一起
-    frame.height = h - frame.top - fs * 4.6;
-    if (frame.width <= 20 || frame.height <= 20) {
+    const frame = PlotLayout.frameFor(w, h);
+    if (!PlotLayout.drawable(frame)) {
+      // 静默不画正是这条缺陷最难发现的地方:画面看着"就是没有曲线",
+      // 而不是"这里本该有图但放不下"。放不下也要把话说出来。
+      SeriesChart.drawHint(ctx, w, h, fs, PlotLayout.hintFor(w, h));
       return;
     }
 
     const times = this.controller.times;
     const xs = this.chart.xKey === 't' ? times : this.seriesOf(this.chart.xKey);
     if (!SeriesChart.plottable(xs, this.chart, this)) {
-      ctx.fillStyle = AXIS_TEXT;
+      ctx.fillStyle = Palette.textSecondary();
       ctx.font = fs + 'vp sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('运行实验或调节参数后开始描点', frame.left + frame.width / 2,
@@ -164,7 +152,9 @@ export struct SeriesChart {
     }
     frame.left = Math.max(fs * 3.6, widest + fs * 2.8);
     frame.width = w - frame.left - fs;
-    if (frame.width <= 20) {
+    if (!PlotLayout.drawable(frame)) {
+      // 刻度标签比预留的左白宽时,绘图区可能被挤到放不下 —— 同样要说出来,不能静默
+      SeriesChart.drawHint(ctx, w, h, fs, PlotLayout.hintFor(w, h));
       return;
     }
 
@@ -172,6 +162,16 @@ export struct SeriesChart {
     for (let i = 0; i < this.chart.series.length; i++) {
       this.drawTrace(this.chart.series[i], xs, frame, i);
     }
+  }
+
+  /** 画不出图时的说明。它必须占住图线区本身,而不是靠别处的 toast */
+  private static drawHint(ctx: CanvasRenderingContext2D, w: number, h: number, fs: number, text: string): void {
+    ctx.fillStyle = Palette.textSecondary();
+    ctx.font = fs + 'vp sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text.length > 0 ? text : '图线暂时放不下', w / 2, h / 2);
+    ctx.textBaseline = 'alphabetic';
   }
 
   private static plottable(xs: number[], chart: ChartDef, host: SeriesChart): boolean {
@@ -192,7 +192,7 @@ export struct SeriesChart {
     const fs = frame.font;
     const xDecimals = SeriesChart.pick(frame.xSpan);
 
-    ctx.strokeStyle = GRID;
+    ctx.strokeStyle = Palette.divider();
     ctx.lineWidth = 1;
     ctx.font = fs + 'vp sans-serif';
     ctx.textBaseline = 'alphabetic';
@@ -206,7 +206,7 @@ export struct SeriesChart {
       ctx.lineTo(frame.left + frame.width, gy);
       ctx.stroke();
 
-      ctx.fillStyle = AXIS_TEXT;
+      ctx.fillStyle = Palette.textSecondary();
       ctx.textAlign = 'center';
       ctx.fillText((xRange[0] + frame.xSpan * (i / 4)).toFixed(xDecimals), gx,
         frame.top + frame.height + fs + 4);
@@ -215,7 +215,7 @@ export struct SeriesChart {
         gy + fs / 2 - 2);
     }
 
-    ctx.fillStyle = AXIS_TEXT;
+    ctx.fillStyle = Palette.textSecondary();
     ctx.textAlign = 'center';
     ctx.fillText(SeriesChart.axisTitle(this.chart.xLabel, this.chart.xUnit),
       frame.left + frame.width / 2, frame.top + frame.height + fs * 4.0);
@@ -235,7 +235,7 @@ export struct SeriesChart {
     const ctx = this.ctx;
     const stride = Math.max(1, Math.floor(ys.length / MAX_POINTS));
 
-    ctx.strokeStyle = series.color;
+    ctx.strokeStyle = Palette.color(series.color);
     ctx.lineWidth = 2;
     ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -258,7 +258,7 @@ export struct SeriesChart {
     }
     ctx.stroke();
 
-    ctx.fillStyle = series.color;
+    ctx.fillStyle = Palette.color(series.color);
     ctx.font = frame.font + 'vp sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';

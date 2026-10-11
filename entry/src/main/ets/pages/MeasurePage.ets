@@ -7,6 +7,8 @@ import { RubricMeasure } from '../bench/RubricMeasure';
 import { SessionStore } from '../platform/SessionStore';
 import { RunController } from '../runner/RunController';
 import { GaugeMark, LathePainter, LatheSpec } from '../view3d/LathePainter';
+import { AppButton, ButtonVariant } from '../view/AppButton';
+import { Palette } from '../view/Palette';
 
 const GOAL_ML: number = 10;
 
@@ -69,10 +71,17 @@ export struct MeasurePage {
   private gctx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
   /** 试剂瓶的画布:倾倒仰角要有看得见的载体 */
   private bctx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
-  /** 三条判读线的语义色:读数卡、图例、器身上的线共用这一份对照表 */
-  private markColors: string[] = [Theme.RUNNING, Theme.DANGER, Theme.ACCENT];
+  /**
+   * 三条判读线的语义色:读数卡、图例、器身上的线共用这一份对照表。
+   *
+   * 写成方法而不是字段:字段初值在构造时就求色,那时画布解析器还没绑定、
+   * 而且切了深浅色也不会重算 —— 会静悄悄画出一片透明(看不见,但没有任何报错)。
+   */
+  private markColors(): string[] {
+    return [Palette.running(), Palette.danger(), Palette.accent()];
+  }
   private gaugeLabels: string[] = ['实际量取', '你的读数', '目标'];
-  private gaugeAccents: string[] = [Theme.TEXT_PRIMARY, Theme.ACCENT, Theme.RUNNING];
+  private gaugeAccents: ResourceColor[] = [Theme.TEXT_PRIMARY, Theme.ACCENT, Theme.RUNNING];
 
   private cls(): DeviceClass {
     return Layout.classify(this.hostWidth);
@@ -170,16 +179,17 @@ export struct MeasurePage {
 
   /** 三条判读线共用绘制层的同一个高度函数,所以"齐平"是真的齐平 */
   private marks(): GaugeMark[] {
+    const colors = this.markColors();
     const goal = new GaugeMark();
     goal.heightCm = this.heightOf(GOAL_ML);
-    goal.color = this.markColors[0];
+    goal.color = colors[0];
     goal.dashed = false;
     const reading = new GaugeMark();
     reading.heightCm = this.heightOf(this.apparent);
-    reading.color = this.markColors[1];
+    reading.color = colors[1];
     const eye = new GaugeMark();
     eye.heightCm = this.eyeHeight;
-    eye.color = this.markColors[2];
+    eye.color = colors[2];
     const out: GaugeMark[] = [];
     out.push(goal);
     out.push(reading);
@@ -225,12 +235,13 @@ export struct MeasurePage {
       : (error > 0 ? `多倒了 ${error.toFixed(2)} mL` : `少倒了 ${(-error).toFixed(2)} mL`);
     let cause = '视线与凹液面齐平，读数可信';
     if (offset < -0.2) {
-      cause = '仰视(眼睛低于液面)→ 读数偏小 → 实际倒多了';
+      cause = '仰视（眼睛低于液面）→ 读数偏小 → 实际倒多了';
     } else if (offset > 0.2) {
-      cause = '俯视(眼睛高于液面)→ 读数偏大 → 实际倒少了';
+      cause = '俯视（眼睛高于液面）→ 读数偏大 → 实际倒少了';
     }
-    return `实际 ${this.actual.toFixed(2)} mL,读数 ${this.apparent.toFixed(2)} mL;${signed}。${cause}`
-      + (this.spilled > 0.01 ? `;另有 ${this.spilled.toFixed(2)} mL 溅失。` : '。');
+    // 中文句子里的逗号与分号一律全角:半角标点混在中间是"AI 写的"最明显的痕迹
+    return `实际 ${this.actual.toFixed(2)} mL，读数 ${this.apparent.toFixed(2)} mL；${signed}。${cause}`
+      + (this.spilled > 0.01 ? `；另有 ${this.spilled.toFixed(2)} mL 溅失。` : '。');
   }
 
   /**
@@ -267,7 +278,7 @@ export struct MeasurePage {
       Column()
         .width(Layout.tickWidth())
         .height(Layout.tickHeight())
-        .backgroundColor(this.markColors[index])
+        .backgroundColor(this.markColors()[index])
         .borderRadius(Layout.tickHeight() / 2)
       Text(this.legendTextAt(index))
         .fontSize(Layout.captionSize(this.cls()))
@@ -345,12 +356,17 @@ export struct MeasurePage {
   /**
    * 状态行的措辞。原来写的是「松开仰角可停」,可仰角是滑杆,没有「松手」这回事 ——
    * 界面在描述一个不存在的动作。现在说的这句由物理侧给数:低于起倒角就没有液流。
+   *
+   * 第一帧之前只说「已暂停」,学生点开始倾倒、把仰角留在 0° 上,屏幕上一个字都不动 ——
+   * 出液要抬过起倒角这件事没人讲。所以未开始时给一句可执行的引导。
    */
   private statusText(): string {
-    if (!this.running) {
-      return '已暂停';
-    }
     const onset: number = this.world.readObservable('onsetDeg');
+    if (!this.running) {
+      return this.world.elapsedTime() === 0 && this.actual < 0.005
+        ? '先把「视线高度」调到与凹液面齐平，再点开始倾倒；仰角要抬过 ' + onset.toFixed(0) + '° 才出液'
+        : '已暂停';
+    }
     if (this.tiltDeg < onset) {
       return '倾倒中·仰角未到 ' + onset.toFixed(0) + '°，暂无液流';
     }
@@ -365,28 +381,132 @@ export struct MeasurePage {
    */
   @Builder
   cylinder() {
-    Column({ space: 6 }) {
-      Row({ space: 6 }) {
-        // 瓶底与筒底同线:两个画布都按「器底坐画布下沿」定标,所以底部对齐就是共用一张台面
-        Canvas(this.bctx)
-          .width(Layout.bottleWidth(this.cls()))
-          .height(Layout.bottleHeight(this.cls()))
-          .onReady(() => {
-            this.paintBottle();
-          })
-        Canvas(this.gctx)
-          .width(Layout.gaugeWidth(this.cls()))
-          .height(Layout.gaugeHeight(this.cls()))
-          .onReady(() => {
-            this.paintGauge();
-          })
-      }
-      .alignItems(VerticalAlign.Bottom)
+    Row({ space: 6 }) {
+      // 瓶底与筒底同线:两个画布都按「器底坐画布下沿」定标,所以底部对齐就是共用一张台面
+      Canvas(this.bctx)
+        .width(Layout.bottleWidth(this.cls()))
+        .height(Layout.bottleHeight(this.cls()))
+        .onReady(() => {
+          this.paintBottle();
+        })
+      Canvas(this.gctx)
+        .width(Layout.gaugeWidth(this.cls()))
+        .height(Layout.gaugeHeight(this.cls()))
+        .onReady(() => {
+          this.paintGauge();
+        })
+    }
+    .alignItems(VerticalAlign.Bottom)
+  }
+
+  /** 三条判读线横排:竖排三行要吃掉 189px,而这一页每一像素高度都在跟按钮抢位置 */
+  @Builder
+  legendStrip() {
+    Row({ space: 12 }) {
       this.legendRow(0)
       this.legendRow(1)
       this.legendRow(2)
     }
-    .alignItems(HorizontalAlign.Start)
+    .width('100%')
+  }
+
+  /**
+   * 状态行 —— 判定之后它就是判定卡。
+   *
+   * 判定语另起一张卡会把按钮整排顶到屏幕外(实测:判完只剩滑杆可见,
+   * 想再来一次得先往下滚)。它本来就是"现在屏幕处于什么状态"的答案,占同一个位置最省。
+   */
+  @Builder
+  statusLine() {
+    if (this.verdict.length > 0) {
+      Text(this.verdict)
+        .fontSize(Layout.labelSize(this.cls()))
+        .fontColor(Theme.TEXT_PRIMARY)
+        .width('100%')
+        .padding(Layout.cardPadding(this.cls()))
+        .backgroundColor(Theme.VERDICT_BG)
+        .borderRadius(Layout.cardRadius(this.cls()))
+    } else {
+      Text(this.statusText())
+        .fontSize(Layout.captionSize(this.cls()))
+        .fontColor(this.running ? Theme.RUNNING : Theme.TEXT_SECONDARY)
+        .width('100%')
+    }
+  }
+
+  /**
+   * 三个动作按钮,按内容宽度排一行。
+   *
+   * 单独成 Builder 是因为手机档要把它整块放到器皿下方:和两只器皿挤在同一个 Row 里时,
+   * 侧栏只剩 213px 宽(模拟器实测),「开始倾倒」的末字顶到圆角上。
+   * 竖排三颗又要 508px 高,把滑杆顶到屏幕外 —— 这一页要"先调好再按",所以横排占一行。
+   */
+  @Builder
+  transportButtons() {
+    Row({ space: 8 }) {
+      AppButton({
+        label: this.running ? '暂停' : '开始倾倒',
+        cls: this.cls(),
+        accent: this.running ? Theme.DANGER : Theme.ACCENT,
+        onPress: (): void => {
+          if (this.controller.running) {
+            this.controller.pause();
+          } else {
+            this.controller.start();
+          }
+          this.refresh();
+        }
+      })
+
+      // 按钮只说自己做了什么:「收手」是手握量筒时代的词,这里没有任何东西可松
+      AppButton({
+        label: '停止并判定',
+        cls: this.cls(),
+        accent: Theme.RUNNING,
+        onPress: (): void => {
+          this.world.stop();
+          this.controller.pause();
+          this.verdict = this.verdictOf();
+          this.refresh();
+          this.recordRun();
+        }
+      })
+
+      AppButton({
+        label: '重来',
+        cls: this.cls(),
+        variant: ButtonVariant.SECONDARY,
+        onPress: (): void => {
+          this.controller.restart();
+          this.verdict = '';
+          this.refresh();
+        }
+      })
+    }
+    .width('100%')
+  }
+
+  /** 两个滑杆 + 引流开关。它们必须在按钮之前、引导语之下:引导语让学生调的就是这两根 */
+  @Builder
+  sliderGroup() {
+    Column({ space: 12 }) {
+      this.sliderRow(0)
+      this.sliderRow(1)
+      Row() {
+        Text(this.meta.params[2].label)
+          .fontSize(Layout.labelSize(this.cls()))
+          .fontColor(Theme.TEXT_PRIMARY)
+          .layoutWeight(1)
+        Toggle({ type: ToggleType.Switch, isOn: this.guided >= 0.5 })
+          .selectedColor(Theme.ACCENT)
+          .onChange((isOn: boolean) => {
+            this.guided = isOn ? 1 : 0;
+            this.world.setParam('guided', this.guided);
+          })
+      }
+      .width('100%')
+    }
+    .width('100%')
   }
 
   /**
@@ -417,99 +537,41 @@ export struct MeasurePage {
           .backgroundColor(Theme.BG_CARD)
           .borderRadius(Layout.cardRadius(this.cls()))
 
-          /* 器皿与操作分两行:量筒要的是竖向空间,滑杆和按钮要的是横向空间。
-             把它们挤在同一个 Row 里,两头都不够 —— 侧栏只放状态与三个动作。 */
+          /* 器皿与操作:手机档上下排,宽屏档并排。
+             两档挤在同一个 Row 里时侧栏只剩 213px(模拟器实测),按钮末字顶到圆角上。 */
           Column({ space: 12 }) {
-            Row({ space: 12 }) {
+            if (Layout.isStacked(this.cls())) {
+              // 状态 → 判定 → 滑杆 → 按钮:判定必须落在看得见的那一段。
+              // 排在按钮之后时它在屏幕外(实测),学生按完只看到「已暂停」,以为没反应
               this.cylinder()
-
-              Column({ space: 10 }) {
-                Text(this.statusText())
-                  .fontSize(Layout.captionSize(this.cls()))
-                  .fontColor(this.running ? Theme.RUNNING : Theme.TEXT_SECONDARY)
-                  .width('100%')
-
-                Text(this.running ? '暂停' : '开始倾倒')
-                  .fontSize(Layout.bodySize(this.cls()))
-                  .fontColor(Color.White)
-                  .width('100%')
-                  .textAlign(TextAlign.Center)
-                  .padding({ top: 12, bottom: 12 })
-                  .borderRadius(Layout.controlRadius(this.cls()))
-                  .backgroundColor(this.running ? Theme.DANGER : Theme.ACCENT)
-                  .onClick(() => {
-                    if (this.controller.running) {
-                      this.controller.pause();
-                    } else {
-                      this.controller.start();
-                    }
-                    this.refresh();
-                  })
-                Text('收手判定')
-                  .fontSize(Layout.bodySize(this.cls()))
-                  .fontColor(Color.White)
-                  .width('100%')
-                  .textAlign(TextAlign.Center)
-                  .padding({ top: 12, bottom: 12 })
-                  .borderRadius(Layout.controlRadius(this.cls()))
-                  .backgroundColor(Theme.RUNNING)
-                  .onClick(() => {
-                    this.world.stop();
-                    this.controller.pause();
-                    this.verdict = this.verdictOf();
-                    this.refresh();
-                    this.recordRun();
-                  })
-                Text('重来')
-                  .fontSize(Layout.bodySize(this.cls()))
-                  .fontColor(Theme.TEXT_PRIMARY)
-                  .width('100%')
-                  .textAlign(TextAlign.Center)
-                  .padding({ top: 12, bottom: 12 })
-                  .borderRadius(Layout.controlRadius(this.cls()))
-                  .border({ width: 1, color: Theme.DIVIDER })
-                  .backgroundColor(Theme.BG_CARD)
-                  .onClick(() => {
-                    this.controller.restart();
-                    this.verdict = '';
-                    this.refresh();
-                  })
+              // 判完之后三条判读线不再有用,收起来把位置让给判定语与按钮
+              if (this.verdict.length === 0) {
+                this.legendStrip()
               }
-              .layoutWeight(1)
-            }
-            .alignItems(VerticalAlign.Top)
-            .width('100%')
+              this.statusLine()
+              this.sliderGroup()
+              this.transportButtons()
+            } else {
+              Row({ space: 12 }) {
+                this.cylinder()
 
-            Column({ space: 12 }) {
-              this.sliderRow(0)
-              this.sliderRow(1)
-              Row() {
-                Text(this.meta.params[2].label)
-                  .fontSize(Layout.labelSize(this.cls()))
-                  .fontColor(Theme.TEXT_PRIMARY)
-                  .layoutWeight(1)
-                Toggle({ type: ToggleType.Switch, isOn: this.guided >= 0.5 })
-                  .selectedColor(Theme.ACCENT)
-                  .onChange((isOn: boolean) => {
-                    this.guided = isOn ? 1 : 0;
-                    this.world.setParam('guided', this.guided);
-                  })
+                Column({ space: 10 }) {
+                  this.statusLine()
+                  this.transportButtons()
+                }
+                .layoutWeight(1)
               }
+              .alignItems(VerticalAlign.Top)
               .width('100%')
+
+              if (this.verdict.length === 0) {
+                this.legendStrip()
+              }
+              this.statusLine()
+              this.sliderGroup()
             }
-            .width('100%')
           }
           .width('100%')
-
-          if (this.verdict.length > 0) {
-            Text(this.verdict)
-              .fontSize(Layout.labelSize(this.cls()))
-              .fontColor(Theme.TEXT_PRIMARY)
-              .width('100%')
-              .padding(Layout.cardPadding(this.cls()))
-              .backgroundColor('#FFF6E8')
-              .borderRadius(Layout.cardRadius(this.cls()))
-          }
 
           if (this.savedRuns > 0) {
             Text('已保存 ' + this.savedRuns + ' 次操作记录，可在「报告」里回看')

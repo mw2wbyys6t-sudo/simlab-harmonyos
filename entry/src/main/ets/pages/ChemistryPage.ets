@@ -51,6 +51,16 @@ export struct ChemistryPage {
     });
   }
 
+  /** 计数行跟着搜索条件走:搜出零结果时,屏幕上不能还写着全库数量 */
+  private searchSummary(): string {
+    const matched = this.matched().length;
+    if (this.query.trim().length === 0) {
+      return '已收录 ' + this.reactions.length + ' 个反应 · ' + Reagents.size()
+        + ' 种试剂，每条都已配平（元素种类、质量与电荷都守恒）';
+    }
+    return '匹配 ' + matched + ' / 共 ' + this.reactions.length + ' 个反应';
+  }
+
   private static hasSubstance(spec: ReactionSpec, text: string): boolean {
     const all: Term[] = spec.reactants.concat(spec.products);
     for (let i = 0; i < all.length; i++) {
@@ -72,7 +82,7 @@ export struct ChemistryPage {
   }
 
   @Builder
-  numbered(items: string[], color: string) {
+  numbered(items: string[], color: ResourceColor) {
     Column({ space: 4 }) {
       ForEach(items, (item: string, index: number) => {
         Row({ space: 6 }) {
@@ -100,7 +110,7 @@ export struct ChemistryPage {
           .fontColor(Theme.ACCENT)
           .padding({ left: 7, right: 7, top: 2, bottom: 2 })
           .borderRadius(Layout.controlRadius(this.cls()))
-          .backgroundColor('#EAF1F9')
+          .backgroundColor(Theme.BAND_BG)
         Text(spec.title)
           .fontSize(Layout.cardTitleSize(this.cls()))
           .fontWeight(FontWeight.Bold)
@@ -161,15 +171,19 @@ export struct ChemistryPage {
   build() {
     NavDestination() {
       Column({ space: 12 }) {
-        TextInput({ text: this.query, placeholder: '搜索反应名称、物质名称或化学式' })
+        // 系统搜索件:放大镜、清除按钮、回车键都是它自带的,不用我们画图标
+        Search({ value: this.query, placeholder: '搜索反应名称、物质名称或化学式' })
           .height(Layout.touchMin(this.cls()))
-          .fontSize(Layout.bodySize(this.cls()))
           .backgroundColor(Theme.BG_CARD)
+          .textFont({ size: Layout.bodySize(this.cls()) })
+          .placeholderFont({ size: Layout.bodySize(this.cls()) })
           .onChange((value: string) => {
             this.query = value;
           })
 
-        Text('已收录 ' + this.reactions.length + ' 个反应 · ' + Reagents.size() + ' 种试剂，全部通过元素、质量与电荷守恒校验')
+        // 搜索时这一行必须跟着变:原来永远报全库计数,
+        // 学生搜出零结果却看到「已收录 22 个反应」,以为界面坏了
+        Text(this.searchSummary())
           .fontSize(Layout.captionSize(this.cls()))
           .fontColor(Theme.TEXT_SECONDARY)
 
@@ -182,6 +196,24 @@ export struct ChemistryPage {
         }
         .layoutWeight(1)
         .width('100%')
+        // 空结果不能是一片空白:说清没找到什么、下一步怎么办
+        .visibility(this.matched().length > 0 ? Visibility.Visible : Visibility.None)
+
+        if (this.matched().length === 0) {
+          Column({ space: 8 }) {
+            Text('没找到与「' + this.query.trim() + '」匹配的反应')
+              .fontSize(Layout.bodySize(this.cls()))
+              .fontColor(Theme.TEXT_PRIMARY)
+            Text('化学式要连着写，如 H2SO4；也可以只输一种物质名，如「硫酸」或「氧气」。')
+              .fontSize(Layout.captionSize(this.cls()))
+              .fontColor(Theme.TEXT_SECONDARY)
+              .textAlign(TextAlign.Center)
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+          .padding(Layout.cardPadding(this.cls()))
+        }
       }
       .padding({ left: 16, right: 16, bottom: 12 })
       .width('100%')

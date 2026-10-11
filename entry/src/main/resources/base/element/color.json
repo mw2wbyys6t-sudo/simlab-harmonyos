@@ -3,6 +3,102 @@
     {
       "name": "start_window_background",
       "value": "#FFFFFF"
+    },
+    {
+      "name": "bg_page",
+      "value": "#F1F3F5"
+    },
+    {
+      "name": "bg_card",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "bg_canvas",
+      "value": "#F7F9FC"
+    },
+    {
+      "name": "text_primary",
+      "value": "#1F2A3A"
+    },
+    {
+      "name": "text_secondary",
+      "value": "#5A6878"
+    },
+    {
+      "name": "divider",
+      "value": "#E1E6ED"
+    },
+    {
+      "name": "accent",
+      "value": "#2C6AAE"
+    },
+    {
+      "name": "running",
+      "value": "#1F7A5C"
+    },
+    {
+      "name": "danger",
+      "value": "#C0392B"
+    },
+    {
+      "name": "on_brand",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "subject_mechanics",
+      "value": "#2F6FB5"
+    },
+    {
+      "name": "subject_electrical",
+      "value": "#7C3AED"
+    },
+    {
+      "name": "subject_chemistry",
+      "value": "#BE185D"
+    },
+    {
+      "name": "subject_biology",
+      "value": "#15803D"
+    },
+    {
+      "name": "subject_geography",
+      "value": "#0E7490"
+    },
+    {
+      "name": "subject_math",
+      "value": "#B45309"
+    },
+    {
+      "name": "subject_instrument",
+      "value": "#475569"
+    },
+    {
+      "name": "series_1",
+      "value": "#2F6FB5"
+    },
+    {
+      "name": "series_2",
+      "value": "#E2574C"
+    },
+    {
+      "name": "series_3",
+      "value": "#2E9E7A"
+    },
+    {
+      "name": "series_4",
+      "value": "#8E5BD9"
+    },
+    {
+      "name": "verdict_bg",
+      "value": "#FFF6E8"
+    },
+    {
+      "name": "band_bg",
+      "value": "#EAF1F9"
+    },
+    {
+      "name": "vessel_border",
+      "value": "#B7C2CE"
     }
   ]
 }

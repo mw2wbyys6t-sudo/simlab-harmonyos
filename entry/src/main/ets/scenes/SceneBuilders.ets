@@ -50,7 +50,7 @@ export class SceneBuilders {
     return task;
   }
 
-  static trace(observableKey: string, label: string, color: string): ChartSeries {
+  static trace(observableKey: string, label: string, color: Resource): ChartSeries {
     const series = new ChartSeries();
     series.observableKey = observableKey;
     series.label = label;
@@ -82,7 +82,7 @@ export class SceneBuilders {
     return chart;
   }
 
-  static palette(index: number): string {
+  static palette(index: number): Resource {
     if (index === 0) {
       return Theme.SERIES_1;
     }

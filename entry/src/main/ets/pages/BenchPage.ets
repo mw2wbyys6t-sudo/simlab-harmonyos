@@ -5,6 +5,7 @@ import { BenchEngine } from '../chemistry/BenchEngine';
 import { BenchView, PORTION_MOLES, Vessel, VesselKind } from '../chemistry/BenchModel';
 import { ChemistryLibrary, Reagents } from '../chemistry/ChemistryLibrary';
 import { VesselView } from '../view3d/VesselView';
+import { AppButton } from '../view/AppButton';
 
 /** 容器的显示快照。引擎状态每次操作后重建一份,避免深层对象观测。 */
 class VesselCard {
@@ -183,7 +184,7 @@ export struct BenchPage {
   dragChip(name: string) {
     Text(name)
       .fontSize(Layout.captionSize(this.cls()))
-      .fontColor(Color.White)
+      .fontColor(Theme.ON_BRAND)
       .padding({ left: 10, right: 10, top: 6, bottom: 6 })
       .backgroundColor(Theme.ACCENT)
       .borderRadius(Layout.controlRadius(this.cls()))
@@ -203,6 +204,7 @@ export struct BenchPage {
           liquidColor: this.cardAt(index).liquidColor
         })
         if (this.cardAt(index).bubbling) {
+          // 纸面内色:气泡点画在浅底液面上,两套模式都保持白点(液面不随深色反转)
           Row({ space: 6 }) {
             Text('·').fontSize(Layout.bubbleSize(this.cls())).fontColor(Color.White)
             Text('·').fontSize(Layout.bubbleSize(this.cls())).fontColor(Color.White)
@@ -213,7 +215,7 @@ export struct BenchPage {
       .width(Layout.vesselCardWidth(this.cls()))
       .height(Layout.vesselCardHeight(this.cls()))
       .borderRadius(Layout.cardRadius(this.cls()))
-      .border({ width: 2, color: index === this.selected ? Theme.ACCENT : '#B7C2CE' })
+      .border({ width: 2, color: index === this.selected ? Theme.ACCENT : Theme.VESSEL_BORDER })
 
       Text(this.cardAt(index).title)
         .fontSize(Layout.labelSize(this.cls()))
@@ -236,7 +238,7 @@ export struct BenchPage {
     }
     .padding(Layout.cardPadding(this.cls()))
     .borderRadius(Layout.cardRadius(this.cls()))
-    .backgroundColor(index === this.selected ? '#EAF1F9' : Theme.BG_CARD)
+    .backgroundColor(index === this.selected ? Theme.BAND_BG : Theme.BG_CARD)
     .onClick(() => {
       this.selected = index;
     })
@@ -250,16 +252,63 @@ export struct BenchPage {
     })
   }
 
+  /** 选中容器此刻是不是在加热:读 cards 而不是 vessels —— vessels 的元素是就地改的,
+   *  @State 看不见嵌套属性;publish() 每次都换整张数组,所以读它才刷得动 */
+  private heated(): boolean {
+    return this.cardAt(this.selected).heated;
+  }
+
+  private actionLabel(kind: number): string {
+    return kind === 0 ? (this.heated() ? '熄灭酒精灯' : '点燃酒精灯') : '倒掉洗净';
+  }
+
+  private actionColor(kind: number): ResourceColor {
+    if (kind === 1) {
+      return Theme.TEXT_SECONDARY;
+    }
+    return this.heated() ? Theme.DANGER : Theme.RUNNING;
+  }
+
+  private pressAction(kind: number): void {
+    const vessel = this.vessels[this.selected];
+    if (kind === 0) {
+      vessel.heated = !vessel.heated;
+      this.log = [(vessel.heated ? '点燃酒精灯加热 ' : '熄灭酒精灯 ') + vessel.label]
+        .concat(this.log).slice(0, 40);
+      this.apply(this.selected);
+      return;
+    }
+    vessel.contents = [];
+    vessel.escaped = [];
+    vessel.heated = false;
+    this.log = ['清空并洗净 ' + vessel.label].concat(this.log).slice(0, 40);
+    this.publish(false);
+  }
+
+  /**
+   * 动作按钮。
+   *
+   * 入参只有常量下标:按值传 label 的 @Builder 不随 @State 刷新(第三次踩这个坑,
+   * 见 spec 8.13),所以按钮文案在 Builder 体里现读 —— 「点燃」按下去之后必须变成「熄灭」。
+   */
   @Builder
-  action(label: string, accent: string, action: () => void) {
-    Text(label)
-      .fontSize(Layout.labelSize(this.cls()))
-      .fontColor(Color.White)
-      .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-      .borderRadius(Layout.controlRadius(this.cls()))
-      .backgroundColor(accent)
-      .margin({ right: 8 })
-      .onClick(action)
+  action(kind: number) {
+    AppButton({
+      label: this.actionLabel(kind),
+      cls: this.cls(),
+      accent: this.actionColor(kind),
+      onPress: (): void => {
+        this.pressAction(kind);
+      }
+    })
+  }
+
+  /** 空器不能只印「现存：」后面挂零:得说清这只容器现在是空的、下一步做什么 */
+  private contentsLabel(): string {
+    const card = this.cardAt(this.selected);
+    return card.contentsText.length > 0
+      ? '现存：' + card.contentsText
+      : '「' + card.title + '」里还没有药品，从上方药品柜把试剂拖进来。';
   }
 
   build() {
@@ -290,28 +339,14 @@ export struct BenchPage {
         .alignItems(VerticalAlign.Bottom)
         .width('100%')
 
-        Row() {
-          this.action(this.vessels[this.selected].heated ? '熄灭酒精灯' : '点燃酒精灯',
-            this.vessels[this.selected].heated ? Theme.DANGER : Theme.RUNNING, (): void => {
-              const vessel = this.vessels[this.selected];
-              vessel.heated = !vessel.heated;
-              this.log = [(vessel.heated ? '点燃酒精灯加热 ' : '熄灭酒精灯 ') + vessel.label]
-                .concat(this.log).slice(0, 40);
-              this.apply(this.selected);
-            })
-          this.action('倒掉洗净', Theme.TEXT_SECONDARY, (): void => {
-            const vessel = this.vessels[this.selected];
-            vessel.contents = [];
-            vessel.escaped = [];
-            vessel.heated = false;
-            this.log = ['清空并洗净 ' + vessel.label].concat(this.log).slice(0, 40);
-            this.publish(false);
-          })
+        Row({ space: 8 }) {
+          this.action(0)
+          this.action(1)
         }
         .width('100%')
 
         if (this.cards.length > this.selected) {
-          Text('现存：' + this.cards[this.selected].contentsText)
+          Text(this.contentsLabel())
             .fontSize(Layout.captionSize(this.cls()))
             .fontColor(Theme.TEXT_SECONDARY)
             .width('100%')

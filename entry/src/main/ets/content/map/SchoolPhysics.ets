@@ -58,7 +58,7 @@ const JR: SchoolStage = SchoolStage.JUNIOR;
 const SR: SchoolStage = SchoolStage.SENIOR;
 const SRC_JR: string = '湖南省教育厅《湖南省初中必做实验目录(2023版)》湘教发[2023]40号(2023-09-08 印发),初中物理 21 条 http://jyt.hunan.gov.cn/jyt/sjyt/jyzbc/zbczcwj/syjx/202503/t20250303_33600704.html';
 const SRC_SR: string = '教育部《中小学实验教学基本目录》普通高中物理 79 项(分必修 1-3 与选择性必修 1-3),检索自湖南省教育厅转发页 http://jyt.hunan.gov.cn/sjyt/jyzbc/zbczcwj/syjx/202506/t20250605_33692362.html';
-const SRC_APP: string = UNVERIFIED_PREFIX + '标题取应用内场景名而非目录项目名,册次按场景 meta.gradeBand 给的粗位置';
+const SRC_APP: string = UNVERIFIED_PREFIX + '标题取应用里的场景名,不是教材目录项目名;所在册次只按场景粗定位';
 const SRC_TAO: string = UNVERIFIED_PREFIX + '教学与高考复习里的通行项目,两份目录里没检索到同名条目,只按学生实验的常规做法整理';
 
 function p(id: string, stage: SchoolStage, course: string, term: string, minutes: number,

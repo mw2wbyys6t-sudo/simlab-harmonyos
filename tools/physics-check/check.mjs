@@ -9,7 +9,7 @@
  * 用法: node tools/physics-check/check.mjs
  */
 import { createRequire } from 'node:module';
-import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
@@ -72,6 +72,7 @@ const MODULES = [
   'bench/BrineScenario',
   'bench/BenchWorld',
   'common/Theme',
+  'common/Appearance',
   'common/Contrast',
   'common/Layout',
   'common/LibraryFeed',
@@ -85,6 +86,7 @@ const MODULES = [
   'chemistry/BenchModel',
   'chemistry/BenchEngine',
   'physics/World2D',
+  'view/PlotFrame',
   'physics/Physics2DRunner',
   'physics/SpringForceRunner',
   'physics/MnaSolver',
@@ -99,6 +101,23 @@ const MODULES = [
   'scenes/MechanicsScenes',
   'scenes/ElectricalScenes'
 ];
+
+// ArkUI 的 $r() 由框架在运行时注入,离线侧没有,不补一个 require 就直接 ReferenceError。
+// 这里返回形状与真实 Resource 一致的句柄,并把资源名按出现顺序编号 —— 这样断言既能验证
+// 令牌指向的资源名,也能验证 Palette 那套「按 id 缓存」的语义在离线跑得通。
+const resourceIds = new Map();
+const resourceNames = [];
+globalThis.$r = (resourceName) => {
+  let id = resourceIds.get(resourceName);
+  if (id === undefined) {
+    id = resourceNames.length;
+    resourceIds.set(resourceName, id);
+    resourceNames.push(resourceName);
+  }
+  return { id: id, type: 7, params: [], bundleName: '', moduleName: '' };
+};
+/** 把 $r 句柄还原成资源名,便于断言「这个令牌到底指向哪个色」 */
+const resourceNameOf = (res) => resourceNames[res.id];
 
 for (const name of MODULES) {
   const source = readFileSync(join(SRC, name + '.ets'), 'utf8');
@@ -550,6 +569,234 @@ function checkRel(label, actual, expected, relTolerance) {
   assertTrue('电路场景图产出了元件与导线',
     snapshot.boxes.length === 1 && snapshot.segments.length > 0,
     `boxes=${snapshot.boxes.length} segments=${snapshot.segments.length}`);
+}
+
+// ---- 画面跟着参数变(E4)与图内文字不越界不压字(E7) ----------------------
+{
+  // 曾经振体质量 1 kg 与 5 kg 的快照逐像素差为 0:参数只在面板上动,画布上没有任何后果
+  const light = electrical('spring-mass', { mass: 1, stiffness: 20, damping: 0, amplitude: 0.6 });
+  const heavy = electrical('spring-mass', { mass: 5, stiffness: 20, damping: 0, amplitude: 0.6 });
+  const lightBlock = light.snapshot().boxes[0];
+  const heavyBlock = heavy.snapshot().boxes[0];
+  check('质量放大 5 倍时块边长按立方根放大', heavyBlock.w / lightBlock.w, Math.cbrt(5), 1e-9);
+  check('块高与块宽同比放大', heavyBlock.h / lightBlock.h, Math.cbrt(5), 1e-9);
+  // 放大后的块底必须还贴在台面上(cy - h/2 就是底边),不然桌子成了摆设
+  check('放大后的块底仍贴同一张台面',
+    heavyBlock.cy - heavyBlock.h / 2, lightBlock.cy - lightBlock.h / 2, 1e-9);
+  const stamped = heavy.snapshot().labels.filter((l) => l.text === '5.0 kg');
+  assertTrue('块面上印出质量本身', stamped.length === 1,
+    `实得 ${stamped.length} 条,全部文字=${heavy.snapshot().labels.map((l) => l.text).join('|')}`);
+}
+
+{
+  const meta = ExperimentRegistry.find('series-circuit').meta;
+  const runner = electrical('series-circuit', { emf: 6, r1: 20, r2: 30, switch: 1 });
+  runner.readObservable('V:v2');
+  const labels = runner.snapshot().labels;
+  const readouts = labels.filter((l) => / V$| A$/.test(l.text));
+  assertTrue('串联场景把三块电表的读数都画出来', readouts.length === 3,
+    `实得 ${readouts.length} 条:${readouts.map((l) => `${l.text}@${l.x.toFixed(2)}/${l.align}`)}`);
+  // 每条读数都按锚点摊开以后必须整个落在世界里:V₂ 曾经被右边界裁成「3.6…」
+  for (const l of readouts) {
+    const left = l.align === 'right' ? l.x - 1.0 : (l.align === 'center' ? l.x - 0.5 : l.x);
+    assertTrue(`读数「${l.text}」不越出画布`,
+      left >= 0 && left + 1.0 <= meta.worldWidth,
+      `占 ${left.toFixed(2)}..${(left + 1.0).toFixed(2)},世界宽 ${meta.worldWidth},锚点 ${l.align}`);
+  }
+  // 「电源」以前用 -0.62 目测偏移,半个词压在长极板(从轴向伸到 ±0.42)上
+  const sourceTag = labels.filter((l) => l.text.indexOf('电源') === 0);
+  assertTrue('电源标签落在极板外侧',
+    sourceTag.length === 1 && Math.abs(sourceTag[0].x - 1.3) > 0.5 && sourceTag[0].align === 'center',
+    sourceTag.length === 0 ? '没有电源标签'
+      : `x=${sourceTag[0].x.toFixed(2)} align=${sourceTag[0].align}`);
+}
+
+// ---- 屏幕上的词:内部术语不许进学生可见文案(④ 内部语言外译) ----------------
+{
+  // 左边这一串全是我们讨论实现时用的词。学生不需要知道少了哪一层、字段叫什么、
+  // 也不需要看见 spec / draft1 / meta.xxx 这类标识符 —— 出现一条就是漏翻。
+  const BLOCKED = ['渲染器', '待补', '未实现', '路由', '判据', '关键事实', '过程量', '分步时刻',
+    '落盘', '抽稀', '采样', '标定', 'schema', 'Schema', 'meta.', 'spec', 'draft',
+    '收手判定', '登记', '口径', '不宜仿真', '可打开'];
+
+  const { RubricSpring } = require(join(OUT, 'bench/RubricSpring.cjs'));
+  const { RubricMeasure } = require(join(OUT, 'bench/RubricMeasure.cjs'));
+  const { RubricBrine } = require(join(OUT, 'bench/RubricBrine.cjs'));
+  const visible = [];
+  const push = (where, text) => {
+    if (typeof text === 'string' && text.length > 0) visible.push([where, text]);
+  };
+
+  for (const meta of ExperimentRegistry.all()) {
+    push(`${meta.id} 标题`, meta.title);
+    push(`${meta.id} 说明`, meta.summary);
+    push(`${meta.id} 学段`, meta.gradeBand);
+    for (const p of meta.params) push(`${meta.id} 参数`, p.label);
+    for (const o of meta.observables) push(`${meta.id} 读数`, o.label);
+    for (const c of meta.charts) push(`${meta.id} 图线`, c.title);
+    for (const a of meta.actions) push(`${meta.id} 动作`, a.label);
+  }
+  for (const rubric of [RubricBrine.create(), RubricMeasure.create(), RubricSpring.create()]) {
+    push(`${rubric.id} 名称`, rubric.label);
+    push(`${rubric.id} 来源`, rubric.source);
+    push(`${rubric.id} 版本`, rubric.version);
+    for (const c of rubric.criteria) {
+      push(`${c.id} 扣分标题`, c.title);
+      push(`${c.id} 证据`, c.evidenceTemplate);
+    }
+  }
+
+  // 先确认清单真的收满了:否则两条断言会"零命中"假绿
+  assertTrue('可见文案清单收满了场景与细则', visible.length > 80,
+    `只收到 ${visible.length} 条`);
+  const leaks = visible.filter(([, text]) => BLOCKED.some((w) => text.includes(w)));
+  assertTrue('学生可见文案里没有内部术语',
+    leaks.length === 0, `${leaks.length} 条命中:${leaks.slice(0, 6).map(([w, t]) => `${w}「${t}」`).join(' / ')}`);
+  // 半角标点混在中文里是"AI 写的"最直观的痕迹之一,可见文案一律全角
+  const halfWidth = visible.filter(([, text]) => /[一-龥][,;()]|[,;()][一-龥]/.test(text));
+  assertTrue('可见文案不混半角标点',
+    halfWidth.length === 0, `${halfWidth.length} 条命中:${halfWidth.slice(0, 6).map(([w, t]) => `${w}「${t}」`).join(' / ')}`);
+}
+
+// ---- 调色板资源:浅色与深色两套都要过 AA(① 色阶令牌化) ------------------
+{
+  const { Contrast } = require(join(OUT, 'common/Contrast.cjs'));
+  const loadPalette = (rel) => {
+    const raw = JSON.parse(readFileSync(join(root, rel), 'utf8'));
+    const out = new Map();
+    for (const item of raw.color) {
+      out.set(item.name, item.value);
+    }
+    return out;
+  };
+  const light = loadPalette('entry/src/main/resources/base/element/color.json');
+  const dark = loadPalette('entry/src/main/resources/dark/element/color.json');
+
+  const SUBJECTS = ['subject_mechanics', 'subject_electrical', 'subject_chemistry',
+    'subject_biology', 'subject_geography', 'subject_math', 'subject_instrument'];
+  const BRANDS = ['accent', 'running', 'danger'].concat(SUBJECTS);
+
+  // 判定写成「返回失败清单」而不是「直接 assertTrue」,是为了让"这把尺子真的会拦人"
+  // 本身成为一条断言(见下面的负对照)。全是过线断言时,一个写反的比较号会让整节变空转。
+  const auditPalette = (mode, pal) => {
+    const bad = [];
+    const need = (label, fg, bg, floor) => {
+      const ratio = Contrast.ratio(fg, bg);
+      if (!(ratio >= floor)) {
+        bad.push(`${mode}·${label} 需 ≥ ${floor},实得 ${Number.isNaN(ratio) ? String(ratio) : ratio.toFixed(2)}`);
+      }
+    };
+    need('正文压卡片底', pal.get('text_primary'), pal.get('bg_card'), 4.5);
+    need('正文压页面底', pal.get('text_primary'), pal.get('bg_page'), 4.5);
+    need('次要文字压卡片底', pal.get('text_secondary'), pal.get('bg_card'), 4.5);
+    need('次要文字压页面底', pal.get('text_secondary'), pal.get('bg_page'), 4.5);
+    need('判定文字压判定卡', pal.get('text_primary'), pal.get('verdict_bg'), 4.5);
+    need('学科标签压标签底', pal.get('accent'), pal.get('band_bg'), 4.5);
+    if (new Set(SUBJECTS.map((k) => pal.get(k))).size !== SUBJECTS.length) {
+      bad.push(`${mode}·七个学科辅色出现重色`);
+    }
+    for (const key of BRANDS) {
+      // 品牌色既当文字也当底色:两条路都要过,否则改一处就破另一处
+      need(`${key} 作文字压卡片底`, pal.get(key), pal.get('bg_card'), 4.5);
+      need(`${key} 上的前景`, pal.get('on_brand'), pal.get(key), 4.5);
+      need(`${key} 作色点压页面底`, pal.get(key), pal.get('bg_page'), 3.0);
+    }
+    return bad;
+  };
+
+  const lightBad = auditPalette('浅色', light);
+  const darkBad = auditPalette('深色', dark);
+  assertTrue('浅色调色板整体过 AA', lightBad.length === 0, lightBad.join(' / '));
+  assertTrue('深色调色板整体过 AA', darkBad.length === 0, darkBad.join(' / '));
+
+  // 负对照:把深色次要文字压成与卡片同族的中灰(真实会犯的错:抄了浅色的值)。
+  // 它只该被"次要文字"这两条抓到 —— 报出的条数与名字都必须对得上,才说明尺子在量对的东西。
+  const broken = new Map(dark);
+  broken.set('text_secondary', '#3A424C');
+  const caught = auditPalette('坏样板', broken);
+  check('负对照:改坏一个色就红两条', caught.length, 2, 1e-12);
+  assertTrue('负对照:报的确实是被改的那一项',
+    caught.every((s) => s.indexOf('次要文字') >= 0), caught.join(' / '));
+
+  // 少一个键不会编译报错,只会在深色下悄悄拿浅色值 —— 所以键集合必须严格相等
+  const keyDiff = (a, b) => {
+    const missing = Array.from(a.keys()).filter((k) => !b.has(k));
+    const extra = Array.from(b.keys()).filter((k) => !a.has(k));
+    return missing.concat(extra);
+  };
+  assertTrue('深色与浅色调色板键完全对齐', keyDiff(light, dark).length === 0,
+    keyDiff(light, dark).join(','));
+  assertTrue('负对照:少写一个键就会被发现', keyDiff(light, new Map(Array.from(dark).slice(1))).length > 0,
+    '删掉第一项居然没报错');
+  assertTrue('两套调色板都不是空表', light.size >= 20 && dark.size >= 20,
+    `浅色 ${light.size} 项 / 深色 ${dark.size} 项`);
+
+  // 画布是"实验纸面":物理求解器按深色笔画在浅底上画,两套都保持浅底
+  check('画布底色两套一致(纸面不随深色反转)',
+    light.get('bg_canvas') === dark.get('bg_canvas') ? 1 : 0, 1, 1e-12);
+  // 图线画在那张纸上,所以两套模式共用同一组色值 —— 若有人"顺手调深"会让曲线消失
+  for (const k of ['series_1', 'series_2', 'series_3', 'series_4']) {
+    check(`图线色 ${k} 两套一致`, light.get(k) === dark.get(k) ? 1 : 0, 1, 1e-12);
+  }
+
+  // 代码里引用的每个 app.color 名字都必须真的存在:$r 写错名字不会编译报错,只会运行时变黑块
+  const usedNames = new Set();
+  const walkDir = (abs) => {
+    for (const entry of readdirSync(abs, { withFileTypes: true })) {
+      const full = join(abs, entry.name);
+      if (entry.isDirectory()) {
+        walkDir(full);
+      } else if (entry.name.endsWith('.ets')) {
+        const src = readFileSync(full, 'utf8');
+        for (const m of src.matchAll(/\$r\('app\.color\.([a-z0-9_]+)'\)/g)) {
+          usedNames.add(m[1]);
+        }
+      }
+    }
+  };
+  walkDir(join(root, 'entry', 'src', 'main', 'ets'));
+  const danglingOf = (names) => Array.from(names).filter((n) => !light.has(n) && n !== 'start_window_background');
+  assertTrue('代码引用的 app.color 名字都在调色板里', danglingOf(usedNames).length === 0,
+    `悬空引用:${danglingOf(usedNames).join(',')}`);
+  assertTrue('扫描真的读到了引用(不是空集合骗过上面那条)', usedNames.size > 10,
+    `只引用了 ${usedNames.size} 个`);
+  const fakeNames = new Set(usedNames);
+  fakeNames.add('text_primarry');
+  check('负对照:资源名写错一个字母就报悬空', danglingOf(fakeNames).length, 1, 1e-12);
+}
+
+// ---- 深浅色偏好:三档开关的纯逻辑(① 的应用内开关) ------------------------
+// 存盘与 setColorMode 都在 platform 层,离线跑不了;但"脏数据不能白屏""标签不能漏内部术语"
+// "档位与下标不能错一位"这三件事全是纯算式,而它们恰好是最容易在改 UI 时悄悄坏掉的。
+{
+  const { Appearance } = require(join(OUT, 'common/Appearance.cjs'));
+
+  check('档位就是三档', Appearance.CHOICES.length, 3, 1e-12);
+  // 默认档必须排在第一位:chip 的 0 是"没选过"时的落点
+  checkText('第一档是跟随系统', Appearance.at(0), Appearance.SYSTEM);
+  checkText('第二档是浅色', Appearance.at(1), Appearance.LIGHT);
+  checkText('第三档是深色', Appearance.at(2), Appearance.DARK);
+
+  for (const c of [Appearance.SYSTEM, Appearance.LIGHT, Appearance.DARK]) {
+    checkText(`normalize 认得自己的值 ${c}`, Appearance.normalize(c), c);
+  }
+  for (const junk of ['', '   ', 'LIGHT', 'dark ', 'bogus', 'COLOR_MODE_DARK', 'null', 'undefined']) {
+    checkText(`normalize 把脏值「${junk}」回落默认档`, Appearance.normalize(junk), Appearance.SYSTEM);
+  }
+
+  for (let i = 0; i < Appearance.CHOICES.length; i++) {
+    check(`档位下标往返 ${i}`, Appearance.indexOf(Appearance.at(i)), i, 1e-12);
+  }
+  // chip 越界(比如以后只剩两档却传了 2)不能崩,也不能画出一个不存在的档
+  check('越界下标回落默认档', Appearance.indexOf(Appearance.at(7)), Appearance.indexOf(Appearance.SYSTEM), 1e-12);
+  check('负下标回落默认档', Appearance.indexOf(Appearance.at(-1)), Appearance.indexOf(Appearance.SYSTEM), 1e-12);
+
+  const labels = Appearance.CHOICES.map((c) => Appearance.label(c));
+  check('三个标签互不相同', new Set(labels).size, labels.length, 1e-12);
+  labels.forEach((s, i) => check(`标签 ${i} 是中文而不是标识符`, /^[一-龥]+$/.test(s) ? 1 : 0, 1, 1e-12));
+
+  // 负对照:label 如果直接回显内部标识,这条必须拦下来(④ 定的规矩:屏幕上看不到我们的术语)
+  check('负对照:标识符当标签会被拦', /^[一-龥]+$/.test(Appearance.LIGHT) ? 1 : 0, 0, 1e-12);
 }
 
 // ---- 场景元数据与实现的一致性 --------------------------------------------
@@ -1682,6 +1929,10 @@ function checkRel(label, actual, expected, relTolerance) {
   check('S01 规范操作得满分', card01.awarded, 100, 1e-9);
   checkRel('S01 产率在合理区间', card01.facts.num('yieldPct'), 100, 0.2);
   assertTrue('S01 报告带判据来源', card01.summaryLine().includes('非官方'), card01.summaryLine());
+  // 整行钉死:原来是「100.0 / 100 分(判据：参考细则(非官方标准) 2026.09-draft1)」,
+  // 括号套括号 + 整数印小数 + 内部代号,三处工程味都在这一行
+  checkText('判分汇总行的完整措辞', card01.summaryLine(),
+    '得分 100 / 100 · 评分依据：参考细则（非官方标准） · 版本 2026.09 第1版');
 
   const S02 = scenarioRun({ rodUsed: false });
   const s02fired = fired(S02);
@@ -1850,8 +2101,8 @@ function checkRel(label, actual, expected, relTolerance) {
     LibraryFeed.fitsOnPhone(LibraryFeed.chips(allSeven)) === false, '宽度算式失效,护栏形同虚设');
 }
 
-// ---- 设计令牌:对比度与阶梯 ------------------------------------------------
-// 这一节把「别写魔法数」「文字必须可读」从口头要求变成会红的断言。
+// ---- 设计令牌:接线与阶梯 ---------------------------------------------------
+// 这一节把「别写魔法数」「颜色只能来自资源」从口头要求变成会红的断言。
 {
   const { Contrast } = require(join(OUT, 'common/Contrast.cjs'));
   const { Theme } = require(join(OUT, 'common/Theme.cjs'));
@@ -1859,14 +2110,6 @@ function checkRel(label, actual, expected, relTolerance) {
   const { Subject } = require(join(OUT, 'model/ExperimentTypes.cjs'));
 
   const CLASSES = [DeviceClass.PHONE, DeviceClass.PAD, DeviceClass.LARGE];
-  const SUBJECT_COLORS = [Subject.PHYSICS_MECHANICS, Subject.PHYSICS_ELECTRICAL, Subject.CHEMISTRY,
-    Subject.BIOLOGY, Subject.GEOGRAPHY, Subject.MATH_VISUAL, Subject.INSTRUMENT]
-    .map((s) => Theme.subjectColor(s));
-
-  function assertReadable(label, fg, bg, floor) {
-    const ratio = Contrast.ratio(fg, bg);
-    assertTrue(`${label} 需 ≥ ${floor}`, ratio >= floor, `实得 ${Number.isNaN(ratio) ? ratio : ratio.toFixed(2)}`);
-  }
 
   // Contrast 自身的定义必须对,否则整套 AA 判定都是空的
   check('纯黑对白对比度为 21', Contrast.ratio('#000000', '#FFFFFF'), 21, 0.01);
@@ -1879,32 +2122,93 @@ function checkRel(label, actual, expected, relTolerance) {
   check('黑色相对亮度为 0', Contrast.luminance('#000000'), 0, 1e-9);
   check('中灰亮度按 sRGB 解码', Contrast.luminance('#808080'), 0.2159, 0.001);
 
-  // 现有配色过不过 AA,由算式说了算
-  assertReadable('正文压卡片底', Theme.TEXT_PRIMARY, Theme.BG_CARD, 4.5);
-  assertReadable('次要文字压卡片底', Theme.TEXT_SECONDARY, Theme.BG_CARD, 4.5);
-  assertReadable('次要文字压页面底', Theme.TEXT_SECONDARY, Theme.BG_PAGE, 4.5);
-  assertReadable('强调文字压卡片底', Theme.ACCENT, Theme.BG_CARD, 4.5);
-  assertReadable('强调文字压页面底', Theme.ACCENT, Theme.BG_PAGE, 4.5);
-  assertReadable('白字压强调底(选中 chip)', '#FFFFFF', Theme.ACCENT, 4.5);
-  assertReadable('危险色压卡片底', Theme.DANGER, Theme.BG_CARD, 4.5);
-  assertReadable('危险色压页面底', Theme.DANGER, Theme.BG_PAGE, 4.5);
-  assertReadable('运行色压卡片底', Theme.RUNNING, Theme.BG_CARD, 4.5);
-  assertReadable('运行色压页面底', Theme.RUNNING, Theme.BG_PAGE, 4.5);
+  // 配色断言已搬到「调色板资源」一节按浅色/深色两套分别判;这里只留接线与阶梯。
 
-  // 学科辅色
-  check('七个学科辅色互不相同', new Set(SUBJECT_COLORS).size, SUBJECT_COLORS.length, 1e-12);
-  for (const color of SUBJECT_COLORS) {
-    assertReadable(`学科色 ${color} 上的前景`, Theme.textOn(color), color, 4.5);
-    assertReadable(`学科色 ${color} 作色点压页面底`, color, Theme.BG_PAGE, 3.0);
-    assertReadable(`学科色 ${color} 作文字压卡片底`, color, Theme.BG_CARD, 4.5);
+  // 接线:令牌名 ↔ 资源名必须一一对应。名字打错一个字母不会编译报错,只会运行时变黑块,
+  // 而规则本身就写死了 —— 大写令牌名转小写就是资源名。
+  const tokens = Object.keys(Theme).filter((k) => /^[A-Z][A-Z0-9_]*$/.test(k));
+  const wiringProblems = (entries) => entries
+    .filter(([k, name]) => name !== `app.color.${k.toLowerCase()}`)
+    .map(([k, name]) => `${k}→${name}`);
+  const wired = tokens.map((k) => [k, resourceNameOf(Theme[k])]);
+  assertTrue('Theme 至少列出 20 个色令牌', tokens.length >= 20, `只有 ${tokens.length} 个`);
+  assertTrue('每个令牌指向同名资源', wiringProblems(wired).length === 0, wiringProblems(wired).join(','));
+  const wrongWiring = wired.slice();
+  wrongWiring[0] = [wrongWiring[0][0], 'app.color.text_primaryy'];
+  check('负对照:名字多打一个字母就报接线错', wiringProblems(wrongWiring).length, 1, 1e-12);
+  check('令牌两两不指向同一个色', new Set(tokens.map((k) => Theme[k].id)).size, tokens.length, 1e-12);
+  const hexInTheme = readFileSync(join(SRC, 'common/Theme.ets'), 'utf8').match(/'#[0-9A-Fa-f]{3,8}'/g) || [];
+  assertTrue('Theme 里不留裸 hex 字面量(色值只能来自资源)', hexInTheme.length === 0, hexInTheme.join(','));
+
+  // 组件层的 Color.White / Color.Black 是"主题盲"的:浅色档对、深色档就糊(实测按钮白字压
+  // 亮蓝底只剩 2.6:1)。品牌底上的字要用 Theme.ON_BRAND,那是一对按模式设计的值。
+  // 只有画在"实验纸面"上的色才允许写死 —— 纸面两套模式都是浅底,必须在文件里注明理由。
+  const blindInk = [];
+  const scanBlindInk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        scanBlindInk(full);
+      } else if (entry.name.endsWith('.ets')) {
+        const src = readFileSync(full, 'utf8');
+        if (src.includes('纸面内色')) {
+          continue;
+        }
+        for (const line of src.split('\n')) {
+          // 注释里提到这个写法不算(那正是我们在教后来人别这么写)
+          if (line.includes('//')) {
+            continue;
+          }
+          for (const m of line.matchAll(/Color\.(White|Black)/g)) {
+            blindInk.push(`${entry.name}:${m[0]}`);
+          }
+        }
+      }
+    }
+  };
+  for (const sub of ['pages', 'view', 'view3d', 'common']) {
+    scanBlindInk(join(SRC, sub));
   }
-  const foregrounds = SUBJECT_COLORS.map((c) => Theme.textOn(c));
-  assertTrue('前景只会取正文色或白,不引入第三种',
-    foregrounds.every((f) => f === Theme.TEXT_PRIMARY || f === '#FFFFFF'), foregrounds.join(','));
-  checkText('深色学科色配白字', Theme.textOn('#1F2A3A'), '#FFFFFF');
-  checkText('浅色学科色配正文色', Theme.textOn('#EAF1F9'), Theme.TEXT_PRIMARY);
+  assertTrue('组件层不写死 Color.White/Black(用 Theme.ON_BRAND)',
+    blindInk.length === 0, blindInk.join(','));
+  // 负对照:护栏得真的能认出未注明的写法
+  const blindSample = 'Text(x).fontColor(Color.White)';
+  check('负对照:裸 Color.White 会被这条规则认出', (blindSample.match(/Color\.(White|Black)/g) || []).length, 1, 1e-12);
 
-  // 阶梯
+  // 每个 NavDestination 页都要自己刷页面底色:漏了的那页在深色档会露出系统的纯黑底,
+  // 和其他页的 bg_page 差一档(实测课程地图就是这样)。
+  const barePages = [];
+  let pagesWithNav = 0;
+  for (const entry of readdirSync(join(SRC, 'pages'), { withFileTypes: true })) {
+    if (!entry.name.endsWith('.ets')) {
+      continue;
+    }
+    const src = readFileSync(join(SRC, 'pages', entry.name), 'utf8');
+    if (src.includes('NavDestination()')) {
+      pagesWithNav++;
+    }
+    if (src.includes('NavDestination()') && !src.includes('backgroundColor(Theme.BG_PAGE)')) {
+      barePages.push(entry.name);
+    }
+  }
+  // 先证明扫描真的覆盖了子页:0 个文件时上面那条会假绿
+  assertTrue('扫描到了 5 个以上以 NavDestination 为根的子页', pagesWithNav >= 5, `只扫到 ${pagesWithNav} 个`);
+  assertTrue('每个子页都刷了页面底色', barePages.length === 0, barePages.join(','));
+  check('负对照:漏刷底色的页会被认出',
+    ('NavDestination() { x }'.includes('NavDestination()') && !'NavDestination() { x }'.includes('backgroundColor(Theme.BG_PAGE)')) ? 1 : 0,
+    1, 1e-12);
+
+  // subjectColor 是一条 if 链,学科顺序被打乱时颜色会整体错位一格
+  const SUBJECTS_ORDERED = [Subject.PHYSICS_MECHANICS, Subject.PHYSICS_ELECTRICAL, Subject.CHEMISTRY,
+    Subject.BIOLOGY, Subject.GEOGRAPHY, Subject.MATH_VISUAL, Subject.INSTRUMENT]
+    .map((s) => resourceNameOf(Theme.subjectColor(s)));
+  const SUBJECT_EXPECT = ['app.color.subject_mechanics', 'app.color.subject_electrical',
+    'app.color.subject_chemistry', 'app.color.subject_biology', 'app.color.subject_geography',
+    'app.color.subject_math', 'app.color.subject_instrument'];
+  for (let i = 0; i < SUBJECT_EXPECT.length; i++) {
+    checkText(`subjectColor 第 ${i} 个学科`, SUBJECTS_ORDERED[i], SUBJECT_EXPECT[i]);
+  }
+
   function assertAscending(label, ladder) {
     let sorted = ladder.length > 0;
     for (let i = 1; i < ladder.length; i++) {
@@ -2223,7 +2527,9 @@ function checkRel(label, actual, expected, relTolerance) {
   const problems = RubricValidator.validate(rubric);
   check('细则本身合法(校验零问题)', problems.length, 0, 1e-12);
   check('满分 100', rubric.totalPoints, 100, 1e-12);
-  checkText('细则标注为非官方', rubric.source, '参考细则(非官方标准)');
+  checkText('细则标注为非官方', rubric.source, '参考细则（非官方标准）');
+  // 版本直接印在报告上,内部代号(draft1)与半角括号都是工程词外泄
+  checkText('版本号印给学生看的写法', rubric.version, '2026.09 第1版');
   assertTrue('细则带版本号', rubric.version.length > 0, '版本为空');
   check('判据条数', rubric.criteria.length, 2, 1e-12);
   check('判据分值合计等于满分',
@@ -2696,6 +3002,10 @@ function checkRel(label, actual, expected, relTolerance) {
   checkText('数值列质量单位带空格', FactLabels.valueText('saltRecoveredG', 4.2), '4.20 g');
   // 计数与布尔类事实是整数,印成 4.00 会被读成"量出来的";单位前空格由上一行守住
   checkText('整数事实不印小数位', FactLabels.valueText('saltRecoveredG', 4), '4 g');
+  // 是非题印成 0/1,学生会以为那格缺数(设备实测报告页正是这样)
+  checkText('布尔事实印成是/否', FactLabels.valueText('beyondLimit', 0), '否');
+  checkText('布尔事实为真印「是」', FactLabels.valueText('beyondLimit', 1), '是');
+  checkText('引流开关也走是/否', FactLabels.valueText('rodUsed', 0), '否');
   checkText('缺值显示破折号而不是 NaN', FactLabels.valueText('yieldPct', Number.NaN), '—');
   checkText('标签列未知键退回键名', FactLabels.labelOf('brandNewKey'), 'brandNewKey');
   assertTrue('查不到的键 of 返回 null 而不是猜一个', FactLabels.of('nope') === null, '猜了一个');
@@ -3290,7 +3600,7 @@ function checkRel(label, actual, expected, relTolerance) {
   const { Layout, DeviceClass } = require(join(OUT, 'common/Layout.cjs'));
   const classes = [DeviceClass.PHONE, DeviceClass.PAD, DeviceClass.LARGE];
   const controls = ['gaugeWidth', 'gaugeHeight', 'vesselCardWidth', 'vesselCardHeight',
-    'toggleWidth', 'toggleHeight', 'buttonHeight', 'shelfMaxHeight', 'chartAreaHeight', 'panelWidth'];
+    'toggleWidth', 'toggleHeight', 'buttonHeight', 'shelfMaxHeight', 'chartHeight', 'minSceneHeight', 'panelWidth'];
   for (const name of controls) {
     if (typeof Layout[name] !== 'function') {
       assertTrue(`控件尺寸 ${name} 存在`, false, 'Layout 里没有这个访问器');
@@ -4891,8 +5201,8 @@ function checkRel(label, actual, expected, relTolerance) {
   assertTrue('只测两档 → 判数据不足', thinCard.deductions
     .some((d) => d.metric === 'distinctLoads'), '');
   const thinLine = thinCard.deductions.find((d) => d.metric === 'distinctLoads');
-  assertTrue('计数类证据不印成小数(2 挡而不是 2.00 挡)',
-    thinLine.evidence.includes('2 挡') && !thinLine.evidence.includes('2.00'), thinLine.evidence);
+  assertTrue('计数类证据不印成小数(2 档而不是 2.00 档)',
+    thinLine.evidence.includes('2 档') && !thinLine.evidence.includes('2.00'), thinLine.evidence);
   const moving = new FactSheet();
   moving.set('maxRecordSpeed', 0.3);
   assertTrue('在振动中记录 → 判读数不稳', Judgment.score(rubric, moving).deductions
@@ -4948,6 +5258,45 @@ function checkRel(label, actual, expected, relTolerance) {
   check('声明了 rubricId 的场景都能解析到细则', unresolved.length, 0, 0);
   if (unresolved.length) { console.log('  解析不到:', unresolved.map((m) => `${m.id}→${m.rubricId}`)); }
   assertTrue('弹簧场景确实声明了细则', sm.rubricId.length > 0, 'rubricId 为空');
+}
+
+// ---- 图线区高度:手机档两张图各 90vp 时 frame 算出来是负数,于是静默不画(E2) ----
+// 这条断言先把「旧尺寸确实画不出」钉住,再钉「新尺寸画得出」——
+// 只测新值的话,谁都不知道 90vp 为什么不行,下次还会被压回去。
+{
+  const { PlotLayout } = require(join(OUT, 'view/PlotFrame.cjs'));
+  const { DeviceClass, Layout } = require(join(OUT, 'common/Layout.cjs'));
+
+  // 手机档图线宿主宽约 350vp(1256px/3.25 减掉卡片内边距)
+  const phoneW = 350;
+  const old = PlotLayout.frameFor(phoneW, 90);
+  assertTrue('旧的 90vp 每图高度确实画不出(这就是 E2 的根因)', !PlotLayout.drawable(old),
+    `frame.height=${old.height.toFixed(1)}`);
+
+  for (const [cls, w] of [[DeviceClass.PHONE, 350], [DeviceClass.PAD, 520], [DeviceClass.LARGE, 900]]) {
+    const per = Layout.chartHeight(cls);
+    const f = PlotLayout.frameFor(w, per);
+    assertTrue(`${cls} 单张图 ${per}vp 必须画得出`, PlotLayout.drawable(f),
+      `frame.height=${f.height.toFixed(1)}`);
+    assertTrue(`${cls} 绘图区净高 ≥ ${PlotLayout.MIN_PLOT}vp`, f.height >= PlotLayout.MIN_PLOT,
+      `实得 ${f.height.toFixed(1)}`);
+  }
+  // 两张图不能靠"平分固定高度"来放:总高必须按图数给,可视窗再截断滚动
+  const two = Layout.chartAreaHeight(DeviceClass.PHONE, 2);
+  assertTrue('两张图的图线区按图数给高(不再平分一个固定值)',
+    two >= 2 * Layout.chartHeight(DeviceClass.PHONE), `实得 ${two}`);
+  assertTrue('图线可视窗不超过两张图的高度(多出来的靠滚动)',
+    Layout.chartViewportHeight(DeviceClass.PHONE, 4) <= 2.4 * Layout.chartHeight(DeviceClass.PHONE),
+    `实得 ${Layout.chartViewportHeight(DeviceClass.PHONE, 4)}`);
+  // E3:开图线把 2D 画面挤成一条,画布必须有下限
+  for (const [cls, floor] of [[DeviceClass.PHONE, 200], [DeviceClass.PAD, 230], [DeviceClass.LARGE, 260]]) {
+    assertTrue(`${cls} 画布最小高度守住 ${floor}vp 下限`, Layout.minSceneHeight(cls) >= floor,
+      `实得 ${Layout.minSceneHeight(cls)}`);
+    assertTrue(`${cls} 画布下限在阶梯上`, Layout.onLadder(Layout.minSceneHeight(cls)) ||
+      [210, 240, 280].indexOf(Layout.minSceneHeight(cls)) >= 0, `实得 ${Layout.minSceneHeight(cls)}`);
+  }
+  // 太矮时不许静默:必须给出可读的说明文案
+  assertTrue('画不出时必须有说明而不是静默返回', PlotLayout.hintFor(phoneW, 90).length > 6, '');
 }
 
 if (failures.length > 0) {

@@ -4,6 +4,7 @@ import { Physics2DRunner } from '../physics/Physics2DRunner';
 import { Viewport } from '../physics/World2D';
 import { RunController } from '../runner/RunController';
 import { Theme } from '../common/Theme';
+import { Palette } from './Palette';
 import { DeviceClass, Layout } from '../common/Layout';
 import { CanvasPainter } from './CanvasPainter';
 
@@ -33,6 +34,8 @@ export struct SimCanvas {
   };
 
   aboutToAppear(): void {
+    // 画布只吃字符串:先把令牌绑上,后面每帧解色才有出处
+    Palette.bind(this.getUIContext().getHostContext());
     this.vp.worldWidth = this.meta.worldWidth;
     this.vp.worldHeight = this.meta.worldHeight;
   }
