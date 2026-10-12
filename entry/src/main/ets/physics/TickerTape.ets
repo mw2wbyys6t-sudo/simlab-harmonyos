@@ -1,0 +1,172 @@
+/** 纸带上的一个点:打在什么时刻、小车走到哪儿 */
+export class TapeDot {
+  t: number = 0;
+  s: number = 0;
+
+  constructor(t: number, s: number) {
+    this.t = t;
+    this.s = s;
+  }
+}
+
+/**
+ * 打点计时器与它打出来的那条纸带。
+ *
+ * 三件事刻意分开,因为这个实验考的就是它们的先后与疏密:
+ * ① 小车什么时候被放开(运动从这一刻开始);
+ * ② 电源什么时候接通(**只有接通时才打点** —— 先放车后通电,纸带头一段就是空的);
+ * ③ 学生把哪些点当计数点(舍掉开头过密的一段、每几个点取一个)。
+ *
+ * 点距按**真实比例**存(米),不做任何放大:纸带上"前面密得量不出、后面才开得开"
+ * 正是这条实验要人看见的东西,把它归一化掉就等于把结论画成了答案。
+ */
+export class TickerTape {
+  /** 交流电频率:50 Hz 是这台计时器的时钟,两点之间 0.02 s */
+  readonly hz: number = 50;
+  private dots: TapeDot[] = [];
+  private nextAt: number = Number.NaN;
+  private powered: boolean = false;
+  private poweredAt: number = Number.NaN;
+  private releasedAt: number = Number.NaN;
+
+  reset(): void {
+    this.dots = [];
+    this.nextAt = Number.NaN;
+    this.powered = false;
+    this.poweredAt = Number.NaN;
+    this.releasedAt = Number.NaN;
+  }
+
+  /** 接通(或断开)电源。第一次接通时记下时刻,并从那一刻起按 1/hz 打点 */
+  setPower(on: boolean, t: number): void {
+    if (!on) {
+      this.powered = false;
+      return;
+    }
+    if (this.powered) {
+      return;
+    }
+    this.powered = true;
+    this.poweredAt = t;
+    this.nextAt = t;
+  }
+
+  release(t: number): void {
+    if (!Number.isFinite(this.releasedAt)) {
+      this.releasedAt = t;
+    }
+  }
+
+  isPowered(): boolean {
+    return this.powered;
+  }
+
+  isReleased(): boolean {
+    return Number.isFinite(this.releasedAt);
+  }
+
+  /**
+   * 世界每推进一格调用一次:t 是当前时刻,s 是当前位置,v 与 a 是该时刻的速度与加速度。
+   *
+   * 打点按**时刻**而不是按调用次数,所以倍速与掉帧都不影响点距;落点要回到该打点的
+   * 那一瞬间:`s − v·Δ + ½a·Δ²`。只用 `s − v·Δ` 是不够的 —— 那一格里速度本身在变,
+   * 用末速度回推会把第一个点推到起点之前(实测第一段与第二段的比从 3 变成 5.75),
+   * 而这条实验要判的最短间距就是毫米级的。
+   */
+  tick(t: number, s: number, v: number, a: number): void {
+    if (!this.powered) {
+      return;
+    }
+    const period = 1 / this.hz;
+    if (!Number.isFinite(this.nextAt)) {
+      this.nextAt = t;
+    }
+    while (t + 1e-9 >= this.nextAt) {
+      const back = t - this.nextAt;
+      this.dots.push(new TapeDot(this.nextAt, s - v * back + 0.5 * a * back * back));
+      this.nextAt += period;
+      if (this.dots.length > 4000) {
+        // 一次运行不可能打出这么多点;真到了这里就是哪里在空转
+        break;
+      }
+    }
+  }
+
+  count(): number {
+    return this.dots.length;
+  }
+
+  dotAt(index: number): TapeDot | null {
+    if (index < 0 || index >= this.dots.length) {
+      return null;
+    }
+    return this.dots[index];
+  }
+
+  /** 第 index 与 index+1 两个点之间的距离(米) */
+  spacing(index: number): number {
+    const a = this.dotAt(index);
+    const b = this.dotAt(index + 1);
+    if (a === null || b === null) {
+      return Number.NaN;
+    }
+    return b.s - a.s;
+  }
+
+  /**
+   * 从第 start 个点起、每 every 个点取一个计数点,能量出几段。
+   *
+   * 逐差法至少要四段,三段就只能两两相减再平均 —— 那是这条实验明确不让做的做法。
+   */
+  segmentCount(start: number, every: number): number {
+    const step = every < 1 ? 1 : every;
+    const from = start < 0 ? 0 : start;
+    if (this.dots.length <= from + step) {
+      return 0;
+    }
+    return Math.floor((this.dots.length - from) / step);
+  }
+
+  /** 上面那些段里最短的一段(米)。一段都没有时给 NaN:没量过的事不报数 */
+  shortestSegment(start: number, every: number): number {
+    const step = every < 1 ? 1 : every;
+    const segments = this.segmentCount(start, every);
+    let best = Number.NaN;
+    for (let i = 0; i < segments; i++) {
+      const from = this.dotAt(start + i * step);
+      const to = this.dotAt(start + (i + 1) * step);
+      if (from === null || to === null) {
+        continue;
+      }
+      const span = to.s - from.s;
+      if (!Number.isFinite(best) || span < best) {
+        best = span;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * 先放车、后通电时,纸带头上少了几个点。
+   *
+   * 这是学生自己的动作顺序留下的后果:释放与接通之间那一段运动计时器压根没在打,
+   * 而初速度为零的那一段恰恰是最该量的一段。
+   */
+  lostHeadDots(): number {
+    if (!Number.isFinite(this.releasedAt) || !Number.isFinite(this.poweredAt)) {
+      return 0;
+    }
+    const late = (this.poweredAt - this.releasedAt) * this.hz;
+    return late > 0 ? Math.floor(late + 0.5) : 0;
+  }
+
+  /** 从第一个点到最后一个点,纸带上实际打出来的长度(米) */
+  tapeLength(): number {
+    const first = this.dotAt(0);
+    const last = this.dotAt(this.dots.length - 1);
+    if (first === null || last === null) {
+      return 0;
+    }
+    return last.s - first.s;
+  }
+}

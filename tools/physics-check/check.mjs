@@ -71,6 +71,7 @@ const MODULES = [
   'bench/RubricSpring',
   'bench/RubricOhm',
   'bench/RubricEmf',
+  'bench/RubricTape',
   'bench/RubricBrine',
   'bench/RubricMeasure',
   'bench/MeasureVerdict',
@@ -100,6 +101,8 @@ const MODULES = [
   'physics/circuit/CircuitRunner',
   'physics/circuit/OhmRunner',
   'physics/circuit/EmfRunner',
+  'physics/TickerTape',
+  'physics/TapeCartRunner',
   'physics/SpringMassRunner',
   'physics/InclineRunner',
   'runner/IExperimentRunner',
@@ -4829,7 +4832,7 @@ function checkRel(label, actual, expected, relTolerance) {
   const shippedHere = rows.filter((e) => e.feasibility === Feasibility.RUNNABLE).map((e) => e.id).sort();
   assertTrue('中学表里 RUNNABLE 正好是注册表真装着的那六条',
     shippedHere.join(',') === ['phy-jr-001', 'phy-jr-002', 'phy-jr-017', 'phy-sr-001', 'phy-sr-002',
-      'phy-sr-004', 'phy-sr-010'].join(','),
+      'phy-sr-003', 'phy-sr-004', 'phy-sr-010'].join(','),
     shippedHere.join(','));
   // 出处:代理取到了湖南省教育厅《初中必做实验目录(2023版)》与教育部《中小学实验教学基本目录》
   // 两份政府发布页原文。这条断言把"已核实"钉在一个数上 —— 往下掉说明有人把出处改浅了。
@@ -5015,7 +5018,7 @@ function checkRel(label, actual, expected, relTolerance) {
   // 现有场景确实给得出这条曲线,所以两门课今天都能开这一个实验。但记账要说明白,
   // 否则"完成度"会被一次实现记两次功劳。
   const SHIPPED_RUNNABLE = ['chem-u-004', 'ele-u-003', 'ele-u-007', 'phy-jr-001', 'phy-jr-002',
-    'phy-jr-017', 'phy-sr-001', 'phy-sr-002', 'phy-sr-004', 'phy-sr-010', 'phy-u-014'];
+    'phy-jr-017', 'phy-sr-001', 'phy-sr-002', 'phy-sr-003', 'phy-sr-004', 'phy-sr-010', 'phy-u-014'];
   const runnableIds = runnable.map((e) => e.id).sort();
   assertTrue('地图自称可打开的条目必须等于应用真装了的实验',
     runnableIds.join(',') === SHIPPED_RUNNABLE.join(','),
@@ -5027,25 +5030,26 @@ function checkRel(label, actual, expected, relTolerance) {
     'phy-jr-001': 'series-circuit', 'phy-jr-002': 'parallel-circuit',
     'phy-sr-001': 'incline-block', 'phy-sr-002': 'spring-mass', 'ele-u-003': 'kirchhoff',
     'ele-u-007': 'max-power', 'phy-sr-004': 'spring-force', 'phy-jr-017': 'ohm-law',
-    'phy-sr-010': 'emf-internal-resistance'
+    'phy-sr-010': 'emf-internal-resistance',
+    'phy-sr-003': 'tape-cart'
   };
   const lostBasis = Object.keys(BASIS)
     .filter((mapId) => registered.indexOf(BASIS[mapId]) < 0)
     .map((mapId) => `${mapId} 声称可打开,但注册表里没有 ${BASIS[mapId]}`);
   assertTrue('每条按注册表登记的 RUNNABLE 都指得到一个真注册了的场景', lostBasis.length === 0,
     lostBasis.join(' | '));
-  check('注册表里的场景数', registered.length, 9, 0);
+  check('注册表里的场景数', registered.length, 10, 0);
   assertTrue('生物学科现在一条可打开的都没有(与地图自己的判断一致)',
     CurriculumIndex.experimentsOf(MapSubject.BIOLOGY)
       .every((e) => e.feasibility !== Feasibility.RUNNABLE), '生物出现了 RUNNABLE 条目');
   // 「待补场景」这一档是为电子那 8 条而加的(引擎够、场景没有)。
   // 一条新枚举值若没有数据在用,它就是死代码 —— 这条断言同时守住"最低成本的施工面"别被误降级。
-  // 电子 6 + 中学物理 6 + 中学化学 11 = 23 条最低成本的施工面。
-  // (中学物理原有 9 条,phy-sr-004 / phy-jr-017 / phy-sr-010 各做成一条场景,减三条;
+  // 电子 6 + 中学物理 5 + 中学化学 11 = 22 条最低成本的施工面。
+  // (中学物理原有 9 条,phy-sr-004 / phy-jr-017 / phy-sr-010 / phy-sr-003 各做成一条场景,减四条;
   //  电子原有 8 条,已做成场景的 ele-u-003 与 ele-u-007 各减一条;中学化学那 11 条
   //  是"台架能拖出反应但没有细则",见 #54)
   check('待补场景的实验条数(引擎够用,只差场景与细则)',
-    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 23, 0);
+    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 22, 0);
 
   let periodSum = 0;
   for (let p = 1; p <= 7; p++) {
@@ -5876,6 +5880,140 @@ function checkRel(label, actual, expected, relTolerance) {
     const labeled = record.facts.every((f) => FactLabels.of(f.key) !== null);
     assertTrue('每个事实键都有显示名', labeled, record.facts.map((f) => f.key).join(','));
     checkText('电流读数带安培单位', FactLabels.valueText('emfMaxCurrent', 0.5), '0.50 A');
+  }
+}
+
+// ---- 共用件:打点计时器与纸带(phy-sr-003 / tape-cart,后面 sr-006、sr-008 复用它)----
+// 这条实验的分在"纸带是怎么来的":先通电还是先放车、开头密着的一段舍没舍、
+// 按所选间隔能不能切出四段做逐差。a 的数值本身要学生填进来才判得了(#61),这里不判。
+{
+  const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
+  const { Rubrics } = require(join(OUT, 'bench/RubricMeasure.cjs'));
+  const { RubricTape } = require(join(OUT, 'bench/RubricTape.cjs'));
+  const { Judgment } = require(join(OUT, 'bench/Judgment.cjs'));
+  const { FactLabels } = require(join(OUT, 'model/FactLabels.cjs'));
+  const { FactSheet } = require(join(OUT, 'model/FactSheet.cjs'));
+  const { TickerTape } = require(join(OUT, 'physics/TickerTape.cjs'));
+
+  const meta = ExperimentRegistry.find('tape-cart').meta;
+  checkText('地图条目 phy-sr-003 配的场景 id', meta.id, 'tape-cart');
+  assertTrue('细则能被索引解析到', Rubrics.byId(meta.rubricId) !== null, meta.rubricId);
+
+  /** 打点计时器的纯模型:等间隔、只有通电才打、先放车就漏头 */
+  {
+    const tape = new TickerTape();
+    tape.setPower(true, 0);
+    tape.release(0);
+    for (let i = 0; i <= 300; i++) {
+      tape.tick(i / 60, 0.5 * 0.8 * (i / 60) * (i / 60), 0.8 * (i / 60), 0.8);
+    }
+    // 50 Hz × 5 s = 250 个点左右(末点是否落进这一格取决于相位)
+    assertTrue('5 秒打出约 250 个点', tape.count() >= 248 && tape.count() <= 251, String(tape.count()));
+    const d0 = tape.spacing(0);
+    const d1 = tape.spacing(1);
+    assertTrue('匀加速下相邻点距单调变疏', d1 > d0, `${d0.toFixed(5)} → ${d1.toFixed(5)}`);
+    // 从静止起、等时间间隔的位移比是 1:3:5:7 —— 逐差法的算本就是这个
+    const r13 = tape.spacing(1) / tape.spacing(0);
+    checkRel('第二段/第一段 ≈ 3(初速为零的等时间间隔位移比)', r13, 3, 0.05);
+    const off = new TickerTape();
+    off.release(0);
+    for (let i = 0; i < 120; i++) off.tick(i / 60, 0, 0, 0);
+    check('没通电一个点也不打', off.count(), 0, 1e-12);
+    off.setPower(true, 2);
+    check('两秒后才通电,头一段漏了 100 个点', off.lostHeadDots(), 100, 1e-9);
+  }
+
+  /** 跑一遍操作脚本:act 按按钮,step 走多少帧,其余当参数拖 */
+  function run(steps) {
+    const runner = ExperimentRegistry.createRunner('tape-cart');
+    runner.setup(meta);
+    runner.reset();
+    for (const [key, value] of steps) {
+      if (key === 'act') {
+        runner.doAction(value);
+      } else if (key === 'run') {
+        for (let i = 0; i < value; i++) runner.step(1 / 60);
+      } else {
+        runner.setParam(key, value);
+      }
+    }
+    const sheet = new FactSheet();
+    runner.collectFacts(sheet);
+    const card = Judgment.score(RubricTape.create(), sheet);
+    return { runner: runner, card: card, sheet: sheet };
+  }
+
+  // 1. 认真做:先通电待稳定,再释放;舍开头 20 个点,每 5 点取一个计数点
+  const good = run([['act', 'power'], ['run', 6], ['act', 'release'], ['run', 130]]);
+  check('纸带上的点够多', good.sheet.num('tapeDotCount') > 70 ? 1 : 0, 1, 1e-12);
+  check('切得出四段以上', good.sheet.num('tapeSegments') >= 4 ? 1 : 0, 1, 1e-12);
+  check('最短一段读得出来', good.sheet.num('tapeShortestMm') >= 2 ? 1 : 0, 1, 1e-12);
+  check('头一段没漏', good.sheet.num('tapeLostHead'), 0, 1e-12);
+  check('认真做一分不扣', good.card.awarded, 100, 1e-9);
+  check('扣分条数为 0', good.card.deductions.length, 0, 1e-12);
+  // 小车走满 1.2 m 的坡:纸带长度应当与位移同量级(不是被放大后的画图坐标)
+  const span = good.runner.readObservable('tapeSpanMm');
+  assertTrue('纸带打出来的长度不超过木板', span > 0 && span <= 1200, String(span));
+  assertTrue('画面上点距按 6 倍展开', span * 6 > 300, String(span));
+
+  // 2. 四条判据各自能被触发,而且各自只被自己那一处不规范触发
+  const FIRES = [
+    ['tape-few-dots', [['act', 'power'], ['act', 'release'], ['run', 4]]],
+    // 先放车、半秒后才想起通电
+    ['tape-lost-head', [['act', 'release'], ['run', 30], ['act', 'power'], ['run', 100]]],
+    // 一个点都没舍:第一段还是小车静止时打出来的重叠点
+    ['tape-crowded-start', [['act', 'power'], ['run', 6], ['act', 'release'], ['run', 130],
+      ['countStart', 0], ['countEvery', 1]]],
+    // 每 10 个点才取一个,80 个点只够切 8 段 —— 改成起点放到 45 之后只剩 3 段
+    ['tape-few-segments', [['act', 'power'], ['act', 'release'], ['run', 130],
+      ['countStart', 45], ['countEvery', 10]]],
+  ];
+  for (const [criterionId, steps] of FIRES) {
+    const out = run(steps);
+    const hit = out.card.deductions.filter((d) => d.criterionId === criterionId);
+    assertTrue('判据 ' + criterionId + ' 能被触发', hit.length === 1,
+      '扣分项:' + out.card.deductions.map((d) => d.criterionId).join(',') + ' / 得分 ' + out.card.awarded);
+    assertTrue('判据 ' + criterionId + ' 的证据里带上了当时的数',
+      /\d/.test(hit.length > 0 ? hit[0].evidence : ''), hit.length > 0 ? hit[0].evidence : '');
+  }
+
+  // 3. 纸带画在画面上:点数进快照的圆里,计数点用放大蓝点标出
+  {
+    const snap = good.runner.snapshot();
+    const dots = snap.circles.filter((c) => Math.abs(c.cy - 4.9) < 1e-9);
+    assertTrue('纸带上的点被画出来', dots.length >= 60, `实得 ${dots.length} 个`);
+    const marks = dots.filter((c) => c.r > 0.03);
+    assertTrue('计数点被放大标出', marks.length >= 5, `实得 ${marks.length} 个`);
+    const spread = dots.map((c) => c.cx).sort((a, b) => a - b);
+    assertTrue('画出来的跨度大于一个板长(6 倍展开)', spread[spread.length - 1] - spread[0] > 1.5,
+      String(spread[spread.length - 1] - spread[0]));
+    // 点距必须一路变疏:车越滑越快,同一个 0.02 s 里走的距离只会更大。
+    // 只管到倒数第二段 —— 最后那一个点被"走到坡底"截断,本来就比理论间隔短,
+    // 真纸带走到头也是这样(实测末段 0.123 对上一段 0.171,差值正好是被底端吃掉的那点位移)。
+    let monoton = true;
+    let worst = '';
+    for (let i = 1; i + 1 < spread.length; i++) {
+      const gap = spread[i] - spread[i - 1];
+      const prev = i > 1 ? spread[i - 1] - spread[i - 2] : gap;
+      if (gap < prev - 1e-6) {
+        monoton = false;
+        worst = `第 ${i} 个间隔 ${gap.toFixed(4)} 比上一段 ${prev.toFixed(4)} 还窄`;
+        break;
+      }
+    }
+    assertTrue('纸带上的点一路变疏', monoton, worst);
+  }
+
+  // 4. 没打点时:最短段没量过 → 不进事实清单,不扣"过密"那条
+  {
+    const blank = run([['run', 30]]);
+    assertTrue('没打点时不报最短段', !Number.isFinite(blank.sheet.num('tapeShortestMm')),
+      String(blank.sheet.num('tapeShortestMm')));
+    assertTrue('没打点时不因"过密"扣分',
+      !blank.card.deductions.some((d) => d.criterionId === 'tape-crowded-start'),
+      blank.card.deductions.map((d) => d.criterionId).join(','));
+    check('一条都没打就判点太少', blank.card.deductions.some((d) => d.criterionId === 'tape-few-dots') ? 1 : 0, 1, 1e-12);
+    checkText('没量过的事实印成破折号', FactLabels.valueText('tapeShortestMm', Number.NaN), '—');
   }
 }
 

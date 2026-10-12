@@ -71,6 +71,11 @@ export class FactLabels {
     table.set('emfCurrentSpread', new FactLabel('读数铺开的电流跨度', ' A'));
     table.set('emfMaxCurrent', new FactLabel('读数里最大的电流', ' A'));
     table.set('emfMinCurrent', new FactLabel('读数里最小的电流', ' A'));
+    // 纸带:判的是「这条纸带是怎么打出来的」,不是 a 等于多少
+    table.set('tapeDotCount', new FactLabel('纸带上的点数', ' 个'));
+    table.set('tapeLostHead', new FactLabel('头一段漏打的点数', ' 个'));
+    table.set('tapeSegments', new FactLabel('切出的计数段数', ' 段'));
+    table.set('tapeShortestMm', new FactLabel('最短计数段', ' mm'));
     return table;
   }
 

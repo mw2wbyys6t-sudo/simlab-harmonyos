@@ -2,6 +2,7 @@ import { ExperimentMeta, RendererKind, Subject } from '../model/ExperimentTypes'
 import { ExperimentRegistry } from '../runner/ExperimentRegistry';
 import { SceneBuilders } from './SceneBuilders';
 import { InclineRunner } from '../physics/InclineRunner';
+import { TapeCartRunner } from '../physics/TapeCartRunner';
 import { SpringMassRunner } from '../physics/SpringMassRunner';
 import { SpringForceRunner } from '../physics/SpringForceRunner';
 
@@ -14,6 +15,7 @@ export class MechanicsScenes {
     ExperimentRegistry.register(MechanicsScenes.springMass(), (): SpringMassRunner => new SpringMassRunner());
     ExperimentRegistry.register(MechanicsScenes.incline(), (): InclineRunner => new InclineRunner());
     ExperimentRegistry.register(MechanicsScenes.springForce(), (): SpringForceRunner => new SpringForceRunner());
+    ExperimentRegistry.register(MechanicsScenes.tapeCart(), (): TapeCartRunner => new TapeCartRunner());
   }
 
   private static springMass(): ExperimentMeta {
@@ -90,6 +92,54 @@ export class MechanicsScenes {
     ]));
     meta.tasks.push(SceneBuilders.task('critical-angle', '固定 μ=0.3，找到滑块恰好能自动下滑的临界倾角，与 arctan μ 比较。', 16.7, 1.5));
     meta.tasks.push(SceneBuilders.task('energy-balance', '取 μ=0、θ=30°、L=3.5 m 由静止释放，比较减少的重力势能与增加的动能。', 0, 0.02));
+    return meta;
+  }
+
+  /**
+   * 测量匀变速直线运动物体的加速度(地图条目 `phy-sr-003`)。
+   *
+   * 复用斜面的动力学,新加的是打点计时器与那条纸带。倾角默认 8°、μ 默认 0.05,
+   * 让 a 落在 0.9 m/s² 左右:1.2 m 长的坡走下来约 1.6 s、打出八十个点 ——
+   * 这是真实纸带的量级(点太少不够分段,太密就回到读不出的老问题)。
+   *
+   * 「接通电源」与「释放小车」是两个按钮而不是一个「开始」:这条实验要判的那条
+   * 顺序(先通电待打点稳定、再放车),只有拆开才留得下事实。
+   */
+  private static tapeCart(): ExperimentMeta {
+    const meta = new ExperimentMeta();
+    meta.id = 'tape-cart';
+    meta.title = '测量匀变速直线运动物体的加速度';
+    meta.subject = Subject.PHYSICS_MECHANICS;
+    meta.renderer = RendererKind.PHYSICS_2D;
+    meta.summary = '先接通电源、等打点稳定后释放小车；舍开头里密着的那一段，每五个点取一个计数点，用逐差法求 a。';
+    meta.gradeBand = '高中物理 · 必修一';
+    meta.durationMinutes = 45;
+    meta.worldWidth = 9;
+    meta.worldHeight = 5.4;
+    meta.params.push(SceneBuilders.param('angle', '斜面倾角 θ', '°', 5, 60, 1, 8, '装置'));
+    meta.params.push(SceneBuilders.param('length', '木板长度', 'm', 1, 5, 0.1, 1.2, '装置'));
+    meta.params.push(SceneBuilders.param('mass', '小车质量', 'kg', 0.2, 5, 0.1, 0.2, '小车'));
+    meta.params.push(SceneBuilders.param('friction', '动摩擦因数 μ', '', 0, 0.8, 0.01, 0.05, '小车'));
+    meta.params.push(SceneBuilders.param('countStart', '计数起点：从第几个点量起', '个', 0, 80, 1, 40, '纸带'));
+    meta.params.push(SceneBuilders.param('countEvery', '每几个点取一个计数点', '个', 1, 10, 1, 5, '纸带'));
+    meta.actions.push(SceneBuilders.action('power', '接通／断开电源', '计时器'));
+    meta.actions.push(SceneBuilders.action('release', '释放小车', '计时器'));
+    meta.observables.push(SceneBuilders.observable('distance', '小车沿板滑下的距离 s', 'm', 3, true));
+    meta.observables.push(SceneBuilders.observable('velocity', '速度 v', 'm/s', 3, true));
+    meta.observables.push(SceneBuilders.observable('acceleration', '加速度 a', 'm/s²', 3, false));
+    meta.observables.push(SceneBuilders.observable('tapeDotCount', '纸带上的点数', '个', 0, false));
+    meta.observables.push(SceneBuilders.observable('tapeSegments', '切出的计数段数', '段', 0, false));
+    meta.observables.push(SceneBuilders.observable('tapeShortestMm', '最短计数段', 'mm', 1, false));
+    meta.observables.push(SceneBuilders.observable('tapeEveryMs', '相邻计数点时间间隔', 'ms', 0, false));
+    meta.observables.push(SceneBuilders.observable('tapeLostHead', '头一段漏打的点数', '个', 0, false));
+    meta.charts.push(SceneBuilders.timeChart('速度-时间 v-t（斜率即 a）', 'v', 'm/s', [
+      SceneBuilders.trace('velocity', 'v', SceneBuilders.palette(0))
+    ]));
+    meta.tasks.push(SceneBuilders.task('tape-a-by-difference',
+      '用逐差法把各计数段写成 a 的表达式再代入：说明它为什么比“相邻两段之差逐个平均”用上了更多数据。', Number.NaN, 0));
+    meta.tasks.push(SceneBuilders.task('tape-a-from-slope',
+      '由每段位移除以对应时间得到各计数点速度，作 v-t 图，从斜率取第二个 a 并与逐差法结果比对。', Number.NaN, 0));
+    meta.rubricId = 'tape-cart-rubric';
     return meta;
   }
 

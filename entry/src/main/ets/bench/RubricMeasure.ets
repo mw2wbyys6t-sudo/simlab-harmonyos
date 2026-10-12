@@ -5,6 +5,7 @@ import { RubricBrine } from './RubricBrine';
 import { RubricSpring } from './RubricSpring';
 import { RubricOhm } from './RubricOhm';
 import { RubricEmf } from './RubricEmf';
+import { RubricTape } from './RubricTape';
 
 /**
  * 量取参考细则。
@@ -104,6 +105,9 @@ export class Rubrics {
     }
     if (id === RubricEmf.ID) {
       return RubricEmf.create();
+    }
+    if (id === RubricTape.ID) {
+      return RubricTape.create();
     }
     return null;
   }
