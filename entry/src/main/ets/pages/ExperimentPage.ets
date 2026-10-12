@@ -135,7 +135,33 @@ export struct ExperimentPage {
     }
     // 暂停态下按动作也要在图线上留下新坐标,与拖动参数同一条规矩
     this.controller.sampleNow();
+    this.syncParams();
     this.refreshReadouts();
+  }
+
+  /**
+   * 把面板那几格数字对回模型里的真实参数。
+   *
+   * 「换大一档电阻」「电阻箱减一档」这类动作会**自己**改参数:runner 里的值变了,
+   * 而 @State paramValues 还停在学生上一次拖到的位置 —— 屏幕上那格数字不动,
+   * 等于面板在学生按完按钮之后撒了一次谎。
+   */
+  private syncParams(): void {
+    if (this.runner === null) {
+      return;
+    }
+    let changed = false;
+    const next: number[] = [];
+    for (let i = 0; i < this.meta.params.length; i++) {
+      const value = this.runner.getParam(this.meta.params[i].key);
+      next.push(Number.isFinite(value) ? value : this.paramValues[i]);
+      if (next[i] !== this.paramValues[i]) {
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.paramValues = next;
+    }
   }
 
   /**

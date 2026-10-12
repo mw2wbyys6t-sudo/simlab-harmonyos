@@ -1,6 +1,7 @@
 import { ExperimentMeta, RendererKind, Subject } from '../model/ExperimentTypes';
 import { CircuitRunner } from '../physics/circuit/CircuitRunner';
 import { OhmRunner } from '../physics/circuit/OhmRunner';
+import { EmfRunner } from '../physics/circuit/EmfRunner';
 import { CircuitSpec, Component, ComponentKind, WirePath } from '../physics/circuit/CircuitModel';
 import { ExperimentRegistry } from '../runner/ExperimentRegistry';
 import { SceneBuilders } from './SceneBuilders';
@@ -29,6 +30,8 @@ export class ElectricalScenes {
       (): CircuitRunner => new CircuitRunner(ElectricalScenes.maxPowerCircuit()));
     ExperimentRegistry.register(ElectricalScenes.ohmMeta(),
       (): OhmRunner => new OhmRunner(ElectricalScenes.ohmCircuit()));
+    ExperimentRegistry.register(ElectricalScenes.emfMeta(),
+      (): EmfRunner => new EmfRunner(ElectricalScenes.emfCircuit()));
   }
 
   /**
@@ -100,6 +103,76 @@ export class ElectricalScenes {
     meta.tasks.push(SceneBuilders.task('ohm-hold-voltage',
       '换电阻之后要把电压调回同一档，写清这一步在操作上是怎么做的。', Number.NaN, 0));
     meta.rubricId = 'ohm-law-rubric';
+    return meta;
+  }
+
+  /**
+   * 测量电源的电动势和内阻(地图条目 `phy-sr-010`,伏安法 + 电阻箱)。
+   *
+   * 内阻 r₀ 串在理想源旁边、电压表接在这一对的两侧 —— 屏幕上看到的就是"实际电源"
+   * 那两个接线柱,读到的 U 随 I 增大而线性掉下来,截距才是 E。
+   * r₀ 刻意**不给参数**:它是被测的未知量,给学生一个旋钮等于给他半份答案。
+   */
+  private static emfCircuit(): CircuitSpec {
+    const spec = new CircuitSpec();
+    const left = 1.6;
+    const right = 7.4;
+    const top = 4.2;
+    const bottom = 1.2;
+
+    // n0 负极轨(参考点) n1 理想源正极 n2 电源正极接线柱 n3 电流表与电阻箱之间
+    ElectricalScenes.place(spec.add(ComponentKind.SOURCE, 'src', '电源 E', 1, 0, 1.5, 'emf'),
+      left, 3.4, left, 2.4, 0, 0);
+    ElectricalScenes.place(spec.add(ComponentKind.RESISTOR, 'r0', 'r', 2, 1, 1, ''),
+      3.4, top, 2.4, top, 0, 0);
+    ElectricalScenes.place(spec.add(ComponentKind.VOLTMETER, 'v1', 'V', 2, 0, 0, ''),
+      3.6, top, 3.6, bottom, 0, 0);
+    ElectricalScenes.place(spec.add(ComponentKind.AMMETER, 'a1', 'A', 2, 3, 0, ''),
+      4.4, top, 5.4, top, 0, 0);
+    ElectricalScenes.place(spec.add(ComponentKind.RESISTOR, 'box', 'R', 3, 0, 20, 'box'),
+      right, 3.4, right, 2.4, 0, 0);
+
+    spec.wire(ElectricalScenes.poly([[left, 2.4], [left, bottom]]));
+    spec.wire(ElectricalScenes.poly([[left, bottom], [right, bottom]]));
+    spec.wire(ElectricalScenes.poly([[right, bottom], [right, 2.4]]));
+    spec.wire(ElectricalScenes.poly([[left, 3.4], [left, top]]));
+    spec.wire(ElectricalScenes.poly([[left, top], [2.4, top]]));
+    spec.wire(ElectricalScenes.poly([[3.4, top], [4.4, top]]));
+    spec.wire(ElectricalScenes.poly([[5.4, top], [right, top]]));
+    spec.wire(ElectricalScenes.poly([[right, top], [right, 3.4]]));
+    return spec;
+  }
+
+  private static emfMeta(): ExperimentMeta {
+    const meta = new ExperimentMeta();
+    meta.id = 'emf-internal-resistance';
+    meta.title = '测量电源的电动势和内阻';
+    meta.subject = Subject.PHYSICS_ELECTRICAL;
+    meta.renderer = RendererKind.PHYSICS_2D;
+    meta.summary = '改变电阻箱取多组路端电压与电流，作 U-I 图：纵截距即电动势，斜率的绝对值即内阻。';
+    meta.gradeBand = '高中物理 · 必修三';
+    meta.durationMinutes = 50;
+    meta.worldWidth = WORLD_W;
+    meta.worldHeight = WORLD_H;
+    meta.params.push(SceneBuilders.param('emf', '电源电动势 E', 'V', 1, 3, 0.1, 1.5, '电源'));
+    meta.params.push(SceneBuilders.param('box', '电阻箱 R', 'Ω', 1, 100, 1, 20, '外电路'));
+    meta.actions.push(SceneBuilders.action('box+', '电阻箱加一档', '电阻箱'));
+    meta.actions.push(SceneBuilders.action('box-', '电阻箱减一档', '电阻箱'));
+    meta.actions.push(SceneBuilders.action('record', '记录这一组 U 和 I', '记录'));
+    meta.observables.push(SceneBuilders.observable('U:v1', '路端电压 U', 'V', 3, true));
+    meta.observables.push(SceneBuilders.observable('I:a1', '干路电流 I（量程 0.6 A）', 'A', 4, true));
+    meta.observables.push(SceneBuilders.observable('emfRecordCount', '已记录组数', '组', 0, false));
+    meta.observables.push(SceneBuilders.observable('emfCurrentSpread', '读数铺开的电流跨度', 'A', 3, false));
+    meta.observables.push(SceneBuilders.observable('emfMaxCurrent', '读数里最大的电流', 'A', 3, false));
+    meta.observables.push(SceneBuilders.observable('emfMinCurrent', '读数里最小的电流', 'A', 3, false));
+    meta.charts.push(SceneBuilders.xyChart('U–I 图（纵截距即 E，斜率绝对值即 r）', 'I:a1', 'I', 'A', 'U', 'V', [
+      SceneBuilders.trace('U:v1', 'U', SceneBuilders.palette(0))
+    ]));
+    meta.tasks.push(SceneBuilders.task('emf-why-many',
+      '为什么不能只用两组读数解方程求出 E 与 r？用这次取到的点说明。', Number.NaN, 0));
+    meta.tasks.push(SceneBuilders.task('emf-intercept',
+      '把图线延长到纵轴，读出电动势；再用斜率算内阻，写清各自对应图上哪一段。', Number.NaN, 0));
+    meta.rubricId = 'emf-internal-resistance-rubric';
     return meta;
   }
 

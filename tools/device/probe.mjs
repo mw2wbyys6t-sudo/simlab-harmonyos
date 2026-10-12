@@ -128,13 +128,24 @@ export class Probe {
     const o = typeof opts === 'number' ? { wait: opts } : (opts || {});
     const contains = !!o.contains;
     const wait = o.wait || 1600;
-    const hit = this.dumpNodes().find((a) => {
+    const find = () => this.dumpNodes().find((a) => {
       const t = a.text || '';
       return contains ? t.includes(text) : t === text;
     });
+    let hit = find();
     if (hit === undefined) {
       this.fail(`点击「${text}」`, 'dumpLayout 里没有这个节点');
       return false;
+    }
+    // 甩动动画没停就取坐标,点击会落到滑过来取代它位置的那格上(实测点到了参数滑杆,
+    // 把电阻箱拖到 51 Ω —— 看着像"按钮没反应",其实是拖错了控件)。连着两次位置一致才按。
+    for (let i = 0; i < 4; i++) {
+      this.sleep(500);
+      const again = find();
+      if (again !== undefined && again.bounds === hit.bounds) {
+        break;
+      }
+      hit = again === undefined ? hit : again;
     }
     const [x, y] = Probe.center(hit.bounds);
     this.shell(`uitest uiInput click ${x} ${y}`);
@@ -179,11 +190,16 @@ export class Probe {
    *
    * 起讫点都取在屏幕下半部:实验页上半是固定的画布与控制行,手势从 y=700 起
    * 落在画布上,于是"回顶"对实验页完全没作用(实测滚了四次位置纹丝不动)。
+   * x 走左侧留白 60:参数滑杆占满 x 98..1158,手势起点落在轨道上时 Slider 会抢下
+   * 这次拖拽并把值跳到起点那个 x(实测:滚一下,电阻箱从 20 Ω 变成 51 Ω)。
    */
   scrollToTop() {
     for (let i = 0; i < 4; i++) {
-      this.swipe(628, 1600, 628, 2400);
+      this.swipe(60, 1600, 60, 2400);
     }
+    // 最后一甩的惯性还在跑就取坐标,后面那一下点击会落到取代它位置的那一行上
+    // (实测:想按「电阻箱减一档」,结果按到了它上面那一挡,值从 20 变成 30)
+    this.sleep(1500);
   }
 
   back(wait) {

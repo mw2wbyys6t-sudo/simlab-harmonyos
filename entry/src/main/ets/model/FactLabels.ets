@@ -66,6 +66,11 @@ export class FactLabels {
     table.set('ohmResistances', new FactLabel('测过的电阻种数', ' 种'));
     table.set('ohmSharedVoltages', new FactLabel('同电压可比较的档数', ' 档'));
     table.set('ohmFirstSlide', new FactLabel('第一组读数时滑片位置', ' Ω'));
+    // 测电动势与内阻:判的是读数分布在电流轴上铺开了多大一段
+    table.set('emfRecordCount', new FactLabel('已记录组数', ' 组'));
+    table.set('emfCurrentSpread', new FactLabel('读数铺开的电流跨度', ' A'));
+    table.set('emfMaxCurrent', new FactLabel('读数里最大的电流', ' A'));
+    table.set('emfMinCurrent', new FactLabel('读数里最小的电流', ' A'));
     return table;
   }
 

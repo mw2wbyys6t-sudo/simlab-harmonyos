@@ -70,6 +70,7 @@ const MODULES = [
   'bench/Judgment',
   'bench/RubricSpring',
   'bench/RubricOhm',
+  'bench/RubricEmf',
   'bench/RubricBrine',
   'bench/RubricMeasure',
   'bench/MeasureVerdict',
@@ -98,6 +99,7 @@ const MODULES = [
   'physics/circuit/CircuitModel',
   'physics/circuit/CircuitRunner',
   'physics/circuit/OhmRunner',
+  'physics/circuit/EmfRunner',
   'physics/SpringMassRunner',
   'physics/InclineRunner',
   'runner/IExperimentRunner',
@@ -4826,7 +4828,8 @@ function checkRel(label, actual, expected, relTolerance) {
   // 这一档的 RUNNABLE 是拿去和注册表对账的,多一条就是虚报
   const shippedHere = rows.filter((e) => e.feasibility === Feasibility.RUNNABLE).map((e) => e.id).sort();
   assertTrue('中学表里 RUNNABLE 正好是注册表真装着的那六条',
-    shippedHere.join(',') === ['phy-jr-001', 'phy-jr-002', 'phy-jr-017', 'phy-sr-001', 'phy-sr-002', 'phy-sr-004'].join(','),
+    shippedHere.join(',') === ['phy-jr-001', 'phy-jr-002', 'phy-jr-017', 'phy-sr-001', 'phy-sr-002',
+      'phy-sr-004', 'phy-sr-010'].join(','),
     shippedHere.join(','));
   // 出处:代理取到了湖南省教育厅《初中必做实验目录(2023版)》与教育部《中小学实验教学基本目录》
   // 两份政府发布页原文。这条断言把"已核实"钉在一个数上 —— 往下掉说明有人把出处改浅了。
@@ -5012,7 +5015,7 @@ function checkRel(label, actual, expected, relTolerance) {
   // 现有场景确实给得出这条曲线,所以两门课今天都能开这一个实验。但记账要说明白,
   // 否则"完成度"会被一次实现记两次功劳。
   const SHIPPED_RUNNABLE = ['chem-u-004', 'ele-u-003', 'ele-u-007', 'phy-jr-001', 'phy-jr-002',
-    'phy-jr-017', 'phy-sr-001', 'phy-sr-002', 'phy-sr-004', 'phy-u-014'];
+    'phy-jr-017', 'phy-sr-001', 'phy-sr-002', 'phy-sr-004', 'phy-sr-010', 'phy-u-014'];
   const runnableIds = runnable.map((e) => e.id).sort();
   assertTrue('地图自称可打开的条目必须等于应用真装了的实验',
     runnableIds.join(',') === SHIPPED_RUNNABLE.join(','),
@@ -5023,25 +5026,26 @@ function checkRel(label, actual, expected, relTolerance) {
   const BASIS = {
     'phy-jr-001': 'series-circuit', 'phy-jr-002': 'parallel-circuit',
     'phy-sr-001': 'incline-block', 'phy-sr-002': 'spring-mass', 'ele-u-003': 'kirchhoff',
-    'ele-u-007': 'max-power', 'phy-sr-004': 'spring-force', 'phy-jr-017': 'ohm-law'
+    'ele-u-007': 'max-power', 'phy-sr-004': 'spring-force', 'phy-jr-017': 'ohm-law',
+    'phy-sr-010': 'emf-internal-resistance'
   };
   const lostBasis = Object.keys(BASIS)
     .filter((mapId) => registered.indexOf(BASIS[mapId]) < 0)
     .map((mapId) => `${mapId} 声称可打开,但注册表里没有 ${BASIS[mapId]}`);
   assertTrue('每条按注册表登记的 RUNNABLE 都指得到一个真注册了的场景', lostBasis.length === 0,
     lostBasis.join(' | '));
-  check('注册表里的场景数', registered.length, 8, 0);
+  check('注册表里的场景数', registered.length, 9, 0);
   assertTrue('生物学科现在一条可打开的都没有(与地图自己的判断一致)',
     CurriculumIndex.experimentsOf(MapSubject.BIOLOGY)
       .every((e) => e.feasibility !== Feasibility.RUNNABLE), '生物出现了 RUNNABLE 条目');
   // 「待补场景」这一档是为电子那 8 条而加的(引擎够、场景没有)。
   // 一条新枚举值若没有数据在用,它就是死代码 —— 这条断言同时守住"最低成本的施工面"别被误降级。
-  // 电子 6 + 中学物理 7 + 中学化学 11 = 24 条最低成本的施工面。
-  // (中学物理原有 9 条,phy-sr-004 做成 spring-force、phy-jr-017 做成 ohm-law,各减一条;
+  // 电子 6 + 中学物理 6 + 中学化学 11 = 23 条最低成本的施工面。
+  // (中学物理原有 9 条,phy-sr-004 / phy-jr-017 / phy-sr-010 各做成一条场景,减三条;
   //  电子原有 8 条,已做成场景的 ele-u-003 与 ele-u-007 各减一条;中学化学那 11 条
   //  是"台架能拖出反应但没有细则",见 #54)
   check('待补场景的实验条数(引擎够用,只差场景与细则)',
-    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 24, 0);
+    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 23, 0);
 
   let periodSum = 0;
   for (let p = 1; p <= 7; p++) {
@@ -5735,6 +5739,143 @@ function checkRel(label, actual, expected, relTolerance) {
     const labeled = record.facts.every((f) => FactLabels.of(f.key) !== null);
     assertTrue('每个事实键都有显示名', labeled, record.facts.map((f) => f.key).join(','));
     checkText('滑片位置带欧姆单位', FactLabels.valueText('ohmFirstSlide', 5), '5 Ω');
+  }
+}
+
+// ---- L3 示踪弹 3:测量电源的电动势和内阻(phy-sr-010 / emf-internal-resistance)--
+// E 与 r 在这里是被测的未知量,所以判据一条都不读它们,只读学生那几组读数在电流轴上
+// 铺成了什么形状:组数、跨度、有没有靠近开路那端、有没有冲出 0.6 A 量程。
+{
+  const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
+  const { Rubrics } = require(join(OUT, 'bench/RubricMeasure.cjs'));
+  const { RubricEmf } = require(join(OUT, 'bench/RubricEmf.cjs'));
+  const { Judgment } = require(join(OUT, 'bench/Judgment.cjs'));
+  const { FactLabels } = require(join(OUT, 'model/FactLabels.cjs'));
+  const { SessionRecord, fact } = require(join(OUT, 'model/SessionRecord.cjs'));
+  const { FactSheet } = require(join(OUT, 'model/FactSheet.cjs'));
+
+  const meta = ExperimentRegistry.find('emf-internal-resistance').meta;
+  checkText('地图条目 phy-sr-010 配的场景 id', meta.id, 'emf-internal-resistance');
+  assertTrue('细则能被索引解析到', Rubrics.byId(meta.rubricId) !== null, meta.rubricId);
+
+  /** 一节新电池:E=1.5 V、内阻 1 Ω,电阻箱从默认 20 Ω 起 */
+  function fresh() {
+    const runner = ExperimentRegistry.createRunner('emf-internal-resistance');
+    runner.setup(meta);
+    runner.reset();
+    runner.setParam('emf', 1.5);
+    runner.setParam('box', 20);
+    return runner;
+  }
+
+  // 1. 电路本身:路端电压必须按 U = E − I·r 掉下来,不然作图法无从谈起
+  {
+    const r = fresh();
+    r.step(1 / 60);
+    const i20 = r.readObservable('I:a1');
+    const u20 = r.readObservable('U:v1');
+    checkRel('20 Ω 挡的电流', i20, 1.5 / 21, 1e-4);
+    checkRel('路端电压 = E − I·r', u20, 1.5 - i20 * 1, 1e-3);
+    assertTrue('路端电压比电动势低(内阻分掉了一截)', u20 < 1.5 - 0.05, String(u20));
+    r.setParam('box', 2);
+    r.step(1 / 60);
+    const i2 = r.readObservable('I:a1');
+    const u2 = r.readObservable('U:v1');
+    assertTrue('外电阻减小则电流增大、路端电压下降', i2 > i20 && u2 < u20,
+      `I=${i2.toFixed(4)} U=${u2.toFixed(4)}`);
+    checkRel('斜率绝对值就是内阻 r', (u20 - u2) / (i2 - i20), 1, 1e-3);
+  }
+
+  // 动作改的是模型里的参数,面板那几格要跟着动。设备侧断言盯屏幕,这里钉住模型侧契约:
+  // 换挡走的是电阻箱的十进制挡位表,不是等差一步
+  const dial = fresh();
+  dial.doAction('box-');
+  check('减一档把电阻箱拨到 12 Ω', dial.getParam('box'), 12, 1e-9);
+  dial.doAction('box+');
+  dial.doAction('box+');
+  check('加两档拨到 30 Ω', dial.getParam('box'), 30, 1e-9);
+  dial.doAction('box+');
+  dial.doAction('box+');
+  dial.doAction('box+');
+  dial.doAction('box+');
+  check('挡位表封顶在 100 Ω', dial.getParam('box'), 100, 1e-9);
+
+  /** 按一份"操作脚本"跑一遍,返回判分结果。act 走按钮,set 走滑杆 */
+  function scoreOf(steps) {
+    const r = fresh();
+    for (const [key, value] of steps) {
+      if (key === 'act') {
+        r.doAction(value);
+      } else {
+        r.setParam(key, value);
+      }
+      r.step(1 / 60);
+    }
+    const sheet = new FactSheet();
+    r.collectFacts(sheet);
+    const card = Judgment.score(RubricEmf.create(), sheet);
+    return { card: card, sheet: sheet };
+  }
+
+  const REC = ['act', 'record'];
+  // 只用按钮:从 20 Ω 起连减五挡(20→12→8→5→3→2),每挡记一组
+  const DILIGENT = [REC, ['act', 'box-'], REC, ['act', 'box-'], REC,
+    ['act', 'box-'], REC, ['act', 'box-'], REC, ['act', 'box-'], REC];
+  const diligent = scoreOf(DILIGENT);
+  check('认真取点不扣分', diligent.card.awarded, 100, 1e-9);
+  check('扣分条数为 0', diligent.card.deductions.length, 0, 1e-12);
+  check('记了六组', diligent.sheet.num('emfRecordCount'), 6, 1e-12);
+  check('电流铺开 0.43 A', diligent.sheet.num('emfCurrentSpread'), 1.5 / 3 - 1.5 / 21, 1e-3);
+  check('最小那组已经贴着开路', diligent.sheet.num('emfMinCurrent') < 0.1 ? 1 : 0, 1, 1e-12);
+  check('最大那组没冲出量程', diligent.sheet.num('emfMaxCurrent') < 0.6 ? 1 : 0, 1, 1e-12);
+  // 电阻箱走十进制挡:连减五挡要落到 2 Ω(I=0.5 A)。等差一步 5 Ω 从 20 起是够不到 2 的
+  check('连减五挡落到 2 Ω 挡', diligent.sheet.num('emfMaxCurrent') > 0.4 ? 1 : 0, 1, 1e-12);
+
+  const FIRES = [
+    ['emf-few-records', [REC, ['act', 'box-'], REC, ['act', 'box-'], REC]],
+    // 点全挤在 16~20 Ω 那一小段:组数够、跨度不够
+    ['emf-narrow-current', [REC, ['box', 19], REC, ['box', 18], REC, ['box', 17], REC, ['box', 16], REC]],
+    // 只取大电流那半边:四组、跨度也够,但没有一个点靠近纵轴
+    ['emf-no-open-end', [['box', 2], REC, ['box', 3], REC, ['box', 5], REC, ['box', 8], REC]],
+    // 1 Ω 挡把电流顶到 0.75 A:其余三条都满足,只有量程这条红
+    ['emf-over-range', [['box', 1], REC, ['box', 2], REC, ['box', 3], REC, ['box', 5], REC,
+      ['box', 20], REC]]
+  ];
+  for (const [criterionId, steps] of FIRES) {
+    const out = scoreOf(steps);
+    const hit = out.card.deductions.filter((d) => d.criterionId === criterionId);
+    assertTrue('判据 ' + criterionId + ' 能被触发', hit.length === 1,
+      '扣分项:' + out.card.deductions.map((d) => d.criterionId).join(',') + ' / 得分 ' + out.card.awarded);
+    assertTrue('判据 ' + criterionId + ' 的证据里带上了当时的数',
+      /\d/.test(hit.length > 0 ? hit[0].evidence : ''), hit.length > 0 ? hit[0].evidence : '');
+  }
+
+  // 一组都没记:电流的最小/最大值压根没量过,不许拿 0 冒充,也不许因此扣"靠近开路"那条
+  {
+    const blank = scoreOf([['box', 5]]);
+    assertTrue('没记录时不编出最大电流', !Number.isFinite(blank.sheet.num('emfMaxCurrent')),
+      String(blank.sheet.num('emfMaxCurrent')));
+    assertTrue('没记录时不因"没有开路点"扣分',
+      !blank.card.deductions.some((d) => d.criterionId === 'emf-no-open-end'),
+      blank.card.deductions.map((d) => d.criterionId).join(','));
+    check('跨度按 0 算(一段都没有)', blank.sheet.num('emfCurrentSpread'), 0, 1e-12);
+    checkText('没量过的事实印成破折号', FactLabels.valueText('emfMinCurrent', Number.NaN), '—');
+  }
+
+  {
+    const record = new SessionRecord();
+    record.rubricId = RubricEmf.ID;
+    record.facts = [
+      fact('emfRecordCount', 6),
+      fact('emfCurrentSpread', 0.429),
+      fact('emfMaxCurrent', 0.5),
+      fact('emfMinCurrent', 0.071)
+    ];
+    const replayed = Rubrics.factsFor(record);
+    check('回放保留记录条数', replayed.num('emfRecordCount'), 6, 1e-12);
+    const labeled = record.facts.every((f) => FactLabels.of(f.key) !== null);
+    assertTrue('每个事实键都有显示名', labeled, record.facts.map((f) => f.key).join(','));
+    checkText('电流读数带安培单位', FactLabels.valueText('emfMaxCurrent', 0.5), '0.50 A');
   }
 }
 

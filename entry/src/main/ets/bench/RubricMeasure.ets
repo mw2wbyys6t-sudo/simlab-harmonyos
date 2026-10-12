@@ -4,6 +4,7 @@ import { CriterionBuilder, CriterionOp, Rubric } from './Rubric';
 import { RubricBrine } from './RubricBrine';
 import { RubricSpring } from './RubricSpring';
 import { RubricOhm } from './RubricOhm';
+import { RubricEmf } from './RubricEmf';
 
 /**
  * 量取参考细则。
@@ -100,6 +101,9 @@ export class Rubrics {
     }
     if (id === RubricOhm.ID) {
       return RubricOhm.create();
+    }
+    if (id === RubricEmf.ID) {
+      return RubricEmf.create();
     }
     return null;
   }

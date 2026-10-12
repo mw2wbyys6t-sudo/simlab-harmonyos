@@ -20,6 +20,8 @@ const outDir = outArg > -1 ? process.argv[outArg + 1] : join(os.tmpdir(), 'simla
 const installArg = process.argv.indexOf('--install');
 const hapPath = installArg > -1 ? process.argv[installArg + 1] : null;
 
+// 走左侧留白滚:参数滑杆占满 98..1158,手势落在轨道上会把值跳到那个 x
+const EDGE = 60;
 const TITLE = '探究电流与电压、电阻的关系';
 const p = new Probe({ tag: 'ohm', outDir: outDir });
 
@@ -39,8 +41,14 @@ function scrollToText(label, tries) {
   p.scrollToTop();
   const limit = tries || 8;
   for (let i = 0; i < limit; i++) {
-    if (texts().some((t) => t.indexOf(label) === 0)) return true;
-    p.swipe(628, 1900, 628, 900);
+    if (texts().some((t) => t.indexOf(label) === 0)) {
+      // 甩动动画还在跑就取坐标,下一次点击会落到滑到一半的位置上(实测点到了滑杆)
+      p.sleep(1200);
+      return true;
+    }
+    p.swipe(EDGE, 1900, EDGE, 900);
+    // 甩动没停就取坐标 = 点错行;每一下之后多等一拍
+    p.sleep(700);
   }
   return false;
 }
