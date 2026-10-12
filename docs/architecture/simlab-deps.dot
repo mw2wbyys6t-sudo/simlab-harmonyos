@@ -3,7 +3,7 @@ digraph SimLabImports {
   splines=true
   node [shape=box, style="rounded,filled", fontname="HarmonyOS Sans", fontsize=11, color="#E1E6ED", fontcolor="#1F2A3A"]
   edge [color="#9AA7B6", arrowsize=0.6, penwidth=0.9]
-  label="SimLab entry HAP 全量 .ets 导入图: 94 文件 / 259 条边 / 跨栈边 1 条"
+  label="SimLab entry HAP 全量 .ets 导入图: 97 文件 / 267 条边 / 跨栈边 1 条"
   labelloc=t
 
   subgraph "cluster_bench" {
@@ -20,6 +20,7 @@ digraph SimLabImports {
     bench_Dropper [label="bench/Dropper", fillcolor="#2E9E7A1A", color="#2E9E7A"]
     bench_Filtration [label="bench/Filtration", fillcolor="#2E9E7A1A", color="#2E9E7A"]
     bench_Judgment [label="bench/Judgment", fillcolor="#2E9E7A1A", color="#2E9E7A"]
+    bench_MeasureVerdict [label="bench/MeasureVerdict", fillcolor="#2E9E7A1A", color="#2E9E7A"]
     bench_Pose [label="bench/Pose", fillcolor="#2E9E7A1A", color="#2E9E7A"]
     bench_Rubric [label="bench/Rubric", fillcolor="#2E9E7A1A", color="#2E9E7A"]
     bench_RubricBrine [label="bench/RubricBrine", fillcolor="#2E9E7A1A", color="#2E9E7A"]
@@ -61,6 +62,7 @@ digraph SimLabImports {
     color="#C9D2DC"
     fontcolor="#6B7A8D"
     fontsize=12
+    content_map_ContentCodec [label="content/map/ContentCodec", fillcolor="#6B7A8D1A", color="#6B7A8D"]
     content_map_CurriculumIndex [label="content/map/CurriculumIndex", fillcolor="#6B7A8D1A", color="#6B7A8D"]
     content_map_CurriculumTypes [label="content/map/CurriculumTypes", fillcolor="#6B7A8D1A", color="#6B7A8D"]
     content_map_KnowledgeBiology [label="content/map/KnowledgeBiology", fillcolor="#6B7A8D1A", color="#6B7A8D"]
@@ -174,6 +176,7 @@ digraph SimLabImports {
     fontcolor="#6B7A8D"
     fontsize=12
     platform_AppearanceStore [label="platform/AppearanceStore", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    platform_ContentStore [label="platform/ContentStore", fillcolor="#6B7A8D1A", color="#6B7A8D"]
     platform_SessionStore [label="platform/SessionStore", fillcolor="#6B7A8D1A", color="#6B7A8D"]
   }
 
@@ -279,6 +282,8 @@ digraph SimLabImports {
   chemistry_ChemistryModel -> chemistry_Formula
   common_LibraryFeed -> model_ExperimentTypes
   common_Theme -> model_ExperimentTypes
+  content_map_ContentCodec -> content_map_CurriculumTypes
+  content_map_ContentCodec -> content_map_MapValidator
   content_map_CurriculumIndex -> content_map_CurriculumTypes
   content_map_CurriculumIndex -> content_map_PeriodicTable
   content_map_CurriculumIndex -> content_map_KnowledgeTypes
@@ -296,6 +301,7 @@ digraph SimLabImports {
   content_map_CurriculumIndex -> content_map_KnowledgeElectronics
   content_map_CurriculumIndex -> content_map_UniversityPhysics
   content_map_CurriculumIndex -> content_map_SchoolPhysics
+  content_map_CurriculumIndex -> content_map_ContentCodec
   content_map_CurriculumIndex -> content_map_UniversityChemistry
   content_map_CurriculumIndex -> content_map_SchoolChemistry
   content_map_CurriculumIndex -> content_map_UniversityBiology
@@ -337,6 +343,7 @@ digraph SimLabImports {
   content_map_UniversityElectronics -> content_map_CurriculumTypes
   content_map_UniversityPhysics -> content_map_CurriculumTypes
   entryability_EntryAbility -> platform_AppearanceStore
+  entryability_EntryAbility -> platform_ContentStore
   entryability_EntryAbility -> view_Palette
   geometry_GlassShapes -> geometry_Profile
   model_SessionRecord -> model_ExperimentTypes
@@ -397,6 +404,7 @@ digraph SimLabImports {
   pages_MeasurePage -> model_SessionRecord
   pages_MeasurePage -> bench_BenchWorld
   pages_MeasurePage -> bench_RubricMeasure
+  pages_MeasurePage -> bench_MeasureVerdict
   pages_MeasurePage -> platform_SessionStore
   pages_MeasurePage -> runner_RunController
   pages_MeasurePage -> view3d_LathePainter
@@ -436,6 +444,9 @@ digraph SimLabImports {
   physics_circuit_CircuitRunner -> physics_circuit_CircuitModel
   platform_AppearanceStore -> common_Appearance
   platform_AppearanceStore -> view_Palette
+  platform_ContentStore -> content_map_ContentCodec
+  platform_ContentStore -> content_map_CurriculumTypes
+  platform_ContentStore -> content_map_SchoolPhysics
   platform_SessionStore -> runner_SessionLedger
   runner_ExperimentRegistry -> model_ExperimentTypes
   runner_ExperimentRegistry -> runner_IExperimentRunner

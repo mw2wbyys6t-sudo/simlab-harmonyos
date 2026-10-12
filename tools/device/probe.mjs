@@ -105,8 +105,10 @@ export class Probe {
 
   /** 按精确文本点击。默认精确匹配:子串匹配曾点到引用按钮名的说明文字 */
   tap(text, opts) {
-    const contains = !!(opts && opts.contains);
-    const wait = (opts && opts.wait) || 1600;
+    // 允许直接传一个数字当等待时长,否则 `tap(x, 2400)` 会静默用默认值 —— 调用点已经这么写了
+    const o = typeof opts === 'number' ? { wait: opts } : (opts || {});
+    const contains = !!o.contains;
+    const wait = o.wait || 1600;
     const hit = this.dumpNodes().find((a) => {
       const t = a.text || '';
       return contains ? t.includes(text) : t === text;
@@ -166,7 +168,8 @@ export class Probe {
 
   /** 回首页:运行中的页面可能吃掉一次 Back(软键盘同理),所以按到看见顶栏为止 */
   ensureHome(menuLabel) {
-    const want = menuLabel || '课程地图';
+    // 认「深浅色」而不是「课程地图」:后者也是课程地图页的标题,拿它当家信号会误判
+    const want = menuLabel || '深浅色';
     for (let i = 0; i < 5; i++) {
       if (this.dumpNodes().some((a) => (a.text || '') === want)) return true;
       this.back();

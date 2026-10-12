@@ -65,6 +65,7 @@ const MODULES = [
   'content/map/UniversityBiology',
   'content/map/SchoolBiology',
   'content/map/CurriculumIndex',
+  'content/map/ContentCodec',
   'bench/Rubric',
   'bench/Judgment',
   'bench/RubricSpring',
@@ -3585,7 +3586,9 @@ function checkRel(label, actual, expected, relTolerance) {
 // 这条断言让加网络/账号能力必须经过这里,即必须被显式决定过一次。
 {
   const { readdirSync, statSync } = require('node:fs');
-  const KIT_WHITELIST = ['@kit.AbilityKit', '@kit.ArkData', '@kit.ArkGraphics2D',
+  // 2026-10-12 放宽一次并留原因:内容更新通道要读沙箱与 rawfile 里的 JSON,
+  // 解码 UTF-8 字节需要 @kit.ArkTS 的 util.TextDecoder。仍然没有任何网络与账号能力。
+  const KIT_WHITELIST = ['@kit.AbilityKit', '@kit.ArkData', '@kit.ArkGraphics2D', '@kit.ArkTS',
     '@kit.ArkUI', '@kit.CoreFileKit', '@kit.PerformanceAnalysisKit'];
   const FORBIDDEN = ['@kit.NetworkKit', '@kit.AccountKit', '@kit.DistributedDataServiceKit',
     '@kit.CryptoArchitectureKit', '@kit.RemoteCommunicationKit'];
@@ -5416,6 +5419,102 @@ function checkRel(label, actual, expected, relTolerance) {
   }
   // 太矮时不许静默:必须给出可读的说明文案
   assertTrue('画不出时必须有说明而不是静默返回', PlotLayout.hintFor(phoneW, 90).length > 6, '');
+}
+
+// ---- 内容更新通道:解码器与覆盖表(W1-2)----------------------------------
+// 把内容从"只能编译期"放开到"可被一份 JSON 覆盖",代价是多一个运行时入口。
+// 所以这一节的规矩只有一条:任何进得来的数据,必须过与编译期同等的校验,
+// 且坏数据永远不许盖住内置表 —— 否则更新通道就成了绕过 MapValidator 的后门。
+{
+  const { ContentCodec, ContentOverride } = require(join(OUT, 'content/map/ContentCodec.cjs'));
+  const { SchoolPhysics } = require(join(OUT, 'content/map/SchoolPhysics.cjs'));
+  const { UniversityPhysics } = require(join(OUT, 'content/map/UniversityPhysics.cjs'));
+  const { CurriculumIndex } = require(join(OUT, 'content/map/CurriculumIndex.cjs'));
+  const { MapSubject, UNVERIFIED_PREFIX } = require(join(OUT, 'content/map/CurriculumTypes.cjs'));
+
+  const rows = SchoolPhysics.all();
+  const uniCount = UniversityPhysics.all().length;
+  const json = ContentCodec.encodeExperiments(rows);
+  const back = ContentCodec.decodeExperiments(json);
+
+  check('往返:行数不变', back.rows.length, rows.length, 1e-12);
+  checkText('往返:干净数据没有问题清单', back.problems.join(';'), '');
+  // 解码失败时 rows 是空的,这里取第一个元素前先兜一下 —— 断言要报"哪条没中",
+  // 不能让整个 harness 崩在半路(崩了就连别的失败一起看不见)
+  const got0 = back.rows.length > 0 ? back.rows[0] : { id: '(没解出任何行)', title: '', source: '' };
+  checkText('往返:id 对得上', got0.id, rows[0].id);
+  checkText('往返:标题对得上', got0.title, rows[0].title);
+  checkText('往返:出处对得上', got0.source, rows[0].source);
+  // 整表再编码一次必须逐字节相同 —— 少序列化一个字段就会在这里红
+  checkText('往返:整表逐字节相同', ContentCodec.encodeExperiments(back.rows), json);
+
+  // 防"两边都是空串所以相等"的假绿:编码结果必须真的有内容
+  assertTrue('编码结果不是空串', json.length > 500, `只编出 ${json.length} 个字符`);
+
+  const tampered = (mutate) => {
+    const empty = { rows: [], problems: ['上游编码是空串,这条没法注入'] };
+    let copy;
+    try {
+      copy = JSON.parse(json);
+    } catch (error) {
+      return empty;
+    }
+    if (!Array.isArray(copy) || copy.length === 0) {
+      return empty;
+    }
+    mutate(copy[0]);
+    return ContentCodec.decodeExperiments(JSON.stringify(copy));
+  };
+
+  const badFeas = tampered((r) => { r.feasibility = 'runnable-ish'; });
+  assertTrue('未知档位被拒(不静默当成某一档)',
+    badFeas.problems.length > 0 && badFeas.rows.length === 0, JSON.stringify(badFeas.problems));
+
+  const badStage = tampered((r) => { r.stage = 'middle'; });
+  assertTrue('未知学段被拒', badStage.rows.length === 0 && badStage.problems.length > 0,
+    JSON.stringify(badStage.problems));
+
+  const noId = tampered((r) => { r.id = ''; });
+  assertTrue('缺 id 被拒且报出行号',
+    noId.problems.length === 1 && noId.problems[0].includes('第 1 行'), JSON.stringify(noId.problems));
+
+  const dupId = tampered((r) => { r.id = rows[1].id; });
+  assertTrue('重复 id 被拒', dupId.rows.length === 0, JSON.stringify(dupId.problems));
+
+  const blankSource = tampered((r) => { r.source = ''; });
+  assertTrue('出处为空被拒(MapValidator 的规矩)', blankSource.rows.length === 0,
+    JSON.stringify(blankSource.problems));
+
+  const marked = tampered((r) => { r.source = UNVERIFIED_PREFIX + '按通行做法概括'; });
+  assertTrue('负对照:标了未核实的行必须能过', marked.rows.length === rows.length,
+    JSON.stringify(marked.problems));
+
+  const notJson = ContentCodec.decodeExperiments('{ 这不是 JSON');
+  assertTrue('坏 JSON 不抛异常,只报问题',
+    notJson.rows.length === 0 && notJson.problems.length > 0, JSON.stringify(notJson.problems));
+  assertTrue('空表不算合法内容(不许用空覆盖把地图清空)',
+    ContentCodec.decodeExperiments('[]').rows.length === 0, '空数组被当成了合法数据');
+
+  // 覆盖表:只有干净数据才允许盖住内置表
+  const physicsBefore = CurriculumIndex.experimentsOf(MapSubject.PHYSICS).length;
+  check('覆盖前物理条数 = 中学 + 大学两张内置表', physicsBefore, rows.length + uniCount, 1e-12);
+  check('空覆盖被拒', ContentOverride.set('school-physics', []) ? 1 : 0, 0, 1e-12);
+  check('内置表未被空覆盖影响', CurriculumIndex.experimentsOf(MapSubject.PHYSICS).length, physicsBefore, 1e-12);
+  const oneRow = [rows[0]];
+  check('干净覆盖被接受', ContentOverride.set('school-physics', oneRow) ? 1 : 0, 1, 1e-12);
+  check('覆盖后物理条数按覆盖走', CurriculumIndex.experimentsOf(MapSubject.PHYSICS).length,
+    oneRow.length + uniCount, 1e-12);
+  ContentOverride.clear('school-physics');
+  check('撤销覆盖后回到内置表', CurriculumIndex.experimentsOf(MapSubject.PHYSICS).length, physicsBefore, 1e-12);
+
+  // 随包发布的那份 JSON 必须与内置表逐字节相同。它由 tools/arch/gen-content.mjs 生成,
+  // 手改任何一边都会在这里红 —— 否则"默认值"和"事实来源"就成了两套真相。
+  const shipped = join(root, 'entry/src/main/resources/rawfile/content/school-physics.json');
+  assertTrue('rawfile 里有随包发布的内容默认值', existsSync(shipped),
+    '缺文件:跑一次 node tools/arch/gen-content.mjs');
+  if (existsSync(shipped)) {
+    checkText('rawfile 默认值与内置表逐字节相同', readFileSync(shipped, 'utf8').trim(), json);
+  }
 }
 
 if (failures.length > 0) {

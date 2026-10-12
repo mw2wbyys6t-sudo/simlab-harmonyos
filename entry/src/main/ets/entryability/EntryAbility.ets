@@ -2,6 +2,7 @@ import { AbilityConstant, Configuration, UIAbility, Want } from '@kit.AbilityKit
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { AppearanceStore } from '../platform/AppearanceStore';
+import { ContentStore } from '../platform/ContentStore';
 import { Palette } from '../view/Palette';
 
 const DOMAIN = 0x0000;
@@ -15,6 +16,12 @@ export default class EntryAbility extends UIAbility {
     // 画布只吃字符串,而 ability 比任何组件都先活:在这里绑上解析器,
     // 组件构造期取的色就不会拿到"还没绑"的占位值。
     Palette.bind(this.context);
+    // 内容更新通道:沙箱 JSON > rawfile > 编译期那张表。
+    // 解码不过就整批拒绝,所以这里只把原因写进日志,不需要任何错误分支。
+    const rejected = ContentStore.load(this.context);
+    for (const problem of rejected) {
+      hilog.warn(DOMAIN, TAG, 'content refused: %{public}s', problem);
+    }
     hilog.info(DOMAIN, TAG, '%{public}s', 'Ability onCreate');
   }
 

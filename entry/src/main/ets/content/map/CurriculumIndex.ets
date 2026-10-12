@@ -15,6 +15,7 @@ import { KnowledgeElectronicsSenior } from './KnowledgeElectronicsSenior';
 import { KnowledgeElectronics } from './KnowledgeElectronics';
 import { UniversityPhysics } from './UniversityPhysics';
 import { SchoolPhysics } from './SchoolPhysics';
+import { ContentOverride } from './ContentCodec';
 import { UniversityChemistry } from './UniversityChemistry';
 import { SchoolChemistry } from './SchoolChemistry';
 import { UniversityBiology } from './UniversityBiology';
@@ -30,7 +31,9 @@ import { UniversityElectronics } from './UniversityElectronics';
  */
 export class CurriculumIndex {
   static experiments(): ExperimentEntry[] {
-    return SchoolPhysics.all().concat(UniversityPhysics.all())
+    // 目前只有「中学物理实验」这张表接了更新通道(见 ContentCodec 的注释):
+    // 沙箱里有同名 JSON 且过校验就用它,否则仍是编译期那张表。其余表照旧。
+    return ContentOverride.apply('school-physics', SchoolPhysics.all()).concat(UniversityPhysics.all())
       .concat(SchoolChemistry.all()).concat(UniversityChemistry.all())
       .concat(UniversityBiology.all()).concat(SchoolBiology.all())
       .concat(UniversityElectronics.all());
