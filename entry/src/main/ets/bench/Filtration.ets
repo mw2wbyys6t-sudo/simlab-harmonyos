@@ -1,6 +1,6 @@
 import { Calibration, Separations } from './Brine';
 import { Container, PourModel, PourResult } from './Container';
-import { Glassware } from './Profile';
+import { Glassware } from '../geometry/Profile';
 import { Support } from './Pose';
 
 /**

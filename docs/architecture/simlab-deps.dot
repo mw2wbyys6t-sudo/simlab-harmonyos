@@ -3,7 +3,7 @@ digraph SimLabImports {
   splines=true
   node [shape=box, style="rounded,filled", fontname="HarmonyOS Sans", fontsize=11, color="#E1E6ED", fontcolor="#1F2A3A"]
   edge [color="#9AA7B6", arrowsize=0.6, penwidth=0.9]
-  label="SimLab entry HAP 全量 .ets 导入图: 58 文件 / 149 条边 / 跨栈边 2 条"
+  label="SimLab entry HAP 全量 .ets 导入图: 94 文件 / 259 条边 / 跨栈边 1 条"
   labelloc=t
 
   subgraph "cluster_bench" {
@@ -19,13 +19,12 @@ digraph SimLabImports {
     bench_Container [label="bench/Container", fillcolor="#2E9E7A1A", color="#2E9E7A"]
     bench_Dropper [label="bench/Dropper", fillcolor="#2E9E7A1A", color="#2E9E7A"]
     bench_Filtration [label="bench/Filtration", fillcolor="#2E9E7A1A", color="#2E9E7A"]
-    bench_GlassShapes [label="bench/GlassShapes", fillcolor="#2E9E7A1A", color="#2E9E7A"]
     bench_Judgment [label="bench/Judgment", fillcolor="#2E9E7A1A", color="#2E9E7A"]
     bench_Pose [label="bench/Pose", fillcolor="#2E9E7A1A", color="#2E9E7A"]
-    bench_Profile [label="bench/Profile", fillcolor="#2E9E7A1A", color="#2E9E7A"]
     bench_Rubric [label="bench/Rubric", fillcolor="#2E9E7A1A", color="#2E9E7A"]
     bench_RubricBrine [label="bench/RubricBrine", fillcolor="#2E9E7A1A", color="#2E9E7A"]
     bench_RubricMeasure [label="bench/RubricMeasure", fillcolor="#2E9E7A1A", color="#2E9E7A"]
+    bench_RubricSpring [label="bench/RubricSpring", fillcolor="#2E9E7A1A", color="#2E9E7A"]
     bench_Spatula [label="bench/Spatula", fillcolor="#2E9E7A1A", color="#2E9E7A"]
     bench_VesselBase [label="bench/VesselBase", fillcolor="#2E9E7A1A", color="#2E9E7A"]
   }
@@ -49,10 +48,43 @@ digraph SimLabImports {
     color="#C9D2DC"
     fontcolor="#6B7A8D"
     fontsize=12
+    common_Appearance [label="common/Appearance", fillcolor="#C8A2001A", color="#C8A200"]
     common_Contrast [label="common/Contrast", fillcolor="#C8A2001A", color="#C8A200"]
     common_Layout [label="common/Layout", fillcolor="#C8A2001A", color="#C8A200"]
     common_LibraryFeed [label="common/LibraryFeed", fillcolor="#C8A2001A", color="#C8A200"]
     common_Theme [label="common/Theme", fillcolor="#C8A2001A", color="#C8A200"]
+  }
+
+  subgraph "cluster_content_map" {
+    label="content/map"
+    style="rounded,dashed"
+    color="#C9D2DC"
+    fontcolor="#6B7A8D"
+    fontsize=12
+    content_map_CurriculumIndex [label="content/map/CurriculumIndex", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_CurriculumTypes [label="content/map/CurriculumTypes", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_KnowledgeBiology [label="content/map/KnowledgeBiology", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_KnowledgeBiologyJunior [label="content/map/KnowledgeBiologyJunior", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_KnowledgeBiologySenior [label="content/map/KnowledgeBiologySenior", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_KnowledgeChemistry [label="content/map/KnowledgeChemistry", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_KnowledgeChemistryJunior [label="content/map/KnowledgeChemistryJunior", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_KnowledgeChemistrySenior [label="content/map/KnowledgeChemistrySenior", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_KnowledgeElectronics [label="content/map/KnowledgeElectronics", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_KnowledgeElectronicsJunior [label="content/map/KnowledgeElectronicsJunior", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_KnowledgeElectronicsSenior [label="content/map/KnowledgeElectronicsSenior", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_KnowledgePhysics [label="content/map/KnowledgePhysics", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_KnowledgePhysicsJunior [label="content/map/KnowledgePhysicsJunior", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_KnowledgePhysicsSenior [label="content/map/KnowledgePhysicsSenior", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_KnowledgeTypes [label="content/map/KnowledgeTypes", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_MapValidator [label="content/map/MapValidator", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_PeriodicTable [label="content/map/PeriodicTable", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_SchoolBiology [label="content/map/SchoolBiology", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_SchoolChemistry [label="content/map/SchoolChemistry", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_SchoolPhysics [label="content/map/SchoolPhysics", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_UniversityBiology [label="content/map/UniversityBiology", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_UniversityChemistry [label="content/map/UniversityChemistry", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_UniversityElectronics [label="content/map/UniversityElectronics", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    content_map_UniversityPhysics [label="content/map/UniversityPhysics", fillcolor="#6B7A8D1A", color="#6B7A8D"]
   }
 
   subgraph "cluster_entryability" {
@@ -73,6 +105,16 @@ digraph SimLabImports {
     entrybackupability_EntryBackupAbility [label="entrybackupability/EntryBackupAbility", fillcolor="#6B7A8D1A", color="#6B7A8D"]
   }
 
+  subgraph "cluster_geometry" {
+    label="geometry"
+    style="rounded,dashed"
+    color="#C9D2DC"
+    fontcolor="#6B7A8D"
+    fontsize=12
+    geometry_GlassShapes [label="geometry/GlassShapes", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    geometry_Profile [label="geometry/Profile", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+  }
+
   subgraph "cluster_model" {
     label="model"
     style="rounded,dashed"
@@ -81,6 +123,7 @@ digraph SimLabImports {
     fontsize=12
     model_ExperimentTypes [label="model/ExperimentTypes", fillcolor="#1F2A3A1A", color="#1F2A3A"]
     model_FactLabels [label="model/FactLabels", fillcolor="#1F2A3A1A", color="#1F2A3A"]
+    model_FactSheet [label="model/FactSheet", fillcolor="#1F2A3A1A", color="#1F2A3A"]
     model_SessionRecord [label="model/SessionRecord", fillcolor="#1F2A3A1A", color="#1F2A3A"]
   }
 
@@ -94,8 +137,10 @@ digraph SimLabImports {
     pages_ChemistryPage [label="pages/ChemistryPage", fillcolor="#2F6FB51A", color="#2F6FB5"]
     pages_ExperimentPage [label="pages/ExperimentPage", fillcolor="#2F6FB51A", color="#2F6FB5"]
     pages_Index [label="pages/Index", fillcolor="#2F6FB51A", color="#2F6FB5"]
+    pages_MapPage [label="pages/MapPage", fillcolor="#2F6FB51A", color="#2F6FB5"]
     pages_MeasurePage [label="pages/MeasurePage", fillcolor="#2F6FB51A", color="#2F6FB5"]
     pages_ReportPage [label="pages/ReportPage", fillcolor="#2F6FB51A", color="#2F6FB5"]
+    pages_SettingsPage [label="pages/SettingsPage", fillcolor="#2F6FB51A", color="#2F6FB5"]
   }
 
   subgraph "cluster_physics" {
@@ -107,6 +152,7 @@ digraph SimLabImports {
     physics_InclineRunner [label="physics/InclineRunner", fillcolor="#E2574C1A", color="#E2574C"]
     physics_MnaSolver [label="physics/MnaSolver", fillcolor="#E2574C1A", color="#E2574C"]
     physics_Physics2DRunner [label="physics/Physics2DRunner", fillcolor="#E2574C1A", color="#E2574C"]
+    physics_SpringForceRunner [label="physics/SpringForceRunner", fillcolor="#E2574C1A", color="#E2574C"]
     physics_SpringMassRunner [label="physics/SpringMassRunner", fillcolor="#E2574C1A", color="#E2574C"]
     physics_World2D [label="physics/World2D", fillcolor="#E2574C1A", color="#E2574C"]
   }
@@ -127,6 +173,7 @@ digraph SimLabImports {
     color="#C9D2DC"
     fontcolor="#6B7A8D"
     fontsize=12
+    platform_AppearanceStore [label="platform/AppearanceStore", fillcolor="#6B7A8D1A", color="#6B7A8D"]
     platform_SessionStore [label="platform/SessionStore", fillcolor="#6B7A8D1A", color="#6B7A8D"]
   }
 
@@ -159,7 +206,11 @@ digraph SimLabImports {
     color="#C9D2DC"
     fontcolor="#6B7A8D"
     fontsize=12
+    view_AppButton [label="view/AppButton", fillcolor="#2F6FB51A", color="#2F6FB5"]
+    view_AppChips [label="view/AppChips", fillcolor="#2F6FB51A", color="#2F6FB5"]
     view_CanvasPainter [label="view/CanvasPainter", fillcolor="#2F6FB51A", color="#2F6FB5"]
+    view_Palette [label="view/Palette", fillcolor="#2F6FB51A", color="#2F6FB5"]
+    view_PlotFrame [label="view/PlotFrame", fillcolor="#2F6FB51A", color="#2F6FB5"]
     view_SeriesChart [label="view/SeriesChart", fillcolor="#2F6FB51A", color="#2F6FB5"]
     view_SimCanvas [label="view/SimCanvas", fillcolor="#2F6FB51A", color="#2F6FB5"]
   }
@@ -173,57 +224,121 @@ digraph SimLabImports {
     view3d_Camera [label="view3d/Camera", fillcolor="#6B7A8D1A", color="#6B7A8D"]
     view3d_Lathe [label="view3d/Lathe", fillcolor="#6B7A8D1A", color="#6B7A8D"]
     view3d_LathePainter [label="view3d/LathePainter", fillcolor="#6B7A8D1A", color="#6B7A8D"]
+    view3d_TiltedPlane [label="view3d/TiltedPlane", fillcolor="#6B7A8D1A", color="#6B7A8D"]
     view3d_VesselView [label="view3d/VesselView", fillcolor="#6B7A8D1A", color="#6B7A8D"]
   }
 
   bench_BenchWorld -> model_ExperimentTypes
   bench_BenchWorld -> runner_IExperimentRunner
-  bench_BenchWorld -> bench_Profile
+  bench_BenchWorld -> model_FactSheet
+  bench_BenchWorld -> geometry_Profile
   bench_BenchWorld -> bench_Brine
   bench_BenchWorld -> bench_Container
   bench_BenchWorld -> bench_Pose
   bench_BrineScenario -> bench_Brine
   bench_BrineScenario -> bench_Container
   bench_BrineScenario -> bench_Filtration
-  bench_BrineScenario -> bench_Profile
+  bench_BrineScenario -> geometry_Profile
   bench_BrineScenario -> bench_Pose
-  bench_BrineScenario -> bench_Rubric
+  bench_BrineScenario -> model_FactSheet
   bench_BrineScenario -> bench_RubricBrine
   bench_BrineScenario -> bench_Spatula
   bench_ChunkSolid -> bench_Brine
-  bench_Container -> bench_Profile
+  bench_Container -> geometry_Profile
   bench_Container -> bench_Brine
   bench_Container -> bench_Pose
   bench_Container -> bench_VesselBase
   bench_Dropper -> bench_Brine
   bench_Filtration -> bench_Brine
   bench_Filtration -> bench_Container
-  bench_Filtration -> bench_Profile
+  bench_Filtration -> geometry_Profile
   bench_Filtration -> bench_Pose
-  bench_GlassShapes -> bench_Profile
+  bench_Judgment -> model_FactSheet
   bench_Judgment -> bench_Rubric
   bench_RubricBrine -> bench_Brine
   bench_RubricBrine -> bench_Rubric
   bench_RubricMeasure -> model_SessionRecord
+  bench_RubricMeasure -> model_FactSheet
   bench_RubricMeasure -> bench_Rubric
   bench_RubricMeasure -> bench_RubricBrine
+  bench_RubricMeasure -> bench_RubricSpring
+  bench_RubricSpring -> bench_Rubric
   bench_Spatula -> bench_Brine
   bench_Spatula -> bench_Container
-  bench_VesselBase -> bench_Profile
+  bench_VesselBase -> geometry_Profile
   bench_VesselBase -> bench_Pose
   chemistry_BenchEngine -> chemistry_ChemistryModel
   chemistry_BenchEngine -> chemistry_ChemistryLibrary
   chemistry_BenchEngine -> chemistry_BenchModel
   chemistry_BenchModel -> chemistry_ChemistryModel
   chemistry_BenchModel -> chemistry_ChemistryLibrary
-  chemistry_BenchModel -> bench_GlassShapes
+  chemistry_BenchModel -> geometry_GlassShapes
   chemistry_BenchModel -> bench_VesselBase
   chemistry_ChemistryLibrary -> chemistry_ChemistryModel
   chemistry_ChemistryLibrary -> chemistry_Formula
   chemistry_ChemistryModel -> chemistry_Formula
   common_LibraryFeed -> model_ExperimentTypes
-  common_Theme -> common_Contrast
   common_Theme -> model_ExperimentTypes
+  content_map_CurriculumIndex -> content_map_CurriculumTypes
+  content_map_CurriculumIndex -> content_map_PeriodicTable
+  content_map_CurriculumIndex -> content_map_KnowledgeTypes
+  content_map_CurriculumIndex -> content_map_KnowledgePhysics
+  content_map_CurriculumIndex -> content_map_KnowledgePhysicsJunior
+  content_map_CurriculumIndex -> content_map_KnowledgePhysicsSenior
+  content_map_CurriculumIndex -> content_map_KnowledgeChemistry
+  content_map_CurriculumIndex -> content_map_KnowledgeChemistryJunior
+  content_map_CurriculumIndex -> content_map_KnowledgeChemistrySenior
+  content_map_CurriculumIndex -> content_map_KnowledgeBiology
+  content_map_CurriculumIndex -> content_map_KnowledgeBiologyJunior
+  content_map_CurriculumIndex -> content_map_KnowledgeBiologySenior
+  content_map_CurriculumIndex -> content_map_KnowledgeElectronicsJunior
+  content_map_CurriculumIndex -> content_map_KnowledgeElectronicsSenior
+  content_map_CurriculumIndex -> content_map_KnowledgeElectronics
+  content_map_CurriculumIndex -> content_map_UniversityPhysics
+  content_map_CurriculumIndex -> content_map_SchoolPhysics
+  content_map_CurriculumIndex -> content_map_UniversityChemistry
+  content_map_CurriculumIndex -> content_map_SchoolChemistry
+  content_map_CurriculumIndex -> content_map_UniversityBiology
+  content_map_CurriculumIndex -> content_map_SchoolBiology
+  content_map_CurriculumIndex -> content_map_UniversityElectronics
+  content_map_KnowledgeBiology -> content_map_KnowledgeTypes
+  content_map_KnowledgeBiology -> content_map_CurriculumTypes
+  content_map_KnowledgeBiologyJunior -> content_map_KnowledgeTypes
+  content_map_KnowledgeBiologyJunior -> content_map_CurriculumTypes
+  content_map_KnowledgeBiologySenior -> content_map_KnowledgeTypes
+  content_map_KnowledgeBiologySenior -> content_map_CurriculumTypes
+  content_map_KnowledgeChemistry -> content_map_KnowledgeTypes
+  content_map_KnowledgeChemistry -> content_map_CurriculumTypes
+  content_map_KnowledgeChemistryJunior -> content_map_KnowledgeTypes
+  content_map_KnowledgeChemistryJunior -> content_map_CurriculumTypes
+  content_map_KnowledgeChemistrySenior -> content_map_KnowledgeTypes
+  content_map_KnowledgeChemistrySenior -> content_map_CurriculumTypes
+  content_map_KnowledgeElectronics -> content_map_KnowledgeTypes
+  content_map_KnowledgeElectronics -> content_map_CurriculumTypes
+  content_map_KnowledgeElectronicsJunior -> content_map_KnowledgeTypes
+  content_map_KnowledgeElectronicsJunior -> content_map_CurriculumTypes
+  content_map_KnowledgeElectronicsSenior -> content_map_KnowledgeTypes
+  content_map_KnowledgeElectronicsSenior -> content_map_CurriculumTypes
+  content_map_KnowledgePhysics -> content_map_KnowledgeTypes
+  content_map_KnowledgePhysics -> content_map_CurriculumTypes
+  content_map_KnowledgePhysicsJunior -> content_map_KnowledgeTypes
+  content_map_KnowledgePhysicsJunior -> content_map_CurriculumTypes
+  content_map_KnowledgePhysicsSenior -> content_map_KnowledgeTypes
+  content_map_KnowledgePhysicsSenior -> content_map_CurriculumTypes
+  content_map_KnowledgeTypes -> content_map_CurriculumTypes
+  content_map_MapValidator -> content_map_CurriculumTypes
+  content_map_MapValidator -> content_map_KnowledgeTypes
+  content_map_PeriodicTable -> content_map_CurriculumTypes
+  content_map_SchoolBiology -> content_map_CurriculumTypes
+  content_map_SchoolChemistry -> content_map_CurriculumTypes
+  content_map_SchoolPhysics -> content_map_CurriculumTypes
+  content_map_UniversityBiology -> content_map_CurriculumTypes
+  content_map_UniversityChemistry -> content_map_CurriculumTypes
+  content_map_UniversityElectronics -> content_map_CurriculumTypes
+  content_map_UniversityPhysics -> content_map_CurriculumTypes
+  entryability_EntryAbility -> platform_AppearanceStore
+  entryability_EntryAbility -> view_Palette
+  geometry_GlassShapes -> geometry_Profile
   model_SessionRecord -> model_ExperimentTypes
   pages_BenchPage -> common_Layout
   pages_BenchPage -> common_Theme
@@ -232,6 +347,7 @@ digraph SimLabImports {
   pages_BenchPage -> chemistry_BenchModel
   pages_BenchPage -> chemistry_ChemistryLibrary
   pages_BenchPage -> view3d_VesselView
+  pages_BenchPage -> view_AppButton
   pages_ChemistryPage -> common_Layout
   pages_ChemistryPage -> common_Theme
   pages_ChemistryPage -> chemistry_ChemistryModel
@@ -239,15 +355,24 @@ digraph SimLabImports {
   pages_ExperimentPage -> common_Layout
   pages_ExperimentPage -> common_Theme
   pages_ExperimentPage -> model_ExperimentTypes
+  pages_ExperimentPage -> model_SessionRecord
+  pages_ExperimentPage -> model_FactSheet
+  pages_ExperimentPage -> bench_Rubric
+  pages_ExperimentPage -> bench_Judgment
+  pages_ExperimentPage -> bench_RubricMeasure
+  pages_ExperimentPage -> platform_SessionStore
   pages_ExperimentPage -> physics_Physics2DRunner
   pages_ExperimentPage -> runner_ExperimentRegistry
   pages_ExperimentPage -> runner_IExperimentRunner
   pages_ExperimentPage -> runner_RunController
   pages_ExperimentPage -> view_SeriesChart
   pages_ExperimentPage -> view_SimCanvas
+  pages_ExperimentPage -> view_AppButton
+  pages_ExperimentPage -> view_AppChips
   pages_Index -> common_Layout
   pages_Index -> common_LibraryFeed
   pages_Index -> common_Theme
+  pages_Index -> view_AppChips
   pages_Index -> model_ExperimentTypes
   pages_Index -> runner_ExperimentRegistry
   pages_Index -> scenes_ElectricalScenes
@@ -255,8 +380,17 @@ digraph SimLabImports {
   pages_Index -> pages_BenchPage
   pages_Index -> pages_ChemistryPage
   pages_Index -> pages_ExperimentPage
+  pages_Index -> pages_MapPage
   pages_Index -> pages_MeasurePage
   pages_Index -> pages_ReportPage
+  pages_Index -> pages_SettingsPage
+  pages_MapPage -> common_Layout
+  pages_MapPage -> common_Theme
+  pages_MapPage -> content_map_CurriculumIndex
+  pages_MapPage -> content_map_CurriculumTypes
+  pages_MapPage -> content_map_PeriodicTable
+  pages_MapPage -> content_map_KnowledgeTypes
+  pages_MapPage -> view_AppChips
   pages_MeasurePage -> common_Layout
   pages_MeasurePage -> common_Theme
   pages_MeasurePage -> model_ExperimentTypes
@@ -266,6 +400,8 @@ digraph SimLabImports {
   pages_MeasurePage -> platform_SessionStore
   pages_MeasurePage -> runner_RunController
   pages_MeasurePage -> view3d_LathePainter
+  pages_MeasurePage -> view_AppButton
+  pages_MeasurePage -> view_Palette
   pages_ReportPage -> common_Layout
   pages_ReportPage -> common_Theme
   pages_ReportPage -> bench_BrineScenario
@@ -276,21 +412,35 @@ digraph SimLabImports {
   pages_ReportPage -> model_FactLabels
   pages_ReportPage -> model_ExperimentTypes
   pages_ReportPage -> platform_SessionStore
+  pages_ReportPage -> view_AppButton
+  pages_SettingsPage -> common_Appearance
+  pages_SettingsPage -> common_Layout
+  pages_SettingsPage -> common_Theme
+  pages_SettingsPage -> platform_AppearanceStore
+  pages_SettingsPage -> view_AppChips
   physics_InclineRunner -> physics_Physics2DRunner
   physics_InclineRunner -> physics_World2D
   physics_Physics2DRunner -> model_ExperimentTypes
   physics_Physics2DRunner -> runner_IExperimentRunner
+  physics_Physics2DRunner -> model_FactSheet
   physics_Physics2DRunner -> physics_World2D
+  physics_SpringForceRunner -> model_ExperimentTypes
+  physics_SpringForceRunner -> model_FactSheet
+  physics_SpringForceRunner -> physics_Physics2DRunner
+  physics_SpringForceRunner -> physics_World2D
   physics_SpringMassRunner -> physics_Physics2DRunner
   physics_SpringMassRunner -> physics_World2D
   physics_circuit_CircuitRunner -> physics_Physics2DRunner
   physics_circuit_CircuitRunner -> physics_MnaSolver
   physics_circuit_CircuitRunner -> physics_World2D
   physics_circuit_CircuitRunner -> physics_circuit_CircuitModel
+  platform_AppearanceStore -> common_Appearance
+  platform_AppearanceStore -> view_Palette
   platform_SessionStore -> runner_SessionLedger
   runner_ExperimentRegistry -> model_ExperimentTypes
   runner_ExperimentRegistry -> runner_IExperimentRunner
   runner_IExperimentRunner -> model_ExperimentTypes
+  runner_IExperimentRunner -> model_FactSheet
   runner_RunController -> model_ExperimentTypes
   runner_RunController -> runner_IExperimentRunner
   runner_SessionLedger -> model_ExperimentTypes
@@ -305,26 +455,38 @@ digraph SimLabImports {
   scenes_MechanicsScenes -> scenes_SceneBuilders
   scenes_MechanicsScenes -> physics_InclineRunner
   scenes_MechanicsScenes -> physics_SpringMassRunner
+  scenes_MechanicsScenes -> physics_SpringForceRunner
   scenes_SceneBuilders -> model_ExperimentTypes
   scenes_SceneBuilders -> common_Theme
-  view3d_Lathe -> bench_Profile
-  view3d_LathePainter -> bench_Profile
+  view3d_Lathe -> geometry_Profile
+  view3d_LathePainter -> geometry_Profile
   view3d_LathePainter -> view3d_Camera
   view3d_LathePainter -> view3d_Lathe
-  view3d_VesselView -> bench_GlassShapes
+  view3d_LathePainter -> view3d_TiltedPlane
+  view3d_TiltedPlane -> geometry_Profile
+  view3d_VesselView -> geometry_GlassShapes
   view3d_VesselView -> chemistry_BenchModel
   view3d_VesselView -> view3d_LathePainter
-  view_CanvasPainter -> common_Theme
+  view_AppButton -> common_Layout
+  view_AppButton -> common_Theme
+  view_AppChips -> common_Theme
+  view_CanvasPainter -> view_Palette
   view_CanvasPainter -> physics_World2D
+  view_Palette -> common_Theme
   view_SeriesChart -> model_ExperimentTypes
   view_SeriesChart -> runner_RunController
   view_SeriesChart -> common_Theme
+  view_SeriesChart -> view_Palette
+  view_SeriesChart -> common_Layout
+  view_SeriesChart -> view_PlotFrame
   view_SimCanvas -> model_ExperimentTypes
   view_SimCanvas -> physics_Physics2DRunner
   view_SimCanvas -> physics_World2D
   view_SimCanvas -> runner_RunController
   view_SimCanvas -> common_Theme
+  view_SimCanvas -> view_Palette
+  view_SimCanvas -> common_Layout
   view_SimCanvas -> view_CanvasPainter
 
-  // 跨栈边 chemistry/* <-> bench/*:2 条 —— chemistry_BenchModel→bench_GlassShapes, chemistry_BenchModel→bench_VesselBase
+  // 跨栈边 chemistry/* <-> bench/*:1 条 —— chemistry_BenchModel→bench_VesselBase
 }

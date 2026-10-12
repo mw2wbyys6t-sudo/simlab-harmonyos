@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import { makeRecorder } from './record-ctx.mjs';
 import { discriminatorRate } from '../coverage-metrics.mjs';
+import { BLOCKED_TERMS } from '../visible-copy-blocklist.mjs';
 
 const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -26,7 +27,7 @@ rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 
 const MODULES = [
-  'bench/Profile',
+  'geometry/Profile',
   'bench/Brine',
   'bench/Container',
   'bench/Pose',
@@ -34,7 +35,7 @@ const MODULES = [
   'bench/Spatula',
   'bench/Dropper',
   'bench/ChunkSolid',
-  'bench/GlassShapes',
+  'geometry/GlassShapes',
   'bench/VesselBase',
   'view3d/Camera',
   'view3d/Lathe',
@@ -69,6 +70,7 @@ const MODULES = [
   'bench/RubricSpring',
   'bench/RubricBrine',
   'bench/RubricMeasure',
+  'bench/MeasureVerdict',
   'bench/BrineScenario',
   'bench/BenchWorld',
   'common/Theme',
@@ -77,6 +79,7 @@ const MODULES = [
   'common/Layout',
   'common/LibraryFeed',
   'model/ExperimentTypes',
+  'model/FactSheet',
   'model/SessionRecord',
   'model/FactLabels',
   'runner/SessionLedger',
@@ -615,9 +618,8 @@ function checkRel(label, actual, expected, relTolerance) {
 {
   // 左边这一串全是我们讨论实现时用的词。学生不需要知道少了哪一层、字段叫什么、
   // 也不需要看见 spec / draft1 / meta.xxx 这类标识符 —— 出现一条就是漏翻。
-  const BLOCKED = ['渲染器', '待补', '未实现', '路由', '判据', '关键事实', '过程量', '分步时刻',
-    '落盘', '抽稀', '采样', '标定', 'schema', 'Schema', 'meta.', 'spec', 'draft',
-    '收手判定', '登记', '口径', '不宜仿真', '可打开'];
+  // 词表住在 tools/visible-copy-blocklist.mjs,设备巡检用的是同一份
+  const BLOCKED = BLOCKED_TERMS;
 
   const { RubricSpring } = require(join(OUT, 'bench/RubricSpring.cjs'));
   const { RubricMeasure } = require(join(OUT, 'bench/RubricMeasure.cjs'));
@@ -763,6 +765,28 @@ function checkRel(label, actual, expected, relTolerance) {
   const fakeNames = new Set(usedNames);
   fakeNames.add('text_primarry');
   check('负对照:资源名写错一个字母就报悬空', danglingOf(fakeNames).length, 1, 1e-12);
+
+  // 每个令牌在两套里都必须有值且是合法 hex:漏一个值不报错,只在运行时变黑块
+  const hexShape = /^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/;
+  const malformed = [];
+  for (const [mode, pal] of [['浅色', light], ['深色', dark]]) {
+    for (const [k, v] of pal) {
+      if (typeof v !== 'string' || !hexShape.test(v)) {
+        malformed.push(`${mode}.${k}=${JSON.stringify(v)}`);
+      }
+    }
+  }
+  assertTrue('两套调色板的每个令牌都是合法 hex', malformed.length === 0, malformed.join(','));
+  check('负对照:令牌值写成空串会被认出', hexShape.test('') ? 1 : 0, 0, 1e-12);
+
+  // 画布解析器:未绑定时的回退必须是"看得见的品红"。回透明就是回到那个
+  // 不报错、不崩溃、只是三条判读线一起消失的静默 bug(2026-10-11 踩过)。
+  const paletteSrc = readFileSync(join(SRC, 'view/Palette.ets'), 'utf8');
+  assertTrue('未绑定解析器时回退品红而不是透明',
+    paletteSrc.includes("'#FF00FF'") && !paletteSrc.includes("'#00000000'"), '回退值被改回透明或删掉了');
+  // 唯一的"保证绑定"点在 ability 里:它比任何组件都先活,删掉等于把静默 bug 放回去
+  const abilitySrc = readFileSync(join(SRC, 'entryability/EntryAbility.ets'), 'utf8');
+  assertTrue('EntryAbility 仍在启动时绑定画布解析器', abilitySrc.includes('Palette.bind('), '这一行被删掉了');
 }
 
 // ---- 深浅色偏好:三档开关的纯逻辑(① 的应用内开关) ------------------------
@@ -1340,7 +1364,7 @@ function checkRel(label, actual, expected, relTolerance) {
 
 // ---- M0 世界内核:器皿几何与物质账本 --------------------------------------
 {
-  const { Profile, Glassware } = require(join(OUT, 'bench/Profile.cjs'));
+  const { Profile, Glassware } = require(join(OUT, 'geometry/Profile.cjs'));
   const { Brine, Separations, Calibration } = require(join(OUT, 'bench/Brine.cjs'));
 
   // 1. 几何:容积↔高度必须互为逆运算,否则「液面高过滤纸多少」就算不出来
@@ -1522,7 +1546,7 @@ function checkRel(label, actual, expected, relTolerance) {
 
 // ---- M1 容器、倾倒与量筒读数 ----------------------------------------------
 {
-  const { Profile, Glassware } = require(join(OUT, 'bench/Profile.cjs'));
+  const { Profile, Glassware } = require(join(OUT, 'geometry/Profile.cjs'));
   const { Brine, Separations, Calibration } = require(join(OUT, 'bench/Brine.cjs'));
   const { Container, PourModel, ReadingModel } = require(join(OUT, 'bench/Container.cjs'));
   const { Support } = require(join(OUT, 'bench/Pose.cjs'));
@@ -1700,6 +1724,100 @@ function checkRel(label, actual, expected, relTolerance) {
       ReadingModel.isLevelWith(actualHeight, actualHeight + 0.05, 0.1) === true, '判成不齐平');
     assertTrue('明显偏离时判为不齐平',
       ReadingModel.isLevelWith(actualHeight, 0, 0.1) === false, '判成齐平');
+    // 空筒没有弯月面:眼高再高也不该凭空读出一个体积。
+    // 这是 #66 的第一半 —— 重来之后量筒明明空了,读数卡还写着 1.17 mL。
+    for (const eye of [0, 1, 3, cylinder.totalHeight()]) {
+      checkRel(`空筒读数恒为 0(眼高 ${eye})`, ReadingModel.readVolume(cylinder, 0, eye), 0, 1e-12);
+    }
+    // 但"有液体时俯视读数偏大"这条不能被顺手改成"读数永不超过实际" ——
+    // 那是视差模型的定义本身,不是缺陷。
+    assertTrue('有液时俯视仍可读得比实际大',
+      ReadingModel.readVolume(cylinder, 0.1, 3) > 0.1, '视差被改成了恒不小于实际,模型错了');
+  }
+
+  // 6c. 倾倒的终止条件与"洒出"的口径(#66 剩下的两半:61 mL 溅失 / 没对准却报 0)
+  {
+    const { BenchWorld } = require(join(OUT, 'bench/BenchWorld.cjs'));
+
+    function pour(tilt, aim, guided) {
+      const w = new BenchWorld();
+      w.setup({ id: 'measure', title: '量取' });
+      w.setParam('goal', 5);   // 目标 5 mL:量筒是 10 mL 的,不该因为"倒满"而把整瓶抽干
+      w.setParam('eye', 0);
+      w.setParam('tilt', tilt);
+      w.setParam('aim', aim);
+      w.setParam('guided', guided);
+      for (let i = 0; i < 40000 && !w.ended; i++) {
+        w.step(0.05);
+      }
+      return w;
+    }
+
+    const aligned = pour(30, 0, 0);
+    const got = aligned.readObservable('actual');
+    const lost = aligned.readObservable('spilled');
+    const out = aligned.readObservable('poured');
+    // 守恒式是这里唯一的真值定义:倒出去的 = 留下的 + 洒掉的
+    checkRel('倒出量 = 实际 + 洒出(对准)', out, got + lost, 1e-9);
+    // 终止条件原来是 `cylinder.isFull()`,但每一步的溅失都会把液面拉到筒口之下,
+    // 于是它永远不成立 —— 学生"一直倒"会把整瓶 70 mL 抽干、报出 61 mL 溅失。
+    assertTrue('漫出就该停,不该把整瓶抽干', aligned.reagentVolumeMl() > 1,
+      `瓶里只剩 ${aligned.reagentVolumeMl().toFixed(2)} mL —— 终止条件没咬住`);
+    const beforeMore = aligned.readObservable('actual');
+    for (let i = 0; i < 2000; i++) {
+      aligned.step(0.05);
+    }
+    checkRel('结束后液面不再增长', aligned.readObservable('actual'), beforeMore, 1e-12);
+    assertTrue('量筒里的水不超过筒的容量', got <= 10.0001, `实际 ${got.toFixed(4)} mL`);
+    assertTrue('洒出只是溅失,不是整瓶', lost < 5, `洒出 ${lost.toFixed(2)} mL`);
+
+    const missed = pour(30, 6, 0);
+    const mGot = missed.readObservable('actual');
+    const mLost = missed.readObservable('spilled');
+    const mOut = missed.readObservable('poured');
+    checkRel('倒出量 = 实际 + 洒出(没对准)', mOut, mGot + mLost, 1e-9);
+    // 原来这里读的是量筒自己的损失账本,而没对准的水是从试剂瓶直接扣掉的 ——
+    // 于是屏幕上"洒失 0.00 mL"和"实际 0.00 mL"同时成立,而 71 mL 真的倒空了
+    assertTrue('没对准时洒出必须计得出来', mLost > 1 && mGot < 0.01,
+      `洒出 ${mLost.toFixed(2)} mL、实际 ${mGot.toFixed(2)} mL、倒出 ${mOut.toFixed(2)} mL`);
+
+    const guided = pour(30, 0, 1);
+    assertTrue('引流确实减少洒出', guided.readObservable('spilled') <= lost + 1e-9,
+      `引流 ${guided.readObservable('spilled').toFixed(2)} > 不引流 ${lost.toFixed(2)}`);
+
+    // 负对照:如果 spilled 被写死成 0,上面两条守恒会立刻红
+    assertTrue('负对照:洒出不是恒零', mLost > 0, '没对准的洒出仍被报成 0,说明口径没改对');
+  }
+
+  // 6b. 量取判词的自洽性:一句话里不能同时说"正好"和"倒多了"(F5)
+  {
+    const { MeasureVerdict } = require(join(OUT, 'bench/MeasureVerdict.cjs'));
+
+    const level = MeasureVerdict.of(10, 10, 0, 0, 0);
+    assertTrue('齐平且正好:说正好', level.includes('正好到目标量'), level);
+    assertTrue('齐平且正好:说读数可信', level.includes('读数可信'), level);
+
+    // 仰视但恰好停在真实值上 —— 视线偏差只决定"读数偏哪边",不决定"倒多倒少"
+    const offsetButExact = MeasureVerdict.of(10, 10, 0, -2, 0);
+    assertTrue('判词不自相矛盾:说正好时不得同时说倒多了/倒少了',
+      !(offsetButExact.includes('正好到目标量') &&
+        (offsetButExact.includes('倒多了') || offsetButExact.includes('倒少了'))), offsetButExact);
+    assertTrue('仰视仍然要教读数偏小', offsetButExact.includes('读数偏小'), offsetButExact);
+
+    const reallyOver = MeasureVerdict.of(11.2, 10, 1.2, -2, 0);
+    assertTrue('负对照:真多倒时确实说多倒了 1.20 mL', reallyOver.includes('多倒了 1.20 mL'), reallyOver);
+    assertTrue('因果链闭合时才补一句', reallyOver.includes('这就是多倒的原因'), reallyOver);
+
+    const reallyUnder = MeasureVerdict.of(8.6, 10, -1.4, 2, 0);
+    assertTrue('俯视 + 少倒:说少倒了 1.40 mL', reallyUnder.includes('少倒了 1.40 mL'), reallyUnder);
+    assertTrue('俯视:读数偏大', reallyUnder.includes('读数偏大'), reallyUnder);
+
+    const splash = MeasureVerdict.of(9.4, 9.4, -0.6, 0, 0.35);
+    assertTrue('溅失单独成句', splash.includes('另有 0.35 mL 溅失'), splash);
+    assertTrue('齐平时不硬套视差因果', !splash.includes('这就是'), splash);
+
+    // 数字必须和屏幕上读数卡一致:实际、读数两个数都要出现在句子里
+    assertTrue('判词带出实际与读数', reallyOver.includes('实际 11.20 mL') && reallyOver.includes('读数 10.00 mL'), reallyOver);
   }
 
   // 7. 确定性重放:倾倒脚本跑两遍结果必须逐位相同
@@ -1811,7 +1929,7 @@ function checkRel(label, actual, expected, relTolerance) {
 {
   const { Footprint, Spatial, Support } = require(join(OUT, 'bench/Pose.cjs'));
   const { Calibration } = require(join(OUT, 'bench/Brine.cjs'));
-  const { Glassware } = require(join(OUT, 'bench/Profile.cjs'));
+  const { Glassware } = require(join(OUT, 'geometry/Profile.cjs'));
   const { Container } = require(join(OUT, 'bench/Container.cjs'));
   const tol = Calibration.CONTACT_TOLERANCE_CM;
 
@@ -2613,7 +2731,7 @@ function checkRel(label, actual, expected, relTolerance) {
 {
   const { Spatula } = require(join(OUT, 'bench/Spatula.cjs'));
   const { Container } = require(join(OUT, 'bench/Container.cjs'));
-  const { Glassware } = require(join(OUT, 'bench/Profile.cjs'));
+  const { Glassware } = require(join(OUT, 'geometry/Profile.cjs'));
   const { Separations } = require(join(OUT, 'bench/Brine.cjs'));
 
   const SALT_G = 4.0;
@@ -2852,8 +2970,8 @@ function checkRel(label, actual, expected, relTolerance) {
 // 漏失必须由账本按比例自己取走 —— 否则 I1 当场破掉。
 {
   const { Container } = require(join(OUT, 'bench/Container.cjs'));
-  const { Glassware, Profile } = require(join(OUT, 'bench/Profile.cjs'));
-  const { GlassShapes } = require(join(OUT, 'bench/GlassShapes.cjs'));
+  const { Glassware, Profile } = require(join(OUT, 'geometry/Profile.cjs'));
+  const { GlassShapes } = require(join(OUT, 'geometry/GlassShapes.cjs'));
   const { Separations } = require(join(OUT, 'bench/Brine.cjs'));
   const { Spatula } = require(join(OUT, 'bench/Spatula.cjs'));
   const { Vessel, VesselKind, PORTION_MOLES } = require(join(OUT, 'chemistry/BenchModel.cjs'));
@@ -3018,7 +3136,7 @@ function checkRel(label, actual, expected, relTolerance) {
 {
   const { Camera } = require(join(OUT, 'view3d/Camera.cjs'));
   const { Lathe, Shading } = require(join(OUT, 'view3d/Lathe.cjs'));
-  const { Glassware, Profile } = require(join(OUT, 'bench/Profile.cjs'));
+  const { Glassware, Profile } = require(join(OUT, 'geometry/Profile.cjs'));
 
   const DEG = Math.PI / 180;
   const radiusOf = (area) => Math.sqrt(area / Math.PI);
@@ -3443,7 +3561,7 @@ function checkRel(label, actual, expected, relTolerance) {
   })(), '渐变带出现了回头');
 
   // --- GlassShapes:器材种类 → 几何。M4 起这张表住在 bench/,两侧共用 ---
-  const { GlassShapes } = require(join(OUT, 'bench/GlassShapes.cjs'));
+  const { GlassShapes } = require(join(OUT, 'geometry/GlassShapes.cjs'));
   const { VesselKind } = require(join(OUT, 'chemistry/BenchModel.cjs'));
   assertTrue('试管比锥形瓶细',
     GlassShapes.of(VesselKind.TUBE).radiusAt(5) < GlassShapes.of(VesselKind.FLASK).radiusAt(1),
@@ -3718,7 +3836,7 @@ function checkRel(label, actual, expected, relTolerance) {
   const modPath = join(SRC, 'view3d', 'TiltedPlane.ets');
   assertTrue('倾斜液面几何模块已建立', existsSync(modPath), `缺 ${modPath}`);
   if (existsSync(modPath)) {
-    const { Profile, Glassware } = require(join(OUT, 'bench/Profile.cjs'));
+    const { Profile, Glassware } = require(join(OUT, 'geometry/Profile.cjs'));
     const { TiltedPlane } = require(join(OUT, 'view3d/TiltedPlane.cjs'));
     const DEG = Math.PI / 180;
 
@@ -4036,7 +4154,7 @@ function checkRel(label, actual, expected, relTolerance) {
 // 路径闭合、不出画布、同输入同输出(不变量 I2 在渲染侧的对应物),以及倾斜时真的换成了切出来的折线。
 {
   const { LathePainter, LatheSpec } = require(join(OUT, 'view3d/LathePainter.cjs'));
-  const { Glassware } = require(join(OUT, 'bench/Profile.cjs'));
+  const { Glassware } = require(join(OUT, 'geometry/Profile.cjs'));
   const W = 116;
   const H = 140;
 
@@ -5041,7 +5159,8 @@ function checkRel(label, actual, expected, relTolerance) {
 {
   const { SpringForceRunner } = require(join(OUT, 'physics/SpringForceRunner.cjs'));
   const { RubricSpring } = require(join(OUT, 'bench/RubricSpring.cjs'));
-  const { RubricValidator, FactSheet } = require(join(OUT, 'bench/Rubric.cjs'));
+  const { RubricValidator } = require(join(OUT, 'bench/Rubric.cjs'));
+  const { FactSheet } = require(join(OUT, 'model/FactSheet.cjs'));
   const { Judgment } = require(join(OUT, 'bench/Judgment.cjs'));
   const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
   const { MechanicsScenes } = require(join(OUT, 'scenes/MechanicsScenes.cjs'));

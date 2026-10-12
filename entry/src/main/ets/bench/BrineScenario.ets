@@ -1,9 +1,9 @@
 import { Brine, Separations } from './Brine';
 import { Container, PourModel } from './Container';
 import { FilterAssembly } from './Filtration';
-import { Glassware, Profile } from './Profile';
+import { Glassware, Profile } from '../geometry/Profile';
 import { Support } from './Pose';
-import { FactSheet } from './Rubric';
+import { FactSheet } from '../model/FactSheet';
 import { RubricBrine } from './RubricBrine';
 import { Spatula } from './Spatula';
 

@@ -1,5 +1,5 @@
 import { ExperimentMeta } from '../model/ExperimentTypes';
-import { FactSheet } from '../bench/Rubric';
+import { FactSheet } from '../model/FactSheet';
 import { Physics2DRunner } from './Physics2DRunner';
 import { BoxShape, LabelShape, SegmentShape, SpringShape, WorldSnapshot } from './World2D';
 

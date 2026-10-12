@@ -1,6 +1,9 @@
 /**
  * 从 entry/src/main/ets 的真实 import 语句生成 Graphviz 依赖图。
- * 用途:证明跨栈隔离(chemistry 与 bench 之间边数为 0)这类负证据,不靠人眼扫代码。
+ * 用途:把"跨栈有几条边、方向朝哪"这类负证据算出来,不靠人眼扫代码。
+ * 注意:边数会变。2026-09 时 chemistry<->bench 是 0 条(所以能声称"两栈零耦合"),
+ * 2026-10-11 是 2 条且单向(chemistry→bench)。任何引用这个数字的文档都要重跑本脚本,
+ * 不要抄旧结论。
  * 运行:node tools/arch/gen-deps.mjs
  */
 import { readdirSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';

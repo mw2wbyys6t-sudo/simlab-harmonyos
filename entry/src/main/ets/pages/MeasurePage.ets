@@ -4,6 +4,7 @@ import { ExperimentMeta, ParamControl, ParamDef, RendererKind, Subject } from '.
 import { fact, SessionRecord } from '../model/SessionRecord';
 import { BenchWorld } from '../bench/BenchWorld';
 import { RubricMeasure } from '../bench/RubricMeasure';
+import { MeasureVerdict } from '../bench/MeasureVerdict';
 import { SessionStore } from '../platform/SessionStore';
 import { RunController } from '../runner/RunController';
 import { GaugeMark, LathePainter, LatheSpec } from '../view3d/LathePainter';
@@ -228,20 +229,10 @@ export struct MeasurePage {
     LathePainter.draw(this.bctx, spec);
   }
 
+  /** 判词由纯函数拼,页面只交四个数 —— 那句话的自洽性在 check.mjs 里有断言守着 */
   private verdictOf(): string {
-    const error = this.world.readObservable('error');
-    const offset = this.world.readObservable('eyeOffset');
-    const signed = Math.abs(error) < 0.005 ? '正好到目标量'
-      : (error > 0 ? `多倒了 ${error.toFixed(2)} mL` : `少倒了 ${(-error).toFixed(2)} mL`);
-    let cause = '视线与凹液面齐平，读数可信';
-    if (offset < -0.2) {
-      cause = '仰视（眼睛低于液面）→ 读数偏小 → 实际倒多了';
-    } else if (offset > 0.2) {
-      cause = '俯视（眼睛高于液面）→ 读数偏大 → 实际倒少了';
-    }
-    // 中文句子里的逗号与分号一律全角:半角标点混在中间是"AI 写的"最明显的痕迹
-    return `实际 ${this.actual.toFixed(2)} mL，读数 ${this.apparent.toFixed(2)} mL；${signed}。${cause}`
-      + (this.spilled > 0.01 ? `；另有 ${this.spilled.toFixed(2)} mL 溅失。` : '。');
+    return MeasureVerdict.of(this.actual, this.apparent,
+      this.world.readObservable('error'), this.world.readObservable('eyeOffset'), this.spilled);
   }
 
   /**

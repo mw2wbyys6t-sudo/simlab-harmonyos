@@ -4,7 +4,6 @@ import { SceneBuilders } from './SceneBuilders';
 import { InclineRunner } from '../physics/InclineRunner';
 import { SpringMassRunner } from '../physics/SpringMassRunner';
 import { SpringForceRunner } from '../physics/SpringForceRunner';
-import { RubricSpring } from '../bench/RubricSpring';
 
 /**
  * 力学场景包。新增力学实验在这里加一段元数据 + 一个求解器注册,
@@ -118,7 +117,7 @@ export class MechanicsScenes {
     meta.actions.push(SceneBuilders.action('weight+', '加一个砝码', '砝码'));
     meta.actions.push(SceneBuilders.action('weight-', '取下一个砝码', '砝码'));
     meta.actions.push(SceneBuilders.action('record', '记录这一读数', '记录'));
-    meta.rubricId = RubricSpring.ID;
+    meta.rubricId = 'spring-force-rubric'; // 字面量:场景层不该为了一个 id 去 import 判分层(由断言保证可解析)
     meta.observables.push(SceneBuilders.observable('force', '弹力 F', 'N', 4, true));
     meta.observables.push(SceneBuilders.observable('extension', '形变量 x', 'm', 4, true));
     meta.observables.push(SceneBuilders.observable('load', '砝码总重', 'N', 3, false));

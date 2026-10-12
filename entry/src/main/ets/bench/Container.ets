@@ -1,4 +1,4 @@
-import { Profile } from './Profile';
+import { Profile } from '../geometry/Profile';
 import { Brine, Calibration, Separations } from './Brine';
 import { Spatial } from './Pose';
 import { VesselBase } from './VesselBase';
@@ -162,8 +162,11 @@ export class ReadingModel {
     return trueHeight - (trueHeight - eyeHeight) * Calibration.PARALLAX_RATIO;
   }
 
-  /** 当前内容物的表观读数(mL) */
+  /** 当前内容物的表观读数(mL)。空筒没有弯月面,读不出数 —— 只能是 0 */
   static readVolume(profile: Profile, contentMl: number, eyeHeight: number): number {
+    if (!(contentMl > 0)) {
+      return 0;
+    }
     const trueHeight = profile.heightForVolume(contentMl);
     return profile.volumeBelow(ReadingModel.clampHeight(profile, trueHeight, eyeHeight));
   }

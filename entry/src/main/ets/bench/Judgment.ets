@@ -1,4 +1,5 @@
-import { Criterion, CriterionKind, CriterionOp, FactSheet, Rubric, RubricValidator } from './Rubric';
+import { FactSheet } from '../model/FactSheet';
+import { Criterion, CriterionKind, CriterionOp, Rubric, RubricValidator } from './Rubric';
 
 /** 一条扣分。evidence 必须可复算:学生/家长/老师看得懂数字从哪来。 */
 export class Deduction {

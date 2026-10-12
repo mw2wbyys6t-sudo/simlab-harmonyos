@@ -1,4 +1,4 @@
-import { Profile } from '../bench/Profile';
+import { Profile } from '../geometry/Profile';
 
 /** 母线上的一点:高度与半径,单位 cm */
 export class LatheSample {

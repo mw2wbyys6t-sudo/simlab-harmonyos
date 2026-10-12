@@ -1,6 +1,6 @@
 import { ExperimentMeta } from '../model/ExperimentTypes';
 import { IExperimentRunner } from '../runner/IExperimentRunner';
-import { FactSheet } from '../bench/Rubric';
+import { FactSheet } from '../model/FactSheet';
 import { WorldSnapshot } from './World2D';
 
 /**

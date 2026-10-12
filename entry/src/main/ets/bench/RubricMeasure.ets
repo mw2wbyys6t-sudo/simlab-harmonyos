@@ -1,5 +1,6 @@
 import { SessionRecord } from '../model/SessionRecord';
-import { CriterionBuilder, CriterionOp, FactSheet, Rubric } from './Rubric';
+import { FactSheet } from '../model/FactSheet';
+import { CriterionBuilder, CriterionOp, Rubric } from './Rubric';
 import { RubricBrine } from './RubricBrine';
 import { RubricSpring } from './RubricSpring';
 

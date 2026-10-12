@@ -1,4 +1,4 @@
-import { Profile } from '../bench/Profile';
+import { Profile } from '../geometry/Profile';
 
 /** 液面边界上的一点：器坐标里的轴上高度与半径，单位 cm */
 export class SurfacePoint {

@@ -1,7 +1,7 @@
 import { ExperimentMeta } from '../model/ExperimentTypes';
 import { IExperimentRunner } from '../runner/IExperimentRunner';
-import { FactSheet } from './Rubric';
-import { Glassware, Profile } from './Profile';
+import { FactSheet } from '../model/FactSheet';
+import { Glassware, Profile } from '../geometry/Profile';
 import { Calibration } from './Brine';
 import { Container, PourModel, ReadingModel } from './Container';
 import { Support } from './Pose';
@@ -61,7 +61,10 @@ export class BenchWorld implements IExperimentRunner {
     this.pouredMl += result.leftSourceMl;
     this.missedMl += result.missedTarget ? result.leftSourceMl : 0;
     this.time += dt;
-    if (this.cylinder.isFull() || this.reagent.brine.waterMl <= 1e-9) {
+    // 漫出就是"这一杯倒到头了"。终止条件原来写的是 cylinder.isFull(),但每一步的溅失
+    // 都会把液面拉回筒口之下,那个条件永远不成立 —— 于是学生不停手就会把整瓶 70 mL 抽干,
+    // 并读出几十毫升的"溅失"(#66)。
+    if (result.overflowed || this.reagent.brine.waterMl <= 1e-9) {
       this.ended = true;
     }
   }
@@ -148,8 +151,16 @@ export class BenchWorld implements IExperimentRunner {
     return this.readParam('tilt');
   }
 
+  /**
+   * 洒出 = 离开试剂瓶的水 − 还留在量筒里的水。
+   *
+   * 原来读的是量筒自己的损失账本(`cylinder.brine.losses`),可"没对准、整股洒在桌面上"
+   * 的那部分是直接从试剂瓶扣掉的,不进这个数 —— 屏幕上于是同时出现「实际 0.00 mL」和
+   * 「洒失 0.00 mL」,而瓶里 71 mL 真的空了(#66)。按倒出量减实际量算,守恒是构造出来的。
+   */
   spilledMl(): number {
-    return this.cylinder.brine.losses.spilledWaterMl;
+    const lost = this.pouredMl - this.cylinder.brine.waterMl;
+    return lost > 0 ? lost : 0;
   }
 
   readObservable(key: string): number {

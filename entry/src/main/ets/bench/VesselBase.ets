@@ -1,4 +1,4 @@
-import { Profile } from './Profile';
+import { Profile } from '../geometry/Profile';
 import { Footprint, Pose, Support } from './Pose';
 
 /**

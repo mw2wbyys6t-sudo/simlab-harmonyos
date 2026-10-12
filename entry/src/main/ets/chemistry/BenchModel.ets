@@ -1,6 +1,6 @@
 import { Substance } from './ChemistryModel';
 import { Reagents } from './ChemistryLibrary';
-import { GlassShapes } from '../bench/GlassShapes';
+import { GlassShapes } from '../geometry/GlassShapes';
 import { VesselBase } from '../bench/VesselBase';
 
 /** 容器种类。决定容量与可用的取用方式。 */

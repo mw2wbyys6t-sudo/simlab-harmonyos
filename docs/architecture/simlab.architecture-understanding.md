@@ -1,127 +1,103 @@
 # SimLab 架构理解文档
 
-配套文件:`simlab.structurizr.dsl`(C4 语义来源)、`simlab-deps.dot`(全量导入图)、`simlab.evidence.md`(证据索引)。
-生成于 2026-09-25,由 `architecture-visualization:c4model` 技能产出。
+配套文件:`simlab.structurizr.dsl`(C4 语义来源)、`simlab-deps.dot`(全量导入图,由 `tools/arch/gen-deps.mjs` 机械生成)、`simlab.evidence.md`(证据索引)。
+2026-09-25 首版由 `architecture-visualization:c4model` 产出;**2026-10-11 全量刷新**,刷新动机是"找架构层优化点"。
 
 ## 这份模型回答什么问题
 
-四张视图,每张一个问题,不要合着看:
-
 | 视图 | 回答的问题 | 给谁看 |
 | --- | --- | --- |
-| `Context` | 谁在用,系统只依赖哪些外部能力,哪些东西被刻意挡在边界外 | 采购方、新加入的同事、非技术干系人 |
-| `Containers` | 有几个可独立运行的单元,发布物是什么 | 构建与运维 |
-| `RuntimeComponents` | entry HAP 内部怎么切责任,两条世界栈为什么互不引用 | 实现者本人、代码审查 |
-| `TargetScope` | LabVerse 提示词里哪些是"还没做",哪些是"和产品决定冲突" | 需要拍板范围的人 |
+| `Context` | 谁在用、内容从哪来、只依赖哪些外部能力、哪些东西被刻意挡在边界外 | 采购方、新加入的同事、非技术干系人 |
+| `Containers` | 有几个可独立运行的单元、资源与存储边界在哪、发布物是什么 | 构建与运维 |
+| `RuntimeComponents` | entry HAP 内部怎么切责任、**哪些箭头方向反了** | 实现者本人、代码审查 |
+| `TargetScope` | 愿景里哪些是"还没做"、哪些"已做完/做了一半"、哪些"和产品决定冲突" | 需要拍板范围的人 |
 
-## 范围与边界
+## 刷新时的底数(全部当场量出)
 
-只建模 `entry/src/main/ets` 与 `tools/physics-check`。`docs/` 下的 spec 是设计意图,不是运行结构,只在证据索引里作为 document 类来源引用。
-
-**当前系统边界是刻意为之的窄**。grep `@kit.` 与 `@ohos.` 的全部命中只有 5 个 Kit:AbilityKit、ArkUI、ArkGraphics2D、CoreFileKit、PerformanceAnalysisKit。这意味着网络、账号、本地存储、触觉、分布式、并发、3D 在这个工程里不是"做得浅",是**一行都没有**。这条事实对下面的差集分析是决定性的。
-
-## 三条硬事实(高置信度)
-
-### 事实 1:两条世界栈并存且零耦合
-
-`chemistry/*`(14 条入边)与 `bench/*`(26 条入边)之间的边数是 **0**,由 `simlab-deps.dot` 机械统计得出,不是印象。
-
-同一个"倾倒液体"动作存在两套模型:旧的 `chemistry/BenchModel.Vessel` 走摩尔数与反应相态,新的 `bench/Container` 走容积账本与位姿。两者各自被页面直接引用,所以都不能删。这是 M4 合并债务的图形证据,也是 `docs/superpowers/specs/2026-09-24-...-design.md` 里"已定:不并存"这条决定至今没执行的原因,它需要一次真实的改写,不是重命名。
-
-### 事实 2:判定层与表现层之间没有回路
-
-`bench/Rubric`、`Judgment`、`RubricBrine`、`BrineScenario` 只读 `bench/*` 的数值,不 import 任何 ArkUI 类型(不变量 I3)。全图里从 `view/*` 或 `pages/*` 指向判定层的边只有一条:`ReportPage` 消费 `ScoreCard`。也就是说"换个评分细则,世界行为不变"这个主张(不变量 I4)在依赖图上是真的成立的。
-
-### 事实 3:设计令牌已成型,但只覆盖了两页
-
-`common/Theme.ets` 现在是分层色板(品牌色、7 枚学科辅色、语义色),配 `common/Contrast.ets` 计算 WCAG 相对亮度与对比度,`common/Layout.ets` 提供间距/圆角/动效三条阶梯与角色字号(`pageInset`、`cardPadding`、`listGap`、`captionSize`、`cardTitleSize`、`chipHeight`、`chipRadius`、`cardRadius`)。`pages/Index.ets` 与 `pages/ExperimentPage.ets` 已完全走令牌。
-
-**改这套令牌时算式抓出 4 个真实的无障碍缺陷**:原先的 `TEXT_SECONDARY #6B7A8D`、`ACCENT #2F6FB5`、`DANGER #E2574C`、`RUNNING #2E9E7A` 压页面底时对比度分别是 3.98 / 4.36 / 3.68 / 3.34,全部低于 AA 的 4.5。已按算式加深为 `#5A6878 / #2C6AAE / #C0392B / #1F7A5C`。
-
-剩余债务:另外 4 个页面(BenchPage、ChemistryPage、MeasurePage、ReportPage)仍有约 58 处内联 `DeviceClass.LARGE ? x : y`;颜色仍在 ArkTS 常量里,没有迁到 `resources/element`,所以系统深色切换还没打通(迁移动作依赖 `CustomTheme` 的写法,需核实)。
-
-## 与 LabVerse 提示词的差集
-
-提示词描述的产品比当前工程大一个数量级。逐条比对后分成三类,分类依据是"是否已有代码或已定决策"。
-
-### A 类:已经在做,提示词只是催进度
-
-| 提示词条目 | 现状 | 差距 |
+| 量 | 2026-09-25 | 2026-10-11 |
 | --- | --- | --- |
-| FR-OS-2 多指手势、FR-OS-1 器材对象化 | `bench/Pose`+`Spatial`+`Support` 已把位姿与空间关系做成唯一合法判据来源 | 只缺手指输入。这是 M6,已解除设备阻塞 |
-| FR-SE-2 变量由实操动作驱动 | 同上,`PourModel.step` 由倾角驱动 | 同上 |
-| FR-OS-5 操作智能评判 | `Rubric`+`Judgment`+`RubricBrine` 8 条判据 100 分 | 已能跑,但只被规范示例驱动过,真实操作数据没走过扣分路径 |
-| §6.5 设计 Token | `Theme`+`Layout` 已是事实令牌 | 缺深色/高对比,缺 66 处内联值的收敛 |
-| NFR 性能 2D 60FPS | `RunController` 定步长 240Hz + 掉帧补偿 + 采样有界 | 真机帧率未测 |
+| `.ets` 文件 / 行数 | 47 / 约 8254 | **93 / 21041** |
+| 离线断言 | 877 | **2532** |
+| 全量导入边(`gen-deps.mjs`) | 132 | **257** |
+| 首页可打开实验 | 4 场景 + 2 实操 | **7 场景 + 2 实操 = 9 张卡** |
+| 课程内容 | 无 | **12 张知识表 770 条 + 实验条目 331 条 + 周期表 118** |
+| 碰系统能力(`@kit`/`@ohos`)的文件 | 5 个 Kit | **8 个文件 / 6 个 Kit + 2 个系统控件** |
+| 颜色住在哪 | ArkTS 常量 | **`resources/base` + `resources/dark` 两套,Theme 只剩 Resource** |
 
-### B 类:提示词新增,当前工程没有的
+## 三条硬事实(2026-10-11 复核)
 
-知识点图谱、四元映射、AI 讲解、游戏化与成就、教师端仪表盘、分布式课堂、账号会员、国际化、3D 渲染、地理与数学两个新学科、生物显微渲染器、HAR/HSP 多模块拆分、吉祥物与图标体系、VI 手册。
+### 事实 1:两条世界栈不再零耦合,但方向是对的
 
-**本地持久化原本在本类,已于 2026-09-25 移出**:`SessionRecord` + `SessionLedger` + `platform/SessionStore`(Preferences),实测跨进程杀死与重装存活,报告页新增「历史操作记录」段。仍欠的部分:记录尚无评分(量取任务没有对应细则)、事实键未配人话标签、无按日期分组与删除。
+`gen-deps.mjs` 现在直接打印 `chemistry<->bench=2`。两条边都是 `chemistry/BenchModel.ets:3-4` → `bench/GlassShapes` + `bench/VesselBase`,**旧栈单向依赖新栈的器皿几何,没有反向边,所以无环**。
 
-其中**生物显微**在最初范围里就有(四类实验全要),只是从未实现;**地理与数学可视化是这次提示词新加的两个学科**,已由用户确认为 5 科(见 C 类第 2 条)。
+这既是好消息也是坏消息:好消息是 M4 合并有了正确的引力方向(新的东西被复用,旧的东西在瘦身);坏消息是 9 月版文档里"两条栈零耦合,所以都不能删"这句已经过期 —— 现在删掉 `bench/GlassShapes` 会让化学栈编译失败,合并债的形态从"两套并行"变成了"一套骑在另一套上"。**下次动这两个模块前必须重新量一次,不要引用本文的旧结论。**
 
-### C 类:与既有产品决定冲突,已由用户拍板(2026-09-25)
+### 事实 2:判定层与表现层之间仍然没有回路,但内核反向依赖判定层
 
-原样提出时这三条都要求推翻既有约束。用户逐条给了答复,DSL 里对应标签已从 `Conflicting` 改为 `Decided` / `Rejected`:
+从 `view/*`、`pages/*` 指向判定层的边只有"交卷"与"报告页消费 ScoreCard"两条 —— "换一张细则,世界行为不变"仍然成立。
 
-1. **AI 即时讲解:批准,且只批准这一条。** "纯本地、暂不联网"不再是绝对约束。但**账号会员与教师端分布式课堂同日明确暂不做**,离线约束对这两项仍然成立,不要援引本次作为先例。落地时必须保留离线规则兜底,否则课堂断网即不可用,等于把"离线是可交付性前提"这条理由赔掉。
-2. **学科按 5 科推进:批准。** `Subject` 枚举已加 `GEOGRAPHY` 与 `MATH_VISUAL`。但**不意味着首页要摆 5 个入口**:筛选 chip 由数据推导,没有内容的学科不上屏,所以今天仍是 5 枚(全部/力学/电学/化学/仪器)。这条规则同时解决了"生物被截成生"的缺陷,并把"新增学科导致溢出"变成一条会先红的断言(`LibraryFeed.fitsOnPhone`)。
-3. **HAR/HSP 多模块拆分:未拍板,我建议不做。** 提示词的 `features/` + `commons/` 目录树按多团队假设写,现在是单人推进 44 个文件,拆分不产生用户价值却要重做构建与签名。
-4. **"知识点不得用动画冒充实验"保留为硬约束。** 它和"全知识点覆盖"的广度目标有内在张力:覆盖率的分子如果是"有动画的场景数",就会诱导铺量。上面那条 chip 规则是它在 UI 层的体现,不要绕过。
+但新查出来的问题是:**`physics/` 与 `runner/` 反向 import `bench/Rubric` 里的 `FactSheet`**(`physics/Physics2DRunner.ets:3`、`physics/SpringForceRunner.ets:2`、`runner/IExperimentRunner.ets:2`),`view3d/` 反向 import `bench/Profile`(`view3d/Lathe.ets:1` 等 3 处),`scenes/` 直接 import 一张细则(`scenes/MechanicsScenes.ets:7`)。`FactSheet` 与 `Profile` 是**内核概念**,现在住在"判定层"这个目录里,于是所有下游都被迫依赖判分模块才能说一句话。这是下面 A1 的由来。
 
-## 我建议现在就改的三件事(提示词驱动)
+### 事实 3:设计令牌已经收口,深色档实测生效
 
-### 1. 设计令牌收敛,和首页布局整改合并做(2026-09-25 已做)
+`common/Theme.ets` 里**一个 hex 字面量都没有**(有断言拦),25 个令牌全是 `$r('app.color.*')`,值在 `resources/base` 与 `resources/dark` 两套同名键里;画布侧由 `view/Palette` 把同一令牌解成 hex 并缓存。9 月版列的两条剩余债务 —— "4 个页面仍有约 58 处内联断点值"、"颜色仍在 ArkTS 常量里,所以系统深色切换还没打通" —— **都已结**。
 
-做法与结果:
+同时推翻 9 月的一个判断:"深色模式经 `$r()` 资源切换与 Canvas 字符串配色的共存方式仍未验证"。现在验证了,而且**这台模拟器能验**:选中 chip 底色浅色 `#FF2C6AAE` / 深色 `#FF4E8CCB`,六屏深色截图。当时之所以得出相反结论,是因为探针测的时候 `resources/dark/` 里只有一个键、`onCreate` 还钉着 `COLOR_MODE_LIGHT` —— 把"没有可解析的深色资源"当成了"环境不支持"。
 
-- `common/Contrast.ets` 新增,实现 WCAG 相对亮度与对比度;`Theme` 加分层色板与 7 枚学科辅色,以及 `textOn(bg)`(只返回正文色或白,不引入第三种灰)。
-- `Layout` 加三条阶梯与角色字号访问器,`onLadder`/`onRadius` 把"别写魔法数"变成可断言规则。
-- `common/LibraryFeed.ets` 新增:`FeedItem` 视图模型 + 由数据推导的筛选 chip + 窄屏宽度算式。量取训练与化学实验台作为列表条目进首页,`ExperimentMeta` 与注册表不被导航语义污染。
-- 断言从 695 项经两轮涨到 877 项。三处变异检查确认断言会咬。
-- **一处我明确没照提示词做**:它要求"所有颜色走 resources Token"。颜色迁进 `resources/element/color.json` 以启用系统深色切换,依赖 `CustomTheme` 取到的值能喂给 `CanvasRenderingContext2D.fillStyle`,这条路我没在 SDK 26 上验证过。按提示词自己的护栏"不臆造鸿蒙 API",令牌先留在 ArkTS 常量,深色模式因此延后,不是取消。
+## 架构层优化点(A1–A10,按"改它的收益 / 代价"排)
 
-代价与剩余:只改了 `Index` 与 `ExperimentPage` 两页(本次布局整改必须动的两页),其余 4 页约 58 处内联断点值留作后续机械替换。
+**A1|把 `FactSheet`、`Profile` 从 `bench/` 挪进内核(高收益,低成本)**
+现状:内核(`physics/`、`runner/`)与 3D 绘制(`view3d/`)为了用一个类型,反向依赖判定层;`scenes/` 甚至直接 import 一张细则。目录级的 `runner ↔ bench` 已成环。
+改法:新建 `kernel/`(或直接用 `model/`)放事实表与剖面契约,`bench/` 反过来依赖它。改动是纯移动 + 改 import,离线断言能全程守住(转译清单要同步更新)。
+收益:判分与仿真重新变成"单向可替换";`scenes/` 不再需要知道细则存在。
 
-### 2. 应用图标与学科图标必须换成真资产
+**A2|内容从源码里搬出来(高收益,高成本)**
+`content/map` 7988 行 = 全工程 38%,21 张表 1101 条,改一条就要改代码 → 重新构建 → 重新装机。竞品靠云端题库按省/按教材版本下发。
+改法:搬到 `resources/rawfile/*.json`,配一个加载器 + 把现有 `MapValidator` 从"编译期校验"改成"启动时校验并降级"(校验逻辑已在,可复用)。
+收益:内容更新与发版解耦;这是后面所有"更新点"的放大器。
 
-`resources/base/media` 现在只有 DevEco 默认模板(`background.png`、`foreground.png`、`layered_image.json`、`startIcon.png`)。对一款要进校的产品,默认图标在采购演示时是减分项。这是提示词 §4 里唯一一条"低成本、立刻可见"的。
+**A3|页面文件继续长大会开始咬人(中收益,低成本)**
+`MeasurePage` 594 行、`ExperimentPage` 567 行、`ReportPage` 508 行、`MapPage` 487 行。单文件里同时有布局、算式、判分调用、落盘调用。
+改法:把"每页的算式与状态迁移"下沉到已有的 `common/` 纯模块(这轮 `LibraryFeed` 就是这么做的,效果是那条说谎的护栏被抓出来),页面只留渲染。不要为此拆 HAR/HSP。
 
-### 3. `@kit` 依赖清单作为架构护栏(2026-09-25 已做)
+**A4|`platform → view` 是我今天亲手引入的跨层依赖(低收益,极低成本)**
+`platform/AppearanceStore.ets:4` import `view/Palette`,目的是让切档后画布缓存一定失效。当时判断"漏调一次就是一个看不见的 bug",所以宁可跨层。
+更干净的做法:把失效挂在配置变化上(ability 的 `onConfigurationUpdate` 已经在做),`apply()` 只负责 setColorMode。留在这儿也行,但它必须在依赖图上看得见 —— 所以 DSL 里给它打了 `Risk`。
 
-"零网络零账号"是资产不是缺陷,但它会被一次 `import ... from '@kit.NetworkKit'` 悄悄推翻。已把它变成断言:`check.mjs` 扫描全部 `.ets` 的 `@kit.*` 导入集合,与白名单逐项比对,并显式断言 NetworkKit / AccountKit / DistributedDataServiceKit / CryptoArchitectureKit / RemoteCommunicationKit **未出现**。变异检查:向 `Contrast.ets` 注入一行 `@kit.NetworkKit` 导入,两条断言立即失败并指名道姓。
+**A5|设备侧探针没有版本管理(高收益,低成本)——本轮我自己造成的**
+`F:\tmp` 里那批 `verify*.mjs`(按文本定位点击、dumpLayout 断言、溢出检查、深浅色底色比对)是这一轮所有 UI 结论的证据来源,刚才按你要求清理掉了。仓库里只有 `tools/arch` 与 `tools/physics-check`,**UI 层零自动化、证据不可重跑**。
+改法:把探针收进 `tools/device/`,参数化页面名与断言,像 `gen-deps.mjs` 一样可重跑。这条应该最先做,因为后面每条 UI 优化都要靠它验收。
 
-这是提示词 §10.2 验收标准里目前唯一被自动化的那条。注意它不是永久禁令:用户已批准 AI 即时讲解联网(见 C 类第 1 条),届时应当把新 Kit 显式加进白名单,让"放宽离线"成为一次被记录的决定而不是一个顺手改动。
+**A6|离线断言只覆盖纯逻辑,UI 与真机是盲区(已知,别自欺)**
+2532 项断言全部跑在转译后的 `.cjs` 上,ArkUI 类型、渲染、手势、帧率一项都不覆盖。真机一次没跑过(#23),平板/大屏档连模拟器证据都没有。
 
-## 里程碑建议
+**A7|单 HAP 单模块 + 无网络 = 可移植性是资产也是天花板**
+只有 8 个文件碰系统能力,内核是纯 TypeScript 级别的逻辑 —— 同一套物理与判分内核理论上可以搬到 Web/其他端,这是竞品(引擎绑在各家客户端里)不具备的。反过来,没有网络就没有班级、任务、学情回流,而这三项恰是采购方要的。DSL 里 `classroom`/`account` 两个节点仍带 `Rejected` 标签:那是产品决定,不是技术债。
 
-不采纳提示词的 M1~M5(它假设从零开始)。在现有 M0~M6 上插两刀:
+**A8|配置变化与画布缓存是一条隐式契约(中收益,低成本)**
+新增一个画布组件必须记得 `Palette.bind()`,否则静默拿到透明色 —— 这轮 `MeasurePage.markColors` 在字段初值里求色就是这个坑的实锤。
+改法:加一条源码扫描断言"含 `Canvas(` 的组件必须 bind",和这轮加的"组件层禁 `Color.White`""每个子页必须刷 `Theme.BG_PAGE`"同一家族。
 
-- **M4-lite 首页整改 + 令牌收敛**(合并成一件事):布局按已批准的方案改,同时把用到的所有字面量走令牌。
-- **M6 直接操纵层**:手势输入,`Operation` 映射到 `bench/Pose`。设备已解锁,无阻塞。
-- **M7 本地持久化**:操作时序与 `ScoreCard` 落盘,报告页被真实数据驱动。这是 A 类里唯一需要新建能力的,也是"复盘"这条差异化主张的前提。
-- 品牌与图标:与上面并行,不占关键路径。
-- B 类其余项(图谱、游戏化、多端、3D)全部排在"一条闭合链路端到端可用"之后。理由:当前 4 个注册实验加 2 条实操项,没有一个被学生在设备上完整做过一次。
+**A9|3D 路线被环境锁死在自研上(中收益,需真机)**
+`view3d/` 1021 行是手写的剖面→网格→透视→着色,因为 ArkGraphics3D 在这台模拟器镜像上零输出(缺 `.spv` 与 Vulkan,实测)。真机到位之前不要引入系统 3D,否则是零反馈盲改。
 
-## 假设与待核实项
+**A10|深色档还有两个尾巴(低成本)**
+`start_window_background` 深色仍是纯黑,启动瞬间会闪;`resources/dark` 与 `base` 的键对齐有断言,但"新增令牌忘了配深色值"只在这一条上被拦,画布侧解色失败会回落透明 —— 值得再补一条"每个令牌在两套里都必须有非空值"的显式断言(现在靠键对齐间接保证)。
 
-标注"需核实"的条目我没有当作事实使用:
+## 里程碑建议(2026-10-11 重排)
 
-- ArkGraphics 3D 在 SDK 26 的可用性与 API 形态。提示词把它列为强制选型,但当前全部画面是 `CanvasRenderingContext2D` 手绘,引入 3D 是重写渲染层,不是加一个模块。
-- `@kit.SensorServiceKit` 下 vibrator 的确切模块名与权限声明。
-- **已核实并采用**:`Navigation.title()` 接受 `ResourceStr | CustomBuilder | NavigationCommonTitle | NavigationCustomTitle`(`sdk/.../component/navigation.d.ts:2324`),`menus()` 接受 `Array<NavigationMenuItem> | CustomBuilder`(`:2412`),且 `NavigationMenuItem` 只有 `value` 必填、`icon`/`action` 可选(`:281-289`)。首页因此用「字符串标题 + 纯文字菜单项」,避开 CustomBuilder 传参的 `this` 绑定不确定性。菜单项在真机上如何渲染纯文字(无图标)仍未观察。
-- 深色模式经 `$r()` 资源切换与 Canvas 字符串配色的共存方式,仍未验证。这是令牌留在 ArkTS 常量的唯一原因。
-- 提示词默认 "API 12+",实际工程是 `compatibleSdkVersion 26.0.0`。以 26 为准。
-- 深色模式经 `$r()` 资源切换与 Canvas 字符串配色的共存方式。
+1. **A5 先把探针纳管** —— 否则后面每一条 UI 优化都无法复验。
+2. **A1 内核解耦** —— 一次纯移动,趁现在只有 6 处 import。
+3. **A2 内容通道** —— 决定"这个应用能不能被持续更新"的那一步。
+4. M6 直接操纵层(#17)与 #60 余下 8 条物理场景:一个补"手感",一个补"广度",可以并行,但都排在上面三条之后 —— 理由和 9 月一样:**9 个入口没有一个被学生在真机上完整做过一次**。
+5. 真机(#23)是所有"未验证"的共同前置。
 
 ## 阅读顺序
 
-1. 先看 `Context` 视图,确认"离线"这条边界你还想不想守住。它决定 B 类一半的条目。
-2. 再看 `RuntimeComponents`,注意 `chemistry` 与 `bench` 两个簇之间没有线。
-3. 需要文件级真相时打开 `simlab-deps.dot`,50 个节点 132 条边,由脚本机械生成,可重跑。
-4. `TargetScope` 视图给需要拍板范围的人看。节点标签是 `Decided`(已批准,如 AI 讲解)、`Rejected`(已明确不做,如账号与分布式课堂)或裸 `Target`(尚未拍板),不要替读者假设它属于哪一类。
+1. 先看 `Context`,确认"离线"这条边界还想不想守住 —— 它决定 `TargetScope` 里一半节点。
+2. 再看 `RuntimeComponents`,注意三条红色 `Risk` 边(方向反了)和 `chemistry → bench` 那两条(方向对了)。
+3. 需要文件级真相时打开 `simlab-deps.dot`,重跑 `node tools/arch/gen-deps.mjs` 即可刷新。
+4. `TargetScope` 里节点标签是 `Done`/`Partial`(本轮复核过的进度)、`Decided`、`Rejected` 或裸 `Target`,不要替读者假设它属于哪一类。
 
 ## 如何预览
 

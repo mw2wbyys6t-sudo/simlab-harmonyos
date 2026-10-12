@@ -1,5 +1,5 @@
 import { ExperimentMeta } from '../model/ExperimentTypes';
-import { FactSheet } from '../bench/Rubric';
+import { FactSheet } from '../model/FactSheet';
 
 /**
  * 渲染器契约。实现者只负责「世界如何随时间演化」与「当前观测量是多少」,

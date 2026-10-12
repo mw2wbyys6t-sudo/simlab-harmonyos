@@ -42,8 +42,9 @@ export class Palette {
       return hit;
     }
     if (Palette.context === undefined) {
-      // 还没绑上下文:画布尚未首帧,给个不会看错的占位,bind 之后下一帧就被真值覆盖
-      return '#00000000';
+      // 品红而不是透明:没绑定解析器是一件编程错误,透明会让它静默成"看不见的小 bug"。
+      // 这一轮就踩过一次(量取页三条判读线整排透明,不报错、不崩溃)。
+      return '#FF00FF';
     }
     const argb = Palette.context.resourceManager.getColorSync(res);
     const value = '#' + (argb >>> 0).toString(16).padStart(8, '0').slice(2);

@@ -1,4 +1,4 @@
-import { GlassShapes } from '../bench/GlassShapes';
+import { GlassShapes } from '../geometry/GlassShapes';
 import { VesselKind } from '../chemistry/BenchModel';
 import { LathePainter, LatheSpec } from './LathePainter';
 

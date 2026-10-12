@@ -1,4 +1,4 @@
-import { Profile } from '../bench/Profile';
+import { Profile } from '../geometry/Profile';
 import { Camera, Ring } from './Camera';
 import { Lathe, Shading } from './Lathe';
 import { TiltedPlane } from './TiltedPlane';
