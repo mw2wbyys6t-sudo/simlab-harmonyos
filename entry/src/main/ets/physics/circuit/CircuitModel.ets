@@ -17,6 +17,12 @@ export const VOLTMETER_R: number = 1e7;
 const SWITCH_CLOSED_R: number = 1e-4;
 /** 断开开关的等效绝缘电阻 */
 const SWITCH_OPEN_R: number = 1e9;
+/**
+ * 电阻类元件的下限,与电流表内阻同量级、理由同一条:0 Ω 在求解器里不是"一根导线",
+ * 而是"这道题被删掉"—— 装矩阵按 1/R 取电导,遇到 0 只能跳过该元件,
+ * 而跳过串联元件等于剪断那段导线:滑片滑到最小处的变阻器会把它自己变成断路。
+ */
+const WIRE_R: number = 1e-4;
 
 export class Component {
   id: string = '';
@@ -48,7 +54,7 @@ export class Component {
       case ComponentKind.RESISTOR:
       case ComponentKind.RHEOSTAT:
       case ComponentKind.LAMP:
-        return value;
+        return value < WIRE_R ? WIRE_R : value;
       case ComponentKind.AMMETER:
         return AMMETER_R;
       case ComponentKind.VOLTMETER:

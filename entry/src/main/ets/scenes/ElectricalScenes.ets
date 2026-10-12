@@ -1,5 +1,6 @@
 import { ExperimentMeta, RendererKind, Subject } from '../model/ExperimentTypes';
 import { CircuitRunner } from '../physics/circuit/CircuitRunner';
+import { OhmRunner } from '../physics/circuit/OhmRunner';
 import { CircuitSpec, Component, ComponentKind, WirePath } from '../physics/circuit/CircuitModel';
 import { ExperimentRegistry } from '../runner/ExperimentRegistry';
 import { SceneBuilders } from './SceneBuilders';
@@ -26,6 +27,80 @@ export class ElectricalScenes {
       (): CircuitRunner => new CircuitRunner(ElectricalScenes.kirchhoffCircuit()));
     ExperimentRegistry.register(ElectricalScenes.maxPowerMeta(),
       (): CircuitRunner => new CircuitRunner(ElectricalScenes.maxPowerCircuit()));
+    ExperimentRegistry.register(ElectricalScenes.ohmMeta(),
+      (): OhmRunner => new OhmRunner(ElectricalScenes.ohmCircuit()));
+  }
+
+  /**
+   * 探究电流与电压、电阻的关系(地图条目 `phy-jr-017`,限流接法)。
+   *
+   * 滑动变阻器在这里不是摆设:它的用途是**改电压**,以及**换电阻之后把电压调回同一档** ——
+   * 而这两件事正是这个实验要判的动作。电路本身与最大功率那页共用同一套 MNA。
+   */
+  private static ohmCircuit(): CircuitSpec {
+    const spec = new CircuitSpec();
+    const left = 1.6;
+    const right = 7.4;
+    const top = 4.2;
+    const bottom = 1.2;
+
+    ElectricalScenes.place(spec.add(ComponentKind.SOURCE, 'src', '电源 E', 1, 0, 3, 'emf'),
+      left, 3.4, left, 2.4, 0, 0);
+    ElectricalScenes.place(spec.add(ComponentKind.RHEOSTAT, 'slide', 'R′', 2, 1, 20, 'slide'),
+      3.4, top, 2.4, top, 0, 0);
+    ElectricalScenes.place(spec.add(ComponentKind.AMMETER, 'a1', 'A', 2, 3, 0, ''),
+      4.4, top, 5.4, top, 0, 0);
+    ElectricalScenes.place(spec.add(ComponentKind.RESISTOR, 'rx', 'R', 3, 0, 5, 'fixed'),
+      right, 3.2, right, 2.2, 0, 0);
+    ElectricalScenes.place(spec.add(ComponentKind.VOLTMETER, 'v1', 'V', 3, 0, 0, ''),
+      8.7, 3.2, 8.7, 2.2, 0, 0);
+
+    spec.wire(ElectricalScenes.poly([[left, 2.4], [left, bottom]]));
+    spec.wire(ElectricalScenes.poly([[left, bottom], [right, bottom]]));
+    spec.wire(ElectricalScenes.poly([[right, bottom], [right, 2.2]]));
+    spec.wire(ElectricalScenes.poly([[left, 3.4], [left, top]]));
+    spec.wire(ElectricalScenes.poly([[left, top], [2.4, top]]));
+    spec.wire(ElectricalScenes.poly([[3.4, top], [4.4, top]]));
+    spec.wire(ElectricalScenes.poly([[5.4, top], [right, top]]));
+    spec.wire(ElectricalScenes.poly([[right, top], [right, 3.2]]));
+    spec.wire(ElectricalScenes.poly([[8.7, 3.2], [right, 3.2]]));
+    spec.wire(ElectricalScenes.poly([[8.7, 2.2], [right, 2.2]]));
+    return spec;
+  }
+
+  private static ohmMeta(): ExperimentMeta {
+    const meta = new ExperimentMeta();
+    meta.id = 'ohm-law';
+    meta.title = '探究电流与电压、电阻的关系';
+    meta.subject = Subject.PHYSICS_ELECTRICAL;
+    meta.renderer = RendererKind.PHYSICS_2D;
+    meta.summary = '先保持定值电阻不变、用滑动变阻器改它两端电压；再换电阻、把电压调回同一档比较。';
+    meta.gradeBand = '初中物理 · 九年级';
+    meta.durationMinutes = 45;
+    // 电压表画在 x=8.7 且读数往圆外侧印,世界宽要留出这一格
+    meta.worldWidth = 10.6;
+    meta.worldHeight = WORLD_H;
+    meta.params.push(SceneBuilders.param('emf', '电源电动势 E', 'V', 1.5, 6, 0.5, 3, '电源'));
+    meta.params.push(SceneBuilders.param('slide', '滑动变阻器 R′', 'Ω', 0, 20, 0.5, 20, '控制'));
+    meta.params.push(SceneBuilders.param('fixed', '定值电阻 R', 'Ω', 5, 20, 5, 5, '控制'));
+    meta.actions.push(SceneBuilders.action('fixed+', '换大一档电阻', '定值电阻'));
+    meta.actions.push(SceneBuilders.action('fixed-', '换小一档电阻', '定值电阻'));
+    meta.actions.push(SceneBuilders.action('record', '记录这一组 U 和 I', '记录'));
+    meta.observables.push(SceneBuilders.observable('U:rx', '定值电阻两端电压 U', 'V', 3, true));
+    meta.observables.push(SceneBuilders.observable('I:rx', '通过定值电阻的电流 I', 'A', 4, true));
+    meta.observables.push(SceneBuilders.observable('ohmRecordCount', '已记录组数', '组', 0, false));
+    meta.observables.push(SceneBuilders.observable('ohmMaxPointsAtOneR', '同一电阻下的电压档数', '档', 0, false));
+    meta.observables.push(SceneBuilders.observable('ohmResistances', '测过的电阻种数', '种', 0, false));
+    meta.observables.push(SceneBuilders.observable('ohmSharedVoltages', '同电压可比较的档数', '档', 0, false));
+    meta.charts.push(SceneBuilders.xyChart('I–U 图（应为过原点的直线）', 'U:rx', 'U', 'V', 'I', 'A', [
+      SceneBuilders.trace('I:rx', 'I', SceneBuilders.palette(0))
+    ]));
+    meta.tasks.push(SceneBuilders.task('ohm-ratio',
+      '保持电阻不变，算一算每组的 U/I，说明它们为什么应当相等。', Number.NaN, 0));
+    meta.tasks.push(SceneBuilders.task('ohm-hold-voltage',
+      '换电阻之后要把电压调回同一档，写清这一步在操作上是怎么做的。', Number.NaN, 0));
+    meta.rubricId = 'ohm-law-rubric';
+    return meta;
   }
 
   private static place(item: Component, ax: number, ay: number, bx: number, by: number,
@@ -239,7 +314,7 @@ export class ElectricalScenes {
     meta.tasks.push(SceneBuilders.task('efficiency-at-peak',
       '在最大功率点算电源效率 η = P_L / P，并说明为什么把 RL 再调大反而更省电却损失功率。', 0.5, 0.02));
     meta.tasks.push(SceneBuilders.task('power-vs-efficiency',
-      '举一个电力工程按「高效率」设计、一个信号工程按「匹配负载」设计的例子，说明判据为什么相反。',
+      '举一个电力工程按「高效率」设计、一个信号工程按「匹配负载」设计的例子，说明这两种追求为什么相反。',
       Number.NaN, 0));
     return meta;
   }

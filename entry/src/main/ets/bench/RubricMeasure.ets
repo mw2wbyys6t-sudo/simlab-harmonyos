@@ -3,6 +3,7 @@ import { FactSheet } from '../model/FactSheet';
 import { CriterionBuilder, CriterionOp, Rubric } from './Rubric';
 import { RubricBrine } from './RubricBrine';
 import { RubricSpring } from './RubricSpring';
+import { RubricOhm } from './RubricOhm';
 
 /**
  * 量取参考细则。
@@ -96,6 +97,9 @@ export class Rubrics {
     }
     if (id === RubricSpring.ID) {
       return RubricSpring.create();
+    }
+    if (id === RubricOhm.ID) {
+      return RubricOhm.create();
     }
     return null;
   }

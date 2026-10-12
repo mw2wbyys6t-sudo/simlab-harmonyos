@@ -69,6 +69,7 @@ const MODULES = [
   'bench/Rubric',
   'bench/Judgment',
   'bench/RubricSpring',
+  'bench/RubricOhm',
   'bench/RubricBrine',
   'bench/RubricMeasure',
   'bench/MeasureVerdict',
@@ -96,6 +97,7 @@ const MODULES = [
   'physics/MnaSolver',
   'physics/circuit/CircuitModel',
   'physics/circuit/CircuitRunner',
+  'physics/circuit/OhmRunner',
   'physics/SpringMassRunner',
   'physics/InclineRunner',
   'runner/IExperimentRunner',
@@ -607,12 +609,64 @@ function checkRel(label, actual, expected, relTolerance) {
       left >= 0 && left + 1.0 <= meta.worldWidth,
       `占 ${left.toFixed(2)}..${(left + 1.0).toFixed(2)},世界宽 ${meta.worldWidth},锚点 ${l.align}`);
   }
-  // 「电源」以前用 -0.62 目测偏移,半个词压在长极板(从轴向伸到 ±0.42)上
-  const sourceTag = labels.filter((l) => l.text.indexOf('电源') === 0);
-  assertTrue('电源标签落在极板外侧',
-    sourceTag.length === 1 && Math.abs(sourceTag[0].x - 1.3) > 0.5 && sourceTag[0].align === 'center',
-    sourceTag.length === 0 ? '没有电源标签'
-      : `x=${sourceTag[0].x.toFixed(2)} align=${sourceTag[0].align}`);
+}
+
+// ---- 元件代号不许印在自己身上 --------------------------------------------
+// 两处真实压字:① 代号不分横竖一律往上抬 0.42 米,竖放的元件(串联页 R₂、本场景的 R 与 V)
+// 那一抬正好抬进自己的符号里;②「电源 E」按 center 摆在轴线外 0.56 米,一行字约 1.7 米宽,
+// 于是有一半压回从轴线伸到 ±0.4 米的长极板上。
+// 判据按**符号自身的形状**算:电阻/变阻器/灯泡是转过的矩形,电表是圆 ——
+// 只要求"同名文字里有一条落在形状外",因为 A/V 把字母印在圆圈里是刻意的。
+{
+  const CIRCUITS = ['series-circuit', 'parallel-circuit', 'kirchhoff', 'max-power', 'ohm-law'];
+  const BOXED = [ComponentKind.RESISTOR, ComponentKind.RHEOSTAT, ComponentKind.LAMP];
+  const METERS = [ComponentKind.AMMETER, ComponentKind.VOLTMETER];
+  const SYMBOL_HALF = 0.42;
+  const SYMBOL_THICK = 0.26;
+  const METER_R = 0.26;
+  const OUTSIDE = 0.06;
+  for (const id of CIRCUITS) {
+    const runner = electrical(id, {});
+    const snap = runner.snapshot();
+    const named = runner.spec.components.filter((c) => c.label.length > 0
+      && (BOXED.indexOf(c.kind) >= 0 || METERS.indexOf(c.kind) >= 0 || c.kind === ComponentKind.SOURCE));
+    assertTrue(`${id} 的元件都带代号`, named.length >= 3, `只收到 ${named.length} 个`);
+    for (const item of named) {
+      const cx = (item.ax + item.bx) / 2 + item.offsetX;
+      const cy = (item.ay + item.by) / 2 + item.offsetY;
+      const dx = item.bx - item.ax;
+      const dy = item.by - item.ay;
+      const long = Math.sqrt(dx * dx + dy * dy);
+      const ux = long < 1e-6 ? 1 : dx / long;
+      const uy = long < 1e-6 ? 0 : dy / long;
+      // 符号的长轴与短轴:矩形沿轴向那半宽是 SYMBOL_HALF,横向那半宽是 SYMBOL_THICK/2
+      const halfAlong = item.kind === ComponentKind.SOURCE ? 0.4
+        : (BOXED.indexOf(item.kind) >= 0 ? SYMBOL_HALF : METER_R);
+      const halfAcross = item.kind === ComponentKind.SOURCE ? 0.4
+        : (BOXED.indexOf(item.kind) >= 0 ? SYMBOL_THICK / 2 : METER_R);
+      let clear = false;
+      let tag = null;
+      for (const l of snap.labels.filter((s) => s.text === item.label)) {
+        const vx = l.x - cx;
+        const vy = l.y - cy;
+        const along = Math.abs(vx * ux + vy * uy);
+        const across = Math.abs(vx * uy - vy * ux);
+        if (along > halfAlong + OUTSIDE || across > halfAcross + OUTSIDE) {
+          clear = true;
+          tag = l;
+        }
+      }
+      assertTrue(`${id} 的「${item.label}」代号不在自身符号上`, clear,
+        `符号半长 ${halfAlong}/${halfAcross},同名文字 ${snap.labels
+          .filter((s) => s.text === item.label).map((s) => `(${s.x.toFixed(2)},${s.y.toFixed(2)})`).join(' ')}`);
+      if (item.kind === ComponentKind.SOURCE) {
+        // 极板从轴线伸到 ±0.4 米:代号要落在板外,还要朝外起排
+        const away = tag !== null && tag.align === (tag.x > cx ? 'left' : 'right');
+        assertTrue(`${id} 的电源代号朝极板外起排`, away,
+          `锚点 ${tag === null ? '无' : `${tag.x.toFixed(2)}/${tag.align}`}`);
+      }
+    }
+  }
 }
 
 // ---- 屏幕上的词:内部术语不许进学生可见文案(④ 内部语言外译) ----------------
@@ -622,9 +676,6 @@ function checkRel(label, actual, expected, relTolerance) {
   // 词表住在 tools/visible-copy-blocklist.mjs,设备巡检用的是同一份
   const BLOCKED = BLOCKED_TERMS;
 
-  const { RubricSpring } = require(join(OUT, 'bench/RubricSpring.cjs'));
-  const { RubricMeasure } = require(join(OUT, 'bench/RubricMeasure.cjs'));
-  const { RubricBrine } = require(join(OUT, 'bench/RubricBrine.cjs'));
   const visible = [];
   const push = (where, text) => {
     if (typeof text === 'string' && text.length > 0) visible.push([where, text]);
@@ -638,8 +689,32 @@ function checkRel(label, actual, expected, relTolerance) {
     for (const o of meta.observables) push(`${meta.id} 读数`, o.label);
     for (const c of meta.charts) push(`${meta.id} 图线`, c.title);
     for (const a of meta.actions) push(`${meta.id} 动作`, a.label);
+    // 任务正文是打印在实验页上的,以前这一栏压根没进清单:新场景写错标点没人拦
+    for (const t of meta.tasks) push(`${meta.id} 任务`, t.prompt);
   }
-  for (const rubric of [RubricBrine.create(), RubricMeasure.create(), RubricSpring.create()]) {
+  // 细则清单由注册表自己长出来:每个场景声明的 rubricId 顺着索引取回细则。
+  // 手写四份的写法在加实验时必然漏掉新细则 —— 新细则的标点就是这样漏检过一次
+  const { Rubrics } = require(join(OUT, 'bench/RubricMeasure.cjs'));
+  const rubrics = [];
+  const seenRubric = [];
+  const unresolved = [];
+  for (const meta of ExperimentRegistry.all()) {
+    if (meta.rubricId.length === 0) {
+      continue;
+    }
+    const found = Rubrics.byId(meta.rubricId);
+    if (found === null) {
+      unresolved.push(`${meta.id}→${meta.rubricId}`);
+      continue;
+    }
+    if (seenRubric.indexOf(found.id) < 0) {
+      seenRubric.push(found.id);
+      rubrics.push(found);
+    }
+  }
+  assertTrue('场景声明的细则都能被索引认出', unresolved.length === 0, unresolved.join(','));
+  assertTrue('收进清单的细则不止一份', rubrics.length > 1, `${rubrics.length} 份`);
+  for (const rubric of rubrics) {
     push(`${rubric.id} 名称`, rubric.label);
     push(`${rubric.id} 来源`, rubric.source);
     push(`${rubric.id} 版本`, rubric.version);
@@ -4750,8 +4825,8 @@ function checkRel(label, actual, expected, relTolerance) {
   check('其中高中', rows.filter((e) => e.stage === SchoolStage.SENIOR).length, 22, 0);
   // 这一档的 RUNNABLE 是拿去和注册表对账的,多一条就是虚报
   const shippedHere = rows.filter((e) => e.feasibility === Feasibility.RUNNABLE).map((e) => e.id).sort();
-  assertTrue('中学表里 RUNNABLE 正好是注册表真装着的五条',
-    shippedHere.join(',') === ['phy-jr-001', 'phy-jr-002', 'phy-sr-001', 'phy-sr-002', 'phy-sr-004'].join(','),
+  assertTrue('中学表里 RUNNABLE 正好是注册表真装着的那六条',
+    shippedHere.join(',') === ['phy-jr-001', 'phy-jr-002', 'phy-jr-017', 'phy-sr-001', 'phy-sr-002', 'phy-sr-004'].join(','),
     shippedHere.join(','));
   // 出处:代理取到了湖南省教育厅《初中必做实验目录(2023版)》与教育部《中小学实验教学基本目录》
   // 两份政府发布页原文。这条断言把"已核实"钉在一个数上 —— 往下掉说明有人把出处改浅了。
@@ -4937,7 +5012,7 @@ function checkRel(label, actual, expected, relTolerance) {
   // 现有场景确实给得出这条曲线,所以两门课今天都能开这一个实验。但记账要说明白,
   // 否则"完成度"会被一次实现记两次功劳。
   const SHIPPED_RUNNABLE = ['chem-u-004', 'ele-u-003', 'ele-u-007', 'phy-jr-001', 'phy-jr-002',
-    'phy-sr-001', 'phy-sr-002', 'phy-sr-004', 'phy-u-014'];
+    'phy-jr-017', 'phy-sr-001', 'phy-sr-002', 'phy-sr-004', 'phy-u-014'];
   const runnableIds = runnable.map((e) => e.id).sort();
   assertTrue('地图自称可打开的条目必须等于应用真装了的实验',
     runnableIds.join(',') === SHIPPED_RUNNABLE.join(','),
@@ -4948,25 +5023,25 @@ function checkRel(label, actual, expected, relTolerance) {
   const BASIS = {
     'phy-jr-001': 'series-circuit', 'phy-jr-002': 'parallel-circuit',
     'phy-sr-001': 'incline-block', 'phy-sr-002': 'spring-mass', 'ele-u-003': 'kirchhoff',
-    'ele-u-007': 'max-power', 'phy-sr-004': 'spring-force'
+    'ele-u-007': 'max-power', 'phy-sr-004': 'spring-force', 'phy-jr-017': 'ohm-law'
   };
   const lostBasis = Object.keys(BASIS)
     .filter((mapId) => registered.indexOf(BASIS[mapId]) < 0)
     .map((mapId) => `${mapId} 声称可打开,但注册表里没有 ${BASIS[mapId]}`);
   assertTrue('每条按注册表登记的 RUNNABLE 都指得到一个真注册了的场景', lostBasis.length === 0,
     lostBasis.join(' | '));
-  check('注册表里的场景数', registered.length, 7, 0);
+  check('注册表里的场景数', registered.length, 8, 0);
   assertTrue('生物学科现在一条可打开的都没有(与地图自己的判断一致)',
     CurriculumIndex.experimentsOf(MapSubject.BIOLOGY)
       .every((e) => e.feasibility !== Feasibility.RUNNABLE), '生物出现了 RUNNABLE 条目');
   // 「待补场景」这一档是为电子那 8 条而加的(引擎够、场景没有)。
   // 一条新枚举值若没有数据在用,它就是死代码 —— 这条断言同时守住"最低成本的施工面"别被误降级。
-  // 电子 6 + 中学物理 8 + 中学化学 11 = 25 条最低成本的施工面。
-  // (中学物理原有 9 条,phy-sr-004 已做成场景 spring-force 并配细则,减一条;
+  // 电子 6 + 中学物理 7 + 中学化学 11 = 24 条最低成本的施工面。
+  // (中学物理原有 9 条,phy-sr-004 做成 spring-force、phy-jr-017 做成 ohm-law,各减一条;
   //  电子原有 8 条,已做成场景的 ele-u-003 与 ele-u-007 各减一条;中学化学那 11 条
   //  是"台架能拖出反应但没有细则",见 #54)
   check('待补场景的实验条数(引擎够用,只差场景与细则)',
-    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 25, 0);
+    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 24, 0);
 
   let periodSum = 0;
   for (let p = 1; p <= 7; p++) {
@@ -5514,6 +5589,152 @@ function checkRel(label, actual, expected, relTolerance) {
     '缺文件:跑一次 node tools/arch/gen-content.mjs');
   if (existsSync(shipped)) {
     checkText('rawfile 默认值与内置表逐字节相同', readFileSync(shipped, 'utf8').trim(), json);
+  }
+}
+
+
+// ---- L3 示踪弹 2:探究电流与电压、电阻的关系(phy-jr-017 / ohm-law)--------
+// 这个实验的分不在"算对 I=U/R"(电路是求解器算的,学生算不错),而在**控制变量有没有真做**。
+// 所以这一节判的是:同一电阻下取过几档**互不相同**的电压、换没换过电阻、
+// 换完之后有没有把电压调回同一档、以及第一组读数时滑片在不在最大处。
+// 细则必须"能被满足",也要每条都能被触发。
+{
+  const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
+  const { Rubrics } = require(join(OUT, 'bench/RubricMeasure.cjs'));
+  const { RubricOhm } = require(join(OUT, 'bench/RubricOhm.cjs'));
+  const { Judgment } = require(join(OUT, 'bench/Judgment.cjs'));
+  const { FactLabels } = require(join(OUT, 'model/FactLabels.cjs'));
+  const { SessionRecord, fact } = require(join(OUT, 'model/SessionRecord.cjs'));
+  const { FactSheet } = require(join(OUT, 'model/FactSheet.cjs'));
+
+  const meta = ExperimentRegistry.find('ohm-law').meta;
+  checkText('地图条目 phy-jr-017 配的场景 id', meta.id, 'ohm-law');
+  assertTrue('细则能被索引解析到', Rubrics.byId(meta.rubricId) !== null, meta.rubricId);
+
+  /** 一个空电路:参数按元数据默认值,滑片在最大处 */
+  function fresh() {
+    const runner = ExperimentRegistry.createRunner('ohm-law');
+    runner.setup(meta);
+    runner.reset();
+    runner.setParam('emf', 3);
+    runner.setParam('fixed', 5);
+    runner.setParam('slide', 20);
+    return runner;
+  }
+
+  // 1. 电路本身:欧姆定律必须在读数里成立,不然判"控制变量"没有意义
+  {
+    const r = fresh();
+    r.step(1 / 60);
+    const u = r.readObservable('U:rx');
+    const i = r.readObservable('I:rx');
+    checkRel('U/I 等于定值电阻阻值', u / i, 5, 1e-6);
+    r.setParam('slide', 0);
+    r.step(1 / 60);
+    // 差值来自导线级下限电阻(变阻器与电流表各 1e-4 Ω),不是 0 Ω 被当成断路
+    assertTrue('滑片滑到最小处时电压升到电源电动势', Math.abs(r.readObservable('U:rx') - 3) < 1e-3,
+      String(r.readObservable('U:rx')));
+    const atZero = r.readObservable('I:rx');
+    assertTrue('滑片滑到最小处时回路仍在走电流', atZero > 0.5, String(atZero));
+    r.setParam('fixed', 20);
+    r.step(1 / 60);
+    // 跟同一滑片位置下的电流比:换大电阻才应当变小,跟滑片还在最大处时比则不成立
+    assertTrue('滑片不动、换大电阻后电流变小', r.readObservable('I:rx') < atZero,
+      String(r.readObservable('I:rx')));
+    checkRel('换电阻后 U/I 仍等于新阻值', r.readObservable('U:rx') / r.readObservable('I:rx'), 20, 1e-6);
+  }
+
+  /** 按一份"操作脚本"跑一遍,返回判分结果 */
+  function scoreOf(steps) {
+    const r = fresh();
+    for (const [key, value] of steps) {
+      if (key === 'act') {
+        r.doAction(value);
+      } else {
+        r.setParam(key, value);
+      }
+      r.step(1 / 60);
+    }
+    const sheet = new FactSheet();
+    r.collectFacts(sheet);
+    const card = Judgment.score(RubricOhm.create(), sheet);
+    return { card: card, sheet: sheet };
+  }
+
+  const DILIGENT = [
+    ['slide', 20], ['act', 'record'],
+    ['slide', 5], ['act', 'record'],
+    ['slide', 0], ['act', 'record'],
+    ['act', 'fixed+'],
+    ['slide', 10], ['act', 'record']
+  ];
+  const diligent = scoreOf(DILIGENT);
+  // 认真做满:三档电压 + 换过电阻 + 换完把电压调回 1.5 V 那一档 → 一分不该扣
+  check('认真做完不扣分', diligent.card.awarded, 100, 1e-9);
+  check('扣分条数为 0', diligent.card.deductions.length, 0, 1e-12);
+  check('同一电阻下最多三档', diligent.sheet.num('ohmMaxPointsAtOneR'), 3, 1e-12);
+  check('测过两种电阻', diligent.sheet.num('ohmResistances'), 2, 1e-12);
+  check('同电压可比较的档数至少一格', diligent.sheet.num('ohmSharedVoltages') >= 1 ? 1 : 0, 1, 1e-12);
+  check('第一组读数时滑片在最大处', diligent.sheet.num('ohmFirstSlide'), 20, 1e-12);
+
+  // 档数按"互不相同"计而不是按按钮次数计:停在同一个滑片位置连按三次,
+  // I-U 图上仍然只有一个点。这条是上一条断言的反面 —— 改成数条数它就红。
+  const spam = scoreOf([['slide', 20], ['act', 'record'], ['act', 'record'], ['act', 'record']]);
+  check('连按三次记录仍只算一档', spam.sheet.num('ohmMaxPointsAtOneR'), 1, 1e-12);
+  assertTrue('只刷按钮要被判为档数太少',
+    spam.card.deductions.some((d) => d.criterionId === 'ohm-few-voltage-steps'),
+    '得分 ' + spam.card.awarded);
+
+  // 2. 每条判据都要能被触发(写出来却永远不红的判据就是死代码)
+  const FIRES = [
+    ['ohm-no-record', [['slide', 20]]],
+    ['ohm-few-voltage-steps', [['slide', 20], ['act', 'record'], ['slide', 5], ['act', 'record']]],
+    ['ohm-single-resistance', [['slide', 20], ['act', 'record'], ['slide', 5], ['act', 'record'],
+      ['slide', 0], ['act', 'record']]],
+    // 换过电阻但每档电压都错开:唯一该扣的是"没把电压调回同一档"
+    ['ohm-no-held-voltage', [['slide', 20], ['act', 'record'], ['slide', 5], ['act', 'record'],
+      ['slide', 0], ['act', 'record'], ['act', 'fixed+'], ['slide', 15], ['act', 'record']]],
+    // 一上来就把滑片推到底再读第一组:其余动作都做全,只留这一处不规范
+    ['ohm-slide-not-max', [['slide', 0], ['act', 'record'], ['slide', 5], ['act', 'record'],
+      ['slide', 10], ['act', 'record'], ['act', 'fixed+'], ['slide', 10], ['act', 'record']]]
+  ];
+  for (const [criterionId, steps] of FIRES) {
+    const out = scoreOf(steps);
+    const hit = out.card.deductions.filter((d) => d.criterionId === criterionId);
+    assertTrue('判据 ' + criterionId + ' 能被触发', hit.length === 1,
+      '扣分项:' + out.card.deductions.map((d) => d.criterionId).join(',') + ' / 得分 ' + out.card.awarded);
+    assertTrue('判据 ' + criterionId + ' 的证据里带上了当时的数',
+      /\d/.test(hit.length > 0 ? hit[0].evidence : ''), hit.length > 0 ? hit[0].evidence : '');
+  }
+
+  // 一组都没记时,「滑片在第一组读数时的位置」压根没量过 —— 不进事实清单,
+  // 报告里也就不会冒出一句「读数时滑片停在 0 Ω」
+  {
+    const blank = scoreOf([['slide', 5]]);
+    assertTrue('没记录时不编出滑片读数', !Number.isFinite(blank.sheet.num('ohmFirstSlide')),
+      String(blank.sheet.num('ohmFirstSlide')));
+    assertTrue('没记录时不因滑片位置扣分',
+      !blank.card.deductions.some((d) => d.criterionId === 'ohm-slide-not-max'),
+      blank.card.deductions.map((d) => d.criterionId).join(','));
+    checkText('没量过的事实印成破折号', FactLabels.valueText('ohmFirstSlide', Number.NaN), '—');
+  }
+
+  // 3. 判分走的是记录回放:事实键全都有人话标签,带单位的按单位印
+  {
+    const record = new SessionRecord();
+    record.rubricId = RubricOhm.ID;
+    record.facts = [
+      fact('ohmRecordCount', 4),
+      fact('ohmMaxPointsAtOneR', 3),
+      fact('ohmResistances', 2),
+      fact('ohmSharedVoltages', 1),
+      fact('ohmFirstSlide', 5)
+    ];
+    const replayed = Rubrics.factsFor(record);
+    check('回放保留记录条数', replayed.num('ohmRecordCount'), 4, 1e-12);
+    const labeled = record.facts.every((f) => FactLabels.of(f.key) !== null);
+    assertTrue('每个事实键都有显示名', labeled, record.facts.map((f) => f.key).join(','));
+    checkText('滑片位置带欧姆单位', FactLabels.valueText('ohmFirstSlide', 5), '5 Ω');
   }
 }
 

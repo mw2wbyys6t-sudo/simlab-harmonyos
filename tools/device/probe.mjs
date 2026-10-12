@@ -15,6 +15,8 @@
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, mkdirSync, rmSync, copyFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const DEFAULT_HDC = 'F:/DevEco/DevEco Studio/sdk/default/openharmony/toolchains/hdc.exe';
 const BUNDLE = 'com.simlab.edu';
@@ -66,25 +68,42 @@ export class Probe {
   }
 
   launch() {
+    // 模拟器的屏幕会自己睡。锁屏状态下 `aa start` 报 10106102 而旧代码不看返回值,
+    // 于是"dumpLayout 里没有这个节点"其实是在测桌面 —— 先唤醒,再要求真的拉起来了
+    this.shell('power-shell wakeup');
+    this.sleep(800);
     this.shell(`aa force-stop ${BUNDLE}`);
     this.sleep(1000);
-    this.shell(`aa start -a ${ABILITY} -b ${BUNDLE}`);
+    const out = this.shell(`aa start -a ${ABILITY} -b ${BUNDLE}`);
+    if (!out.includes('successfully')) {
+      throw new Error(`应用没被拉起来,后面测的都是桌面:\n${out.trim()}`);
+    }
     this.sleep(3500);
   }
 
   dumpNodes() {
     const remote = `/data/local/tmp/${this.tag}.json`;
-    this.shell(`uitest dumpLayout -p ${remote}`);
-    // recv 的目标按 hdc 进程 cwd 解析,所以给相对文件名,再按同一个 cwd 读回来
-    this.shellExec(['file', 'recv', remote, `${this.tag}-dump.json`]);
-    const tree = JSON.parse(readFileSync(`${this.tag}-dump.json`, 'utf8'));
-    const list = [];
-    (function w(n) {
-      if (!n) return;
-      if (n.attributes) list.push(n.attributes);
-      (n.children || []).forEach(w);
-    })(tree);
-    return list;
+    const local = join(tmpdir(), `simlab-${this.tag}-dump.json`);
+    // 先删掉设备上那份:dumpLayout 失败时它留的是**上一次的布局**,
+    // 直接读回来会把过期快照当现状 —— 那是最坏的一种假绿
+    this.shell(`rm -f ${remote}`);
+    const dumped = this.shell(`uitest dumpLayout -p ${remote}`);
+    if (!dumped.includes('DumpLayout saved')) {
+      throw new Error(`dumpLayout 没成功,拿不到当前布局:\n${dumped.trim()}`);
+    }
+    try {
+      this.shellExec(['file', 'recv', remote, local]);
+      const tree = JSON.parse(readFileSync(local, 'utf8'));
+      const list = [];
+      (function w(n) {
+        if (!n) return;
+        if (n.attributes) list.push(n.attributes);
+        (n.children || []).forEach(w);
+      })(tree);
+      return list;
+    } finally {
+      rmSync(local, { force: true });
+    }
   }
 
   /** 视口右边界(取根节点宽度),用于"有没有被裁掉"的判定 */
@@ -155,10 +174,16 @@ export class Probe {
     this.sleep(900);
   }
 
-  /** 回到列表顶部:滚动位置会留着,不滚回去就"找不到"第一张卡(实测踩过) */
+  /**
+   * 回到滚动区顶部:滚动位置会留着,不滚回去就"找不到"第一张卡(实测踩过)。
+   *
+   * 起讫点都取在屏幕下半部:实验页上半是固定的画布与控制行,手势从 y=700 起
+   * 落在画布上,于是"回顶"对实验页完全没作用(实测滚了四次位置纹丝不动)。
+   */
   scrollToTop() {
-    this.swipe(628, 700, 628, 2100);
-    this.swipe(628, 700, 628, 2100);
+    for (let i = 0; i < 4; i++) {
+      this.swipe(628, 1600, 628, 2400);
+    }
   }
 
   back(wait) {

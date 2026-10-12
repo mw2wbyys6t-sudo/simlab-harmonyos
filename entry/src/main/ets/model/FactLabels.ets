@@ -60,6 +60,12 @@ export class FactLabels {
     table.set('beyondLimit', new FactLabel('是否超过弹性限度', '', true));
     table.set('unloadSteps', new FactLabel('卸载步数', ' 次'));
     table.set('residual', new FactLabel('撤去载荷后的残余形变', ' m'));
+    // 探究电流与电压、电阻的关系:判的全是学生自己按出来的动作留下的后果
+    table.set('ohmRecordCount', new FactLabel('已记录组数', ' 组'));
+    table.set('ohmMaxPointsAtOneR', new FactLabel('同一电阻下的电压档数', ' 档'));
+    table.set('ohmResistances', new FactLabel('测过的电阻种数', ' 种'));
+    table.set('ohmSharedVoltages', new FactLabel('同电压可比较的档数', ' 档'));
+    table.set('ohmFirstSlide', new FactLabel('第一组读数时滑片位置', ' Ω'));
     return table;
   }
 

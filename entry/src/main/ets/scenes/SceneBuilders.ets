@@ -42,7 +42,8 @@ export class SceneBuilders {
     return def;
   }
 
-  static task(key: string, prompt: string, expected: number, tolerance: number): TaskDef {    const task = new TaskDef();
+  static task(key: string, prompt: string, expected: number, tolerance: number): TaskDef {
+    const task = new TaskDef();
     task.key = key;
     task.prompt = prompt;
     task.expected = expected;

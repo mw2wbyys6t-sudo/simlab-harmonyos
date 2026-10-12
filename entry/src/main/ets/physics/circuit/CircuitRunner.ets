@@ -408,11 +408,30 @@ export class CircuitRunner extends Physics2DRunner {
     }
 
     if (item.kind !== ComponentKind.SWITCH && item.kind !== ComponentKind.SOURCE) {
-      this.nameTag(item, this.midX(item), this.midY(item) + SYMBOL_THICK + 0.16, 'center');
+      this.nameTagBeside(item);
       this.currentArrow(item);
     } else if (item.kind === ComponentKind.SOURCE) {
       this.sourceTag(item);
     }
+  }
+
+  /**
+   * 元件代号一律印在**垂直于轴向**的一侧。
+   *
+   * 以前不分横竖都往上方抬 0.42 米:横着的元件正好,竖着的元件等于把代号
+   * 按在自己身上(串联页竖放的 R₂、本场景竖放的 R 与 V 都被压过字)。
+   *
+   * 跨接式电压表(带 offset,符号被挪离接线端)是例外:它的两根折引线正好从
+   * 侧面汇进圆里,往侧面放就压在引线上 —— 那一类留在上方,与改动前一致。
+   */
+  private nameTagBeside(item: Component): void {
+    const gap = SYMBOL_THICK + 0.16;
+    const offsetSymbol = item.offsetX !== 0 || item.offsetY !== 0;
+    if (!offsetSymbol && Math.abs(item.by - item.ay) > Math.abs(item.bx - item.ax)) {
+      this.nameTag(item, this.midX(item) - gap, this.midY(item) + 0.09, 'center');
+      return;
+    }
+    this.nameTag(item, this.midX(item), this.midY(item) + gap, 'center');
   }
 
   private seg(x1: number, y1: number, x2: number, y2: number, color: string, widthMm: number): SegmentShape {
@@ -480,6 +499,13 @@ export class CircuitRunner extends Physics2DRunner {
    * 于是「电源」两个字有一半压在极板上(截图实测)。现在按极板的法线方向外移,
    * 竖放的电源字在左边、横放的电源字在上边,都不碰符号。
    */
+  /**
+   * 电源代号贴着极板**外侧**起排,而不是居中摆在极板延长线上。
+   *
+   * 一行「电源 E」约占 1.7 米,以前按 center 放在轴线外 0.56 米处,
+   * 于是有一半字压回极板(长极板从轴线伸到 ±0.4 米)—— 每个电路场景的电源都是这样。
+   * 改成按极板朝外的那一侧起排,文字朝外长,压不到东西。
+   */
   private sourceTag(item: Component): void {
     const dx = item.bx - item.ax;
     const dy = item.by - item.ay;
@@ -487,8 +513,18 @@ export class CircuitRunner extends Physics2DRunner {
     if (long < 1e-6) {
       return;
     }
-    this.nameTag(item, (item.ax + item.bx) / 2 - dy / long * 0.56,
-      (item.ay + item.by) / 2 + dx / long * 0.56, 'center');
+    const nx = -dy / long;
+    const ny = dx / long;
+    const vertical = Math.abs(dy) > Math.abs(dx);
+    // 0.6 = 极板半长 0.4 之外再留一截:「+」号占在 0.3~0.45 处,贴太近会读成「+电源」
+    const gap = 0.6;
+    if (!vertical) {
+      this.nameTag(item, (item.ax + item.bx) / 2 + nx * gap,
+        (item.ay + item.by) / 2 + ny * gap, 'center');
+      return;
+    }
+    this.nameTag(item, (item.ax + item.bx) / 2 + nx * gap,
+      (item.ay + item.by) / 2 + 0.09, nx > 0 ? 'left' : 'right');
   }
 
   /**
