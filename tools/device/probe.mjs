@@ -194,12 +194,37 @@ export class Probe {
    * 这次拖拽并把值跳到起点那个 x(实测:滚一下,电阻箱从 20 Ω 变成 51 Ω)。
    */
   scrollToTop() {
-    for (let i = 0; i < 4; i++) {
+    /*
+     * 甩到"再甩一下位置不动了"为止,不数固定次数。
+     * 写死 4 次时,交卷后判词把页面撑高两屏 → 回不到顶,目标在视口上方而后面只会往下找
+     * (实测找不到那两个按钮);改成 6 次之后,短页面每次调用都白滚三下 —— 一轮回归跑到超时不返回。
+     * 到顶的信号用整屏文本+位置指纹:标题栏与「开始/重置」那一行是固定的,
+     * 所以不能只盯第一个节点,得看整页有没有动。
+     */
+    let mark = this.screenMark();
+    for (let i = 0; i < 12; i++) {
       this.swipe(60, 1600, 60, 2400);
+      const next = this.screenMark();
+      if (next.length > 0 && next === mark) {
+        break;
+      }
+      mark = next;
     }
     // 最后一甩的惯性还在跑就取坐标,后面那一下点击会落到取代它位置的那一行上
     // (实测:想按「电阻箱减一档」,结果按到了它上面那一挡,值从 20 变成 30)
-    this.sleep(1500);
+    this.sleep(1200);
+  }
+
+  /** 整页"文本@位置"的指纹:滚动前后一样就说明已经到顶(或到底),再甩是白甩 */
+  screenMark() {
+    const parts = [];
+    for (const n of this.dumpNodes()) {
+      const t = n.text || '';
+      if (t.length === 0) continue;
+      parts.push(t + '@' + (n.bounds || ''));
+      if (parts.length >= 24) break;
+    }
+    return parts.join('|');
   }
 
   back(wait) {

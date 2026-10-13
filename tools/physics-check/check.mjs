@@ -72,6 +72,7 @@ const MODULES = [
   'bench/RubricOhm',
   'bench/RubricEmf',
   'bench/RubricTape',
+  'bench/RubricEnergy',
   'bench/RubricBrine',
   'bench/RubricMeasure',
   'bench/MeasureVerdict',
@@ -103,6 +104,8 @@ const MODULES = [
   'physics/circuit/EmfRunner',
   'physics/TickerTape',
   'physics/TapeCartRunner',
+  'physics/TapeStrip',
+  'physics/FreeFallRunner',
   'physics/SpringMassRunner',
   'physics/InclineRunner',
   'runner/IExperimentRunner',
@@ -4832,7 +4835,7 @@ function checkRel(label, actual, expected, relTolerance) {
   const shippedHere = rows.filter((e) => e.feasibility === Feasibility.RUNNABLE).map((e) => e.id).sort();
   assertTrue('中学表里 RUNNABLE 正好是注册表真装着的那六条',
     shippedHere.join(',') === ['phy-jr-001', 'phy-jr-002', 'phy-jr-017', 'phy-sr-001', 'phy-sr-002',
-      'phy-sr-003', 'phy-sr-004', 'phy-sr-010'].join(','),
+      'phy-sr-003', 'phy-sr-004', 'phy-sr-008', 'phy-sr-010'].join(','),
     shippedHere.join(','));
   // 出处:代理取到了湖南省教育厅《初中必做实验目录(2023版)》与教育部《中小学实验教学基本目录》
   // 两份政府发布页原文。这条断言把"已核实"钉在一个数上 —— 往下掉说明有人把出处改浅了。
@@ -5018,7 +5021,8 @@ function checkRel(label, actual, expected, relTolerance) {
   // 现有场景确实给得出这条曲线,所以两门课今天都能开这一个实验。但记账要说明白,
   // 否则"完成度"会被一次实现记两次功劳。
   const SHIPPED_RUNNABLE = ['chem-u-004', 'ele-u-003', 'ele-u-007', 'phy-jr-001', 'phy-jr-002',
-    'phy-jr-017', 'phy-sr-001', 'phy-sr-002', 'phy-sr-003', 'phy-sr-004', 'phy-sr-010', 'phy-u-014'];
+    'phy-jr-017', 'phy-sr-001', 'phy-sr-002', 'phy-sr-003', 'phy-sr-004', 'phy-sr-008',
+    'phy-sr-010', 'phy-u-014'];
   const runnableIds = runnable.map((e) => e.id).sort();
   assertTrue('地图自称可打开的条目必须等于应用真装了的实验',
     runnableIds.join(',') === SHIPPED_RUNNABLE.join(','),
@@ -5031,25 +5035,26 @@ function checkRel(label, actual, expected, relTolerance) {
     'phy-sr-001': 'incline-block', 'phy-sr-002': 'spring-mass', 'ele-u-003': 'kirchhoff',
     'ele-u-007': 'max-power', 'phy-sr-004': 'spring-force', 'phy-jr-017': 'ohm-law',
     'phy-sr-010': 'emf-internal-resistance',
-    'phy-sr-003': 'tape-cart'
+    'phy-sr-003': 'tape-cart',
+    'phy-sr-008': 'free-fall'
   };
   const lostBasis = Object.keys(BASIS)
     .filter((mapId) => registered.indexOf(BASIS[mapId]) < 0)
     .map((mapId) => `${mapId} 声称可打开,但注册表里没有 ${BASIS[mapId]}`);
   assertTrue('每条按注册表登记的 RUNNABLE 都指得到一个真注册了的场景', lostBasis.length === 0,
     lostBasis.join(' | '));
-  check('注册表里的场景数', registered.length, 10, 0);
+  check('注册表里的场景数', registered.length, 11, 0);
   assertTrue('生物学科现在一条可打开的都没有(与地图自己的判断一致)',
     CurriculumIndex.experimentsOf(MapSubject.BIOLOGY)
       .every((e) => e.feasibility !== Feasibility.RUNNABLE), '生物出现了 RUNNABLE 条目');
   // 「待补场景」这一档是为电子那 8 条而加的(引擎够、场景没有)。
   // 一条新枚举值若没有数据在用,它就是死代码 —— 这条断言同时守住"最低成本的施工面"别被误降级。
-  // 电子 6 + 中学物理 5 + 中学化学 11 = 22 条最低成本的施工面。
-  // (中学物理原有 9 条,phy-sr-004 / phy-jr-017 / phy-sr-010 / phy-sr-003 各做成一条场景,减四条;
+  // 电子 6 + 中学物理 4 + 中学化学 11 = 21 条最低成本的施工面。
+  // (中学物理原有 9 条,phy-sr-004 / phy-jr-017 / phy-sr-010 / phy-sr-003 / phy-sr-008 各做成一条场景,减五条;
   //  电子原有 8 条,已做成场景的 ele-u-003 与 ele-u-007 各减一条;中学化学那 11 条
   //  是"台架能拖出反应但没有细则",见 #54)
   check('待补场景的实验条数(引擎够用,只差场景与细则)',
-    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 22, 0);
+    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 21, 0);
 
   let periodSum = 0;
   for (let p = 1; p <= 7; p++) {
@@ -6014,6 +6019,111 @@ function checkRel(label, actual, expected, relTolerance) {
       blank.card.deductions.map((d) => d.criterionId).join(','));
     check('一条都没打就判点太少', blank.card.deductions.some((d) => d.criterionId === 'tape-few-dots') ? 1 : 0, 1, 1e-12);
     checkText('没量过的事实印成破折号', FactLabels.valueText('tapeShortestMm', Number.NaN), '—');
+  }
+}
+
+// ---- L3 示踪弹 4:验证机械能守恒定律(phy-sr-008 / free-fall)----------------
+// 纸带那条共用件在这里第二次被接上:同一套打点与计数约定,换成一维落体与铁架台。
+// 判分只有三条,全读纸带本身 —— ΔEp 与 ΔEk 各是多少要学生填进来才判得了(#61)。
+{
+  const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
+  const { Rubrics } = require(join(OUT, 'bench/RubricMeasure.cjs'));
+  const { RubricEnergy } = require(join(OUT, 'bench/RubricEnergy.cjs'));
+  const { Judgment } = require(join(OUT, 'bench/Judgment.cjs'));
+  const { FactLabels } = require(join(OUT, 'model/FactLabels.cjs'));
+  const { FactSheet } = require(join(OUT, 'model/FactSheet.cjs'));
+
+  const meta = ExperimentRegistry.find('free-fall').meta;
+  checkText('地图条目 phy-sr-008 配的场景 id', meta.id, 'free-fall');
+  assertTrue('细则能被索引解析到', Rubrics.byId(meta.rubricId) !== null, meta.rubricId);
+
+  function run(steps) {
+    const runner = ExperimentRegistry.createRunner('free-fall');
+    runner.setup(meta);
+    runner.reset();
+    for (const [key, value] of steps) {
+      if (key === 'act') {
+        runner.doAction(value);
+      } else if (key === 'run') {
+        for (let i = 0; i < value; i++) runner.step(1 / 60);
+      } else {
+        runner.setParam(key, value);
+      }
+    }
+    const sheet = new FactSheet();
+    runner.collectFacts(sheet);
+    const card = Judgment.score(RubricEnergy.create(), sheet);
+    return { runner: runner, card: card, sheet: sheet };
+  }
+
+  const FALL = ['run', 60];
+  const good = run([['act', 'power'], ['act', 'release'], FALL]);
+  // 1. 落体本身:默认 0.5 kg、阻力 0.1 N → a = 9.6 m/s²,落 1 m 约 0.46 s
+  checkRel('下落加速度 = g − F/m', good.runner.readObservable('acceleration'), 9.6, 0.02);
+  check('落到设定高度就停', good.runner.readObservable('dropHeight'), 1, 1e-9);
+  checkRel('v² = 2ah(恒加速度下的精确更新,不留积分余量)',
+    Math.pow(good.runner.readObservable('velocity'), 2) / (2 * 9.6 * 1), 1, 1e-9);
+  checkRel('减少的重力势能 = mgh', good.runner.readObservable('potentialLost'), 0.5 * 9.8 * 1, 1e-6);
+  assertTrue('增加的动能略小于减少的势能(阻力做负功)',
+    good.runner.readObservable('kineticGained') < good.runner.readObservable('potentialLost'),
+    `ΔEk=${good.runner.readObservable('kineticGained').toFixed(3)} ΔEp=${good.runner.readObservable('potentialLost').toFixed(3)}`);
+  checkRel('两者之差就是阻力做的功',
+    good.runner.readObservable('potentialLost') - good.runner.readObservable('kineticGained'),
+    good.runner.readObservable('dragWork'), 0.02);
+  checkRel('相对偏差 ≈ 阻力功 / ΔEp', good.runner.readObservable('energyGapPct'),
+    (0.1 * 1) / (0.5 * 9.8 * 1) * 100, 0.06);
+
+  // 2. 认真做满:一分不扣
+  check('纸带上的点够多', good.sheet.num('tapeDotCount') >= 10 ? 1 : 0, 1, 1e-12);
+  check('第一对点约 2 mm(初速度为零)', good.sheet.num('tapeFirstGapMm') < 2.6 ? 1 : 0, 1, 1e-12);
+  check('切得出三段以上', good.sheet.num('tapeSegments') >= 3 ? 1 : 0, 1, 1e-12);
+  check('认真做完不扣分', good.card.awarded, 100, 1e-9);
+  check('扣分条数为 0', good.card.deductions.length, 0, 1e-12);
+
+  // 3. 三条各自能被触发
+  const FIRES = [
+    ['energy-few-dots', [['act', 'power'], ['act', 'release'], ['run', 5]]],
+    // 先松手、半秒后才想起通电:第一个点打下时重锤已经在动
+    ['energy-not-from-rest', [['act', 'release'], ['run', 10], ['act', 'power'], FALL]],
+    // 每 10 个点才取一个,二十来个点只够切两段
+    ['energy-few-segments', [['act', 'power'], ['act', 'release'], FALL, ['countEvery', 10]]],
+  ];
+  for (const [criterionId, steps] of FIRES) {
+    const out = run(steps);
+    const hit = out.card.deductions.filter((d) => d.criterionId === criterionId);
+    assertTrue('判据 ' + criterionId + ' 能被触发', hit.length === 1,
+      '扣分项:' + out.card.deductions.map((d) => d.criterionId).join(',') + ' / 得分 ' + out.card.awarded);
+    assertTrue('判据 ' + criterionId + ' 的证据里带上了当时的数',
+      /\d/.test(hit.length > 0 ? hit[0].evidence : ''), hit.length > 0 ? hit[0].evidence : '');
+  }
+
+  // 4. 一条都没打:「第一对点间距」没量过 → 不进事实清单,也不扣"初速度不为零"
+  {
+    const blank = run([['run', 30]]);
+    assertTrue('没打点时不报第一对间距', !Number.isFinite(blank.sheet.num('tapeFirstGapMm')),
+      String(blank.sheet.num('tapeFirstGapMm')));
+    assertTrue('没打点时不因初速度扣分',
+      !blank.card.deductions.some((d) => d.criterionId === 'energy-not-from-rest'),
+      blank.card.deductions.map((d) => d.criterionId).join(','));
+    checkText('没量过的事实印成破折号', FactLabels.valueText('tapeFirstGapMm', Number.NaN), '—');
+  }
+
+  // 5. 共用件真的被复用:同一条 TapeStrip 画法,点落在纸带那条线上
+  {
+    const snap = good.runner.snapshot();
+    const dots = snap.circles.filter((c) => Math.abs(c.cy - 4.75) < 1e-9);
+    assertTrue('纸带画在落体场景里', dots.length >= 10, `实得 ${dots.length} 个`);
+    const xs = dots.map((c) => c.cx).sort((a, b) => a - b);
+    let opening = true;
+    let where = '';
+    for (let i = 2; i + 1 < xs.length; i++) {
+      if (xs[i] - xs[i - 1] < xs[i - 1] - xs[i - 2] - 1e-6) {
+        opening = false;
+        where = `第 ${i} 个间隔 ${xs[i] - xs[i - 1]} 比上一段 ${xs[i - 1] - xs[i - 2]} 还窄`;
+        break;
+      }
+    }
+    assertTrue('落体的点一路变疏(末段被落地截断除外)', opening, where);
   }
 }
 

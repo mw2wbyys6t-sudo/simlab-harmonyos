@@ -6,6 +6,7 @@ import { RubricSpring } from './RubricSpring';
 import { RubricOhm } from './RubricOhm';
 import { RubricEmf } from './RubricEmf';
 import { RubricTape } from './RubricTape';
+import { RubricEnergy } from './RubricEnergy';
 
 /**
  * 量取参考细则。
@@ -83,6 +84,17 @@ export class RubricMeasure {
   }
 }
 
+/** 一条细则在索引里的登记项:id 与出处 */
+class RubricSource {
+  readonly id: string;
+  readonly create: () => Rubric;
+
+  constructor(id: string, create: () => Rubric) {
+    this.id = id;
+    this.create = create;
+  }
+}
+
 /**
  * 细则索引。
  *
@@ -90,24 +102,25 @@ export class RubricMeasure {
  * 把分数存死,细则换版本后历史记录就和判据脱钩,违反不变量 I4。
  */
 export class Rubrics {
+  /**
+   * 全部细则的出处。加一条实验只在这里加一行 ——
+   * 原先是一串平铺的 if,每加一条都要回来续一段,而漏续的那条只会表现为"没有评分按钮"。
+   */
+  private static readonly SOURCES: RubricSource[] = [
+    new RubricSource(RubricMeasure.ID, (): Rubric => RubricMeasure.create()),
+    new RubricSource(RubricBrine.ID, (): Rubric => RubricBrine.create()),
+    new RubricSource(RubricSpring.ID, (): Rubric => RubricSpring.create()),
+    new RubricSource(RubricOhm.ID, (): Rubric => RubricOhm.create()),
+    new RubricSource(RubricEmf.ID, (): Rubric => RubricEmf.create()),
+    new RubricSource(RubricTape.ID, (): Rubric => RubricTape.create()),
+    new RubricSource(RubricEnergy.ID, (): Rubric => RubricEnergy.create()),
+  ];
+
   static byId(id: string): Rubric | null {
-    if (id === RubricMeasure.ID) {
-      return RubricMeasure.create();
-    }
-    if (id === RubricBrine.ID) {
-      return RubricBrine.create();
-    }
-    if (id === RubricSpring.ID) {
-      return RubricSpring.create();
-    }
-    if (id === RubricOhm.ID) {
-      return RubricOhm.create();
-    }
-    if (id === RubricEmf.ID) {
-      return RubricEmf.create();
-    }
-    if (id === RubricTape.ID) {
-      return RubricTape.create();
+    for (let i = 0; i < Rubrics.SOURCES.length; i++) {
+      if (Rubrics.SOURCES[i].id === id) {
+        return Rubrics.SOURCES[i].create();
+      }
     }
     return null;
   }

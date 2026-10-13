@@ -1,19 +1,12 @@
 import { FactSheet } from '../model/FactSheet';
 import { InclineRunner } from './InclineRunner';
-import { CircleShape, LabelShape, SegmentShape, WorldSnapshot } from './World2D';
+import { WorldSnapshot } from './World2D';
 import { TickerTape } from './TickerTape';
+import { TAPE_SCALE, TapeStrip } from './TapeStrip';
 
-/** 纸带画在世界顶部这一条上,斜面最高也就 1.2 m 长、30° 时顶点在 1.2 m,互不遮挡 */
+/** 纸带画在世界顶部这一条上:斜面最长 5 m、60° 时顶点在 4.9 m 以下,互不遮挡 */
 const TAPE_Y = 4.9;
 const TAPE_X = 0.8;
-/** 点距按 6 倍展开画:1:1 时毫米级的间距在屏幕上不到一个像素,而真实数据不动 */
-const TAPE_SCALE = 6;
-const DOT_R = 0.022;
-
-const C_STRIP = '#B9C2CC';
-const C_DOT = '#25313F';
-const C_MARK = '#2F6FB5';
-const C_TEXT = '#1F2A3A';
 
 /**
  * 拖着纸带做匀加速的小车:斜面动力学复用 InclineRunner,新加的是打点计时器。
@@ -86,41 +79,8 @@ export class TapeCartRunner extends InclineRunner {
 
   snapshot(): WorldSnapshot {
     const snap = super.snapshot();
-    const count = this.tape.count();
-    const first = this.tape.dotAt(0);
-    if (first === null) {
-      return snap;
-    }
-    // 纸带底条:按实际打出来的长度画,后面留白就是还没走的部分
-    const span = Math.max(0.6, this.tape.tapeLength() * TAPE_SCALE + 0.4);
-    snap.segments.push(this.strip(TAPE_X - 0.15, TAPE_Y - 0.24, TAPE_X + span, TAPE_Y - 0.24));
-    snap.segments.push(this.strip(TAPE_X - 0.15, TAPE_Y + 0.24, TAPE_X + span, TAPE_Y + 0.24));
-
-    const start = this.startDot();
-    const every = this.everyGap();
-    for (let i = 0; i < count; i++) {
-      const dot = this.tape.dotAt(i);
-      if (dot === null) {
-        continue;
-      }
-      const x = TAPE_X + (dot.s - first.s) * TAPE_SCALE;
-      const isMark = i >= start && (i - start) % every === 0;
-      const shape = new CircleShape();
-      shape.cx = x;
-      shape.cy = TAPE_Y;
-      shape.r = isMark ? DOT_R * 1.5 : DOT_R;
-      shape.color = isMark ? C_MARK : C_DOT;
-      snap.circles.push(shape);
-    }
-    // 计数点用放大蓝点标出来,不给它们编号:前几个点彼此只隔几毫米,编号会挤成一团
-    // 反而盖住要看的东西(实测 T0…T5 糊成一条)。段数与最短段都在读数区里给数字。
-    const note = new LabelShape();
-    note.x = TAPE_X - 0.15;
-    note.y = TAPE_Y + 0.46;
-    note.text = '纸带 · 点距按 ' + String(TAPE_SCALE) + ' 倍展开';
-    note.sizeVp = 11;
-    note.color = C_TEXT;
-    snap.labels.push(note);
+    TapeStrip.paint(snap, this.tape, TAPE_X, TAPE_Y, this.startDot(), this.everyGap(),
+      '纸带 · 点距按 ' + String(TAPE_SCALE) + ' 倍展开');
     return snap;
   }
 
@@ -134,17 +94,6 @@ export class TapeCartRunner extends InclineRunner {
   private everyGap(): number {
     const raw = this.readParam('countEvery');
     return raw < 1 ? 1 : Math.floor(raw);
-  }
-
-  private strip(x1: number, y1: number, x2: number, y2: number): SegmentShape {
-    const seg = new SegmentShape();
-    seg.x1 = x1;
-    seg.y1 = y1;
-    seg.x2 = x2;
-    seg.y2 = y2;
-    seg.color = C_STRIP;
-    seg.widthMm = 1.2;
-    return seg;
   }
 
   private readParam(key: string): number {

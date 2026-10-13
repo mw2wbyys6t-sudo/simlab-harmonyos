@@ -76,6 +76,7 @@ export class FactLabels {
     table.set('tapeLostHead', new FactLabel('头一段漏打的点数', ' 个'));
     table.set('tapeSegments', new FactLabel('切出的计数段数', ' 段'));
     table.set('tapeShortestMm', new FactLabel('最短计数段', ' mm'));
+    table.set('tapeFirstGapMm', new FactLabel('第一对点的间距', ' mm'));
     return table;
   }
 

@@ -3,6 +3,7 @@ import { ExperimentRegistry } from '../runner/ExperimentRegistry';
 import { SceneBuilders } from './SceneBuilders';
 import { InclineRunner } from '../physics/InclineRunner';
 import { TapeCartRunner } from '../physics/TapeCartRunner';
+import { FreeFallRunner } from '../physics/FreeFallRunner';
 import { SpringMassRunner } from '../physics/SpringMassRunner';
 import { SpringForceRunner } from '../physics/SpringForceRunner';
 
@@ -16,6 +17,7 @@ export class MechanicsScenes {
     ExperimentRegistry.register(MechanicsScenes.incline(), (): InclineRunner => new InclineRunner());
     ExperimentRegistry.register(MechanicsScenes.springForce(), (): SpringForceRunner => new SpringForceRunner());
     ExperimentRegistry.register(MechanicsScenes.tapeCart(), (): TapeCartRunner => new TapeCartRunner());
+    ExperimentRegistry.register(MechanicsScenes.freeFall(), (): FreeFallRunner => new FreeFallRunner());
   }
 
   private static springMass(): ExperimentMeta {
@@ -140,6 +142,54 @@ export class MechanicsScenes {
     meta.tasks.push(SceneBuilders.task('tape-a-from-slope',
       '由每段位移除以对应时间得到各计数点速度，作 v-t 图，从斜率取第二个 a 并与逐差法结果比对。', Number.NaN, 0));
     meta.rubricId = 'tape-cart-rubric';
+    return meta;
+  }
+
+  /**
+   * 验证机械能守恒定律(地图条目 `phy-sr-008`)。
+   *
+   * 纸带那条共用件直接接过来用,新的是铁架台与一维落体。阻力默认 0.1 N:
+   * 真实实验里 ΔEk 恒略小于 ΔEp,做成严格相等会教出错的结论。
+   * 计数默认从第 1 个点起、每 2 点取一个 —— 这条不像测加速度那样要舍开头,
+   * 反而要靠开头那两点的间距判断是不是从静止起的。
+   */
+  private static freeFall(): ExperimentMeta {
+    const meta = new ExperimentMeta();
+    meta.id = 'free-fall';
+    meta.title = '验证机械能守恒定律';
+    meta.subject = Subject.PHYSICS_MECHANICS;
+    meta.renderer = RendererKind.PHYSICS_2D;
+    meta.summary = '重锤带着纸带自由下落，量几段下落高度与这段两端的速度，比较 mgh 与 ½mv²；式两边都含 m，所以不必测质量。';
+    meta.gradeBand = '高中物理 · 必修二';
+    meta.durationMinutes = 45;
+    meta.worldWidth = 9;
+    meta.worldHeight = 5.4;
+    meta.params.push(SceneBuilders.param('height', '重锤下落高度', 'm', 0.4, 1.5, 0.05, 1, '装置'));
+    meta.params.push(SceneBuilders.param('mass', '重锤质量', 'kg', 0.2, 2, 0.05, 0.5, '重锤'));
+    meta.params.push(SceneBuilders.param('drag', '纸带与空气的等效阻力', 'N', 0, 0.5, 0.02, 0.1, '重锤'));
+    meta.params.push(SceneBuilders.param('countStart', '比较起点：从第几个点量起', '个', 0, 20, 1, 0, '纸带'));
+    meta.params.push(SceneBuilders.param('countEvery', '每几个点取一个计数点', '个', 1, 10, 1, 2, '纸带'));
+    meta.actions.push(SceneBuilders.action('power', '接通／断开电源', '计时器'));
+    meta.actions.push(SceneBuilders.action('release', '松开纸带', '计时器'));
+    meta.observables.push(SceneBuilders.observable('dropHeight', '已下落高度 h', 'm', 3, true));
+    meta.observables.push(SceneBuilders.observable('velocity', '速度 v', 'm/s', 3, true));
+    meta.observables.push(SceneBuilders.observable('acceleration', '下落加速度 a', 'm/s²', 3, false));
+    meta.observables.push(SceneBuilders.observable('potentialLost', '减少的重力势能 ΔEp', 'J', 3, true));
+    meta.observables.push(SceneBuilders.observable('kineticGained', '增加的动能 ΔEk', 'J', 3, true));
+    meta.observables.push(SceneBuilders.observable('dragWork', '阻力做的功', 'J', 3, false));
+    meta.observables.push(SceneBuilders.observable('energyGapPct', 'ΔEp 与 ΔEk 的相对偏差', '%', 2, false));
+    meta.observables.push(SceneBuilders.observable('tapeDotCount', '纸带上的点数', '个', 0, false));
+    meta.observables.push(SceneBuilders.observable('tapeSegments', '切出的计数段数', '段', 0, false));
+    meta.observables.push(SceneBuilders.observable('tapeFirstGapMm', '第一对点的间距', 'mm', 2, false));
+    meta.charts.push(SceneBuilders.timeChart('能量对照 Ep-Ek', 'E', 'J', [
+      SceneBuilders.trace('potentialLost', 'ΔEp', SceneBuilders.palette(0)),
+      SceneBuilders.trace('kineticGained', 'ΔEk', SceneBuilders.palette(1))
+    ]));
+    meta.tasks.push(SceneBuilders.task('energy-why-mass-free',
+      '式两边都含质量 m，说明为什么这条实验不必测重锤质量，哪些器材因此是多余的。', Number.NaN, 0));
+    meta.tasks.push(SceneBuilders.task('energy-gap-direction',
+      '比较几段的 ΔEp 与 ΔEk，说明偏差为什么总是 ΔEk 略小，并把阻力做的那部分功算进去对一次账。', Number.NaN, 0));
+    meta.rubricId = 'free-fall-rubric';
     return meta;
   }
 

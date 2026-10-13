@@ -114,6 +114,24 @@ export class TickerTape {
   }
 
   /**
+   * 第一对"真的分开了"的点之间隔多远(毫米)。
+   *
+   * 验证机械能守恒那条实验拿它当"初速度为零"的判据:50 Hz 下从静止起,第一格走的
+   * 距离是 ½·g·0.02² ≈ 1.96 mm。明显大于这个数,说明计时器打下第一个点时重锤已经在下落 ——
+   * 那一段的初动能不是零,后面 mgh 与 ½mv² 对不上就不该赖阻力。
+   * 一个点都没分开时给 NaN:没量过的事不报数。
+   */
+  firstMovingGapMm(): number {
+    for (let i = 0; i + 1 < this.dots.length; i++) {
+      const gap = this.dots[i + 1].s - this.dots[i].s;
+      if (gap > 0.0001) {
+        return gap * 1000;
+      }
+    }
+    return Number.NaN;
+  }
+
+  /**
    * 从第 start 个点起、每 every 个点取一个计数点,能量出几段。
    *
    * 逐差法至少要四段,三段就只能两两相减再平均 —— 那是这条实验明确不让做的做法。
