@@ -77,6 +77,10 @@ export class FactLabels {
     table.set('tapeSegments', new FactLabel('切出的计数段数', ' 段'));
     table.set('tapeShortestMm', new FactLabel('最短计数段', ' mm'));
     table.set('tapeFirstGapMm', new FactLabel('第一对点的间距', ' mm'));
+    // 停表:判的是「按了几次、覆盖了几个不同区间、最长一段走得到多久」
+    table.set('speedTrials', new FactLabel('按完的次数', ' 次'));
+    table.set('speedSegments', new FactLabel('测到的不同区间', ' 段'));
+    table.set('speedLongestS', new FactLabel('最长一段用的时间', ' s'));
     return table;
   }
 

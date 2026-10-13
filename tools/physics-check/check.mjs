@@ -73,6 +73,7 @@ const MODULES = [
   'bench/RubricEmf',
   'bench/RubricTape',
   'bench/RubricEnergy',
+  'bench/RubricSpeed',
   'bench/RubricBrine',
   'bench/RubricMeasure',
   'bench/MeasureVerdict',
@@ -106,6 +107,7 @@ const MODULES = [
   'physics/TapeCartRunner',
   'physics/TapeStrip',
   'physics/FreeFallRunner',
+  'physics/StopwatchCartRunner',
   'physics/SpringMassRunner',
   'physics/InclineRunner',
   'runner/IExperimentRunner',
@@ -4833,9 +4835,9 @@ function checkRel(label, actual, expected, relTolerance) {
   check('其中高中', rows.filter((e) => e.stage === SchoolStage.SENIOR).length, 22, 0);
   // 这一档的 RUNNABLE 是拿去和注册表对账的,多一条就是虚报
   const shippedHere = rows.filter((e) => e.feasibility === Feasibility.RUNNABLE).map((e) => e.id).sort();
-  assertTrue('中学表里 RUNNABLE 正好是注册表真装着的那六条',
-    shippedHere.join(',') === ['phy-jr-001', 'phy-jr-002', 'phy-jr-017', 'phy-sr-001', 'phy-sr-002',
-      'phy-sr-003', 'phy-sr-004', 'phy-sr-008', 'phy-sr-010'].join(','),
+  assertTrue('中学表里 RUNNABLE 正好是注册表真装着的那十条',
+    shippedHere.join(',') === ['phy-jr-001', 'phy-jr-002', 'phy-jr-007', 'phy-jr-017',
+      'phy-sr-001', 'phy-sr-002', 'phy-sr-003', 'phy-sr-004', 'phy-sr-008', 'phy-sr-010'].join(','),
     shippedHere.join(','));
   // 出处:代理取到了湖南省教育厅《初中必做实验目录(2023版)》与教育部《中小学实验教学基本目录》
   // 两份政府发布页原文。这条断言把"已核实"钉在一个数上 —— 往下掉说明有人把出处改浅了。
@@ -5021,7 +5023,7 @@ function checkRel(label, actual, expected, relTolerance) {
   // 现有场景确实给得出这条曲线,所以两门课今天都能开这一个实验。但记账要说明白,
   // 否则"完成度"会被一次实现记两次功劳。
   const SHIPPED_RUNNABLE = ['chem-u-004', 'ele-u-003', 'ele-u-007', 'phy-jr-001', 'phy-jr-002',
-    'phy-jr-017', 'phy-sr-001', 'phy-sr-002', 'phy-sr-003', 'phy-sr-004', 'phy-sr-008',
+    'phy-jr-007', 'phy-jr-017', 'phy-sr-001', 'phy-sr-002', 'phy-sr-003', 'phy-sr-004', 'phy-sr-008',
     'phy-sr-010', 'phy-u-014'];
   const runnableIds = runnable.map((e) => e.id).sort();
   assertTrue('地图自称可打开的条目必须等于应用真装了的实验',
@@ -5036,25 +5038,26 @@ function checkRel(label, actual, expected, relTolerance) {
     'ele-u-007': 'max-power', 'phy-sr-004': 'spring-force', 'phy-jr-017': 'ohm-law',
     'phy-sr-010': 'emf-internal-resistance',
     'phy-sr-003': 'tape-cart',
-    'phy-sr-008': 'free-fall'
+    'phy-sr-008': 'free-fall',
+    'phy-jr-007': 'stopwatch-cart'
   };
   const lostBasis = Object.keys(BASIS)
     .filter((mapId) => registered.indexOf(BASIS[mapId]) < 0)
     .map((mapId) => `${mapId} 声称可打开,但注册表里没有 ${BASIS[mapId]}`);
   assertTrue('每条按注册表登记的 RUNNABLE 都指得到一个真注册了的场景', lostBasis.length === 0,
     lostBasis.join(' | '));
-  check('注册表里的场景数', registered.length, 11, 0);
+  check('注册表里的场景数', registered.length, 12, 0);
   assertTrue('生物学科现在一条可打开的都没有(与地图自己的判断一致)',
     CurriculumIndex.experimentsOf(MapSubject.BIOLOGY)
       .every((e) => e.feasibility !== Feasibility.RUNNABLE), '生物出现了 RUNNABLE 条目');
   // 「待补场景」这一档是为电子那 8 条而加的(引擎够、场景没有)。
   // 一条新枚举值若没有数据在用,它就是死代码 —— 这条断言同时守住"最低成本的施工面"别被误降级。
-  // 电子 6 + 中学物理 4 + 中学化学 11 = 21 条最低成本的施工面。
-  // (中学物理原有 9 条,phy-sr-004 / phy-jr-017 / phy-sr-010 / phy-sr-003 / phy-sr-008 各做成一条场景,减五条;
+  // 电子 6 + 中学物理 3 + 中学化学 11 = 20 条最低成本的施工面。
+  // (中学物理原有 9 条,phy-sr-004 / phy-jr-017 / phy-sr-010 / phy-sr-003 / phy-sr-008 / phy-jr-007 各做成一条场景,减六条;
   //  电子原有 8 条,已做成场景的 ele-u-003 与 ele-u-007 各减一条;中学化学那 11 条
   //  是"台架能拖出反应但没有细则",见 #54)
   check('待补场景的实验条数(引擎够用,只差场景与细则)',
-    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 21, 0);
+    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 20, 0);
 
   let periodSum = 0;
   for (let p = 1; p <= 7; p++) {
@@ -6124,6 +6127,117 @@ function checkRel(label, actual, expected, relTolerance) {
       }
     }
     assertTrue('落体的点一路变疏(末段被落地截断除外)', opening, where);
+  }
+}
+
+// ---- L3 示踪弹 5:测量物体运动的速度(phy-jr-007 / stopwatch-cart)-----------
+// 初中第一条力学场景。手里那只是停表,不是打点计时器:按下记起点与时刻,松开记终点与时长。
+// 判的是"按"的后果 —— 按几次、覆盖几段不同区间、最长一段走得到多久(反应时间占进去多少)。
+{
+  const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
+  const { Rubrics } = require(join(OUT, 'bench/RubricMeasure.cjs'));
+  const { RubricSpeed } = require(join(OUT, 'bench/RubricSpeed.cjs'));
+  const { Judgment } = require(join(OUT, 'bench/Judgment.cjs'));
+  const { FactLabels } = require(join(OUT, 'model/FactLabels.cjs'));
+  const { FactSheet } = require(join(OUT, 'model/FactSheet.cjs'));
+
+  const meta = ExperimentRegistry.find('stopwatch-cart').meta;
+  checkText('地图条目 phy-jr-007 配的场景 id', meta.id, 'stopwatch-cart');
+  assertTrue('细则能被索引解析到', Rubrics.byId(meta.rubricId) !== null, meta.rubricId);
+
+  /** 默认 7°、1.5 m、μ=0.05 → a≈0.708 m/s²,走完全程约 2.06 s、半程约 1.46 s */
+  const A = 9.8 * (Math.sin(7 * Math.PI / 180) - 0.05 * Math.cos(7 * Math.PI / 180));
+  const T_FULL = Math.sqrt(2 * 1.5 / A);
+  const T_HALF = Math.sqrt(2 * 0.75 / A);
+
+  /** act 按按钮,run 走多少帧,reset 让车重来(记录本不清),其余当参数拖 */
+  function run(steps) {
+    const runner = ExperimentRegistry.createRunner('stopwatch-cart');
+    runner.setup(meta);
+    for (const [key, value] of steps) {
+      if (key === 'act') {
+        runner.doAction(value);
+      } else if (key === 'run') {
+        for (let i = 0; i < value; i++) runner.step(1 / 60);
+      } else if (key === 'reset') {
+        runner.reset();
+      } else {
+        runner.setParam(key, value);
+      }
+    }
+    const sheet = new FactSheet();
+    runner.collectFacts(sheet);
+    const card = Judgment.score(RubricSpeed.create(), sheet);
+    return { runner: runner, card: card, sheet: sheet };
+  }
+
+  const START = ['act', 'timeStart'];
+  const STOP = ['act', 'timeStop'];
+  const HALF = Math.round(T_HALF * 60);
+  const FULL = Math.round(T_FULL * 60);
+  const DILIGENT = [START, ['run', HALF], STOP, ['reset'],
+    START, ['run', FULL], STOP, ['reset'],
+    START, ['run', FULL], STOP];
+  const good = run(DILIGENT);
+
+  // 1. 表本身:走的是仿真时间,不是按下按钮那一帧
+  check('按完三次', good.sheet.num('speedTrials'), 3, 1e-12);
+  check('覆盖两段不同区间', good.sheet.num('speedSegments'), 2, 1e-12);
+  checkRel('半程表读数 ≈ √(2s/a)', good.runner.readObservable('speedShortestS'), T_HALF, 0.02);
+  checkRel('全程表读数 ≈ √(2L/a)', good.sheet.num('speedLongestS'), T_FULL, 0.02);
+  // 平均速度 = 末速度的一半(初速为零的匀加速),这条交叉核对表与位移都对得上
+  const vAvg = 0.75 / good.runner.readObservable('speedShortestS');
+  checkRel('上半程平均速度 ≈ 末速度的一半', vAvg / (Math.sqrt(2 * A * 0.75) / 2), 1, 0.03);
+  // 2. 认真做完不扣分
+  check('认真测完不扣分', good.card.awarded, 100, 1e-9);
+  check('扣分条数为 0', good.card.deductions.length, 0, 1e-12);
+  // 3. 「重置」只让车重来,已抄下的记录不能被抹掉
+  const afterReset = run(DILIGENT.concat([['reset']]));
+  check('重置后记录还在', afterReset.sheet.num('speedTrials'), 3, 1e-12);
+  // 4. 按下了没松开:还没有终点,不算一段
+  const open = run([START, ['run', 40]]);
+  check('没松开就不算测完', open.sheet.num('speedTrials'), 0, 1e-12);
+  check('没松开时段数为 0', open.sheet.num('speedSegments'), 0, 1e-12);
+  assertTrue('没松开时表还在走', open.runner.readObservable('watchReading') > 0.5,
+    String(open.runner.readObservable('watchReading')));
+
+  const FIRES = [
+    ['speed-few-trials', [START, ['run', FULL], STOP]],
+    // 三次都测全程:次数够了,但三段速度是同一个数,比较不了
+    ['speed-one-segment',
+      [START, ['run', FULL], STOP, ['reset'], START, ['run', FULL], STOP, ['reset'],
+        START, ['run', FULL], STOP]],
+    // 把斜面垫到 40°:三次、三段都够,但最长一段只有 0.71 s,反应时间占进去一成多
+    ['speed-too-fast', [['angle', 40], START, ['run', 21], STOP, ['reset'],
+      START, ['run', 30], STOP, ['reset'], START, ['run', 43], STOP]],
+  ];
+  for (const [criterionId, steps] of FIRES) {
+    const out = run(steps);
+    const hit = out.card.deductions.filter((d) => d.criterionId === criterionId);
+    assertTrue('判据 ' + criterionId + ' 能被触发', hit.length === 1,
+      '扣分项:' + out.card.deductions.map((d) => d.criterionId).join(',') + ' / 得分 ' + out.card.awarded);
+    assertTrue('判据 ' + criterionId + ' 的证据里带上了当时的数',
+      /\d/.test(hit.length > 0 ? hit[0].evidence : ''), hit.length > 0 ? hit[0].evidence : '');
+  }
+
+  // 5. 一次都没测:「最长一段多久」压根没量过 → 不进事实清单
+  {
+    const blank = run([['run', 60]]);
+    assertTrue('没测时不报最长一段', !Number.isFinite(blank.sheet.num('speedLongestS')),
+      String(blank.sheet.num('speedLongestS')));
+    assertTrue('没测时不因"太快"扣分',
+      !blank.card.deductions.some((d) => d.criterionId === 'speed-too-fast'),
+      blank.card.deductions.map((d) => d.criterionId).join(','));
+    checkText('没量过的事实印成破折号', FactLabels.valueText('speedLongestS', Number.NaN), '—');
+  }
+
+  // 6. 停表画在画面上:表盘 + 读数
+  {
+    const snap = good.runner.snapshot();
+    const dial = snap.circles.filter((c) => Math.abs(c.cx - 0.85) < 1e-9 && Math.abs(c.cy - 4.55) < 1e-9);
+    check('画面上有一只停表', dial.length, 1, 1e-12);
+    assertTrue('表上印着读数', snap.labels.some((l) => / s$/.test(l.text) && l.align === 'center'),
+      snap.labels.map((l) => l.text).join('|'));
   }
 }
 

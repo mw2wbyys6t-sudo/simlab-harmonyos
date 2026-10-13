@@ -4,6 +4,7 @@ import { SceneBuilders } from './SceneBuilders';
 import { InclineRunner } from '../physics/InclineRunner';
 import { TapeCartRunner } from '../physics/TapeCartRunner';
 import { FreeFallRunner } from '../physics/FreeFallRunner';
+import { StopwatchCartRunner } from '../physics/StopwatchCartRunner';
 import { SpringMassRunner } from '../physics/SpringMassRunner';
 import { SpringForceRunner } from '../physics/SpringForceRunner';
 
@@ -18,6 +19,7 @@ export class MechanicsScenes {
     ExperimentRegistry.register(MechanicsScenes.springForce(), (): SpringForceRunner => new SpringForceRunner());
     ExperimentRegistry.register(MechanicsScenes.tapeCart(), (): TapeCartRunner => new TapeCartRunner());
     ExperimentRegistry.register(MechanicsScenes.freeFall(), (): FreeFallRunner => new FreeFallRunner());
+    ExperimentRegistry.register(MechanicsScenes.stopwatchCart(), (): StopwatchCartRunner => new StopwatchCartRunner());
   }
 
   private static springMass(): ExperimentMeta {
@@ -190,6 +192,50 @@ export class MechanicsScenes {
     meta.tasks.push(SceneBuilders.task('energy-gap-direction',
       '比较几段的 ΔEp 与 ΔEk，说明偏差为什么总是 ΔEk 略小，并把阻力做的那部分功算进去对一次账。', Number.NaN, 0));
     meta.rubricId = 'free-fall-rubric';
+    return meta;
+  }
+
+  /**
+   * 测量物体运动的速度(地图条目 `phy-jr-007`,初中第一条力学场景)。
+   *
+   * 动力学复用斜面:默认 7° 垫块、1.5 m 长板、μ=0.05 → a≈0.71 m/s²,
+   * 走完全程约 2.1 s。这个时长是刻意挑的:再快,学生按停表的反应时间就占进读数里,
+   * 而"倾角取小便于计时"这条理由要能被体验,全程必须明显长于反应时间。
+   *
+   * 停表是两个按钮:按下记下起点与时刻,松开记下终点与时长 —— 一次测量就此成为
+   * 一个可数的对象(按了几次、覆盖几段、最长一段多久),而不是屏幕上的一行说明。
+   */
+  private static stopwatchCart(): ExperimentMeta {
+    const meta = new ExperimentMeta();
+    meta.id = 'stopwatch-cart';
+    meta.title = '测量物体运动的速度';
+    meta.subject = Subject.PHYSICS_MECHANICS;
+    meta.renderer = RendererKind.PHYSICS_2D;
+    meta.summary = '让小车从斜面顶端由静止下滑，用停表分别测上半程与全程用的时间，按 v=s/t 算各段平均速度再比较。';
+    meta.gradeBand = '初中物理 · 八年级上';
+    meta.durationMinutes = 40;
+    meta.worldWidth = 9;
+    meta.worldHeight = 5.4;
+    meta.params.push(SceneBuilders.param('angle', '斜面倾角 θ', '°', 3, 45, 1, 7, '装置'));
+    meta.params.push(SceneBuilders.param('length', '木板长度', 'm', 1, 2.5, 0.1, 1.5, '装置'));
+    meta.params.push(SceneBuilders.param('mass', '小车质量', 'kg', 0.2, 2, 0.1, 0.5, '小车'));
+    meta.params.push(SceneBuilders.param('friction', '动摩擦因数 μ', '', 0, 0.3, 0.01, 0.05, '小车'));
+    meta.actions.push(SceneBuilders.action('timeStart', '按下停表', '停表'));
+    meta.actions.push(SceneBuilders.action('timeStop', '松开停表', '停表'));
+    meta.observables.push(SceneBuilders.observable('distance', '小车离开坡顶的距离 s', 'm', 3, true));
+    meta.observables.push(SceneBuilders.observable('velocity', '速度 v', 'm/s', 3, true));
+    meta.observables.push(SceneBuilders.observable('watchReading', '停表读数', 's', 2, false));
+    meta.observables.push(SceneBuilders.observable('speedTrials', '按完的次数', '次', 0, false));
+    meta.observables.push(SceneBuilders.observable('speedSegments', '测到的不同区间', '段', 0, false));
+    meta.observables.push(SceneBuilders.observable('speedLongestS', '最长一段用的时间', 's', 2, false));
+    meta.charts.push(SceneBuilders.timeChart('速度-时间 v-t', 'v', 'm/s', [
+      SceneBuilders.trace('velocity', 'v', SceneBuilders.palette(0))
+    ]));
+    meta.tasks.push(SceneBuilders.task('speed-three-segments',
+      '上半程、下半程与全程各算一个平均速度，说明全程那个为什么不是前两个的算术平均。', Number.NaN, 0));
+    meta.tasks.push(SceneBuilders.task('speed-reaction-bias',
+      '手按停表总比松车慢半拍。说明这会让算出来的平均速度偏大还是偏小，再说说斜面垫矮为什么能压住它。', Number.NaN, 0));
+    meta.rubricId = 'stopwatch-cart-rubric';
     return meta;
   }
 
