@@ -215,13 +215,18 @@ export class Probe {
     this.sleep(1200);
   }
 
-  /** 整页"文本@位置"的指纹:滚动前后一样就说明已经到顶(或到底),再甩是白甩 */
+  /**
+   * 整页的"位置指纹":有文本的节点各自 bounds 拼起来。
+   *
+   * 只取位置、不取文本 —— 实验页上「t = 24.00 s」这类每格都在跳的文本一旦进了指纹,
+   * 运行中的页面就永远判不到顶(实测:每次回顶都甩满 12 下,一轮 check-ohm 跑到 23 分钟不回)。
+   */
   screenMark() {
     const parts = [];
     for (const n of this.dumpNodes()) {
       const t = n.text || '';
       if (t.length === 0) continue;
-      parts.push(t + '@' + (n.bounds || ''));
+      parts.push(n.bounds || '');
       if (parts.length >= 24) break;
     }
     return parts.join('|');
