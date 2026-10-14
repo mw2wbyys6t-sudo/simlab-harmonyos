@@ -165,6 +165,55 @@ export class TickerTape {
   }
 
   /**
+   * 逐差法求加速度:计数段切成前后两半,各 perHalf 段,用「后一半减前一半」还原 a。
+   *
+   * 恒加速度下每段位移是 x_i = v₀T + ½aT²(2i−1),前后两半相减时 v₀ 那一项整项抵消,
+   * 剩下的正好是 a·T²·perHalf² —— 所以 a = (Σ后半 − Σ前半)/(perHalf²·T²)。
+   * 这个写法把 2·perHalf 段**全部**用上了;相邻两段之差逐个平均只吃掉首尾两段,
+   * 中间那些量出来的数其实没参与运算,正是教材明确不让做的做法。
+   *
+   * 段数凑不满 2·perHalf 时给 NaN:量不出来的东西不报数。
+   */
+  accelByChunking(start: number, every: number, perHalf: number): number {
+    const step = every < 1 ? 1 : every;
+    const half = perHalf < 1 ? 1 : perHalf;
+    const from = start < 0 ? 0 : start;
+    if (this.segmentCount(from, step) < 2 * half) {
+      return Number.NaN;
+    }
+    let sum = 0;
+    for (let i = 0; i < half; i++) {
+      const early = this.dotAt(from + i * step);
+      const late = this.dotAt(from + (i + half) * step);
+      const earlyNext = this.dotAt(from + (i + 1) * step);
+      const lateNext = this.dotAt(from + (i + half + 1) * step);
+      if (early === null || late === null || earlyNext === null || lateNext === null) {
+        return Number.NaN;
+      }
+      sum += (lateNext.s - late.s) - (earlyNext.s - early.s);
+    }
+    const t = step / this.hz;
+    return sum / (half * half * t * t);
+  }
+
+  /**
+   * 第一个"能当起点"的点:它之后那一段是真的分开了。
+   *
+   * 通电与放车之间只要隔上一秒(手指的速度),计时器就先把五十来个点打在原地。
+   * 那一段用刻度尺量出来是 0,拿它去逐差会把一条匀速纸带读成"点距差 30 mm 不匀" ——
+   * 实体实验室里学生的做法本来就是舍开头密着的一段,这里把同一个动作做成锚点。
+   * 一整条都没分开时给点数:后面所有量法都会因此返回 NaN,而不是报一个 0。
+   */
+  movingStart(): number {
+    for (let i = 0; i + 1 < this.dots.length; i++) {
+      if (this.dots[i + 1].s - this.dots[i].s > 0.0001) {
+        return i + 1;
+      }
+    }
+    return this.dots.length;
+  }
+
+  /**
    * 先放车、后通电时,纸带头上少了几个点。
    *
    * 这是学生自己的动作顺序留下的后果:释放与接通之间那一段运动计时器压根没在打,

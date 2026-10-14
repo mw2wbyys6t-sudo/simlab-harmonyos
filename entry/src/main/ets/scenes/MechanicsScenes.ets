@@ -5,6 +5,7 @@ import { InclineRunner } from '../physics/InclineRunner';
 import { TapeCartRunner } from '../physics/TapeCartRunner';
 import { FreeFallRunner } from '../physics/FreeFallRunner';
 import { StopwatchCartRunner } from '../physics/StopwatchCartRunner';
+import { NewtonSecondRunner } from '../physics/NewtonSecondRunner';
 import { SpringMassRunner } from '../physics/SpringMassRunner';
 import { SpringForceRunner } from '../physics/SpringForceRunner';
 
@@ -20,6 +21,7 @@ export class MechanicsScenes {
     ExperimentRegistry.register(MechanicsScenes.tapeCart(), (): TapeCartRunner => new TapeCartRunner());
     ExperimentRegistry.register(MechanicsScenes.freeFall(), (): FreeFallRunner => new FreeFallRunner());
     ExperimentRegistry.register(MechanicsScenes.stopwatchCart(), (): StopwatchCartRunner => new StopwatchCartRunner());
+    ExperimentRegistry.register(MechanicsScenes.newtonSecond(), (): NewtonSecondRunner => new NewtonSecondRunner());
   }
 
   private static springMass(): ExperimentMeta {
@@ -236,6 +238,65 @@ export class MechanicsScenes {
     meta.tasks.push(SceneBuilders.task('speed-reaction-bias',
       '手按停表总比松车慢半拍。说明这会让算出来的平均速度偏大还是偏小，再说说斜面垫矮为什么能压住它。', Number.NaN, 0));
     meta.rubricId = 'stopwatch-cart-rubric';
+    return meta;
+  }
+
+  /**
+   * 探究加速度与物体受力、物体质量的关系(地图条目 `phy-sr-006`)。
+   *
+   * 动力学是两体的:a =(m桶g + Mg·sinθ − μMg·cosθ)/(M + m桶)。分母里那个 m桶 不能省 ——
+   * 省掉就等于把绳的拉力写成砝码桶重力,a-F 图高力端往下弯这一条就再也弯不出来了,
+   * 而它恰恰是这个实验最容易被写错的地方。
+   *
+   * 平衡摩擦靠「取下砝码桶 + 轻推小车」这两下做出来,靠纸带上的点距匀不匀读出来:
+   * 层数是我们施给它的,不能当学生的选择来判;判的是它留下的那段纸带。
+   */
+  private static newtonSecond(): ExperimentMeta {
+    const meta = new ExperimentMeta();
+    meta.id = 'newton-second-cart';
+    meta.title = '探究加速度与物体受力、物体质量的关系';
+    meta.subject = Subject.PHYSICS_MECHANICS;
+    meta.renderer = RendererKind.PHYSICS_2D;
+    meta.summary = '先取下砝码桶、轻推小车，用空载纸带上的点距把摩擦力抵干净；再控制小车质量不变改拉力、控制拉力不变加槽码，各测三组 a。';
+    meta.gradeBand = '高中物理 · 必修一';
+    meta.durationMinutes = 45;
+    meta.worldWidth = 9;
+    meta.worldHeight = 5.4;
+    meta.params.push(SceneBuilders.param('countStart', '计数起点：从第几个点量起', '个', 0, 80, 1, 10, '纸带'));
+    meta.params.push(SceneBuilders.param('countEvery', '每几个点取一个计数点', '个', 1, 10, 1, 5, '纸带'));
+    meta.actions.push(SceneBuilders.action('wedge+', '加一层垫块', '垫块'));
+    meta.actions.push(SceneBuilders.action('wedge-', '取一层垫块', '垫块'));
+    meta.actions.push(SceneBuilders.action('slot+', '小车上加一只槽码', '小车'));
+    meta.actions.push(SceneBuilders.action('slot-', '从小车上取一只槽码', '小车'));
+    meta.actions.push(SceneBuilders.action('load+', '桶里加一只砝码', '砝码桶'));
+    meta.actions.push(SceneBuilders.action('load-', '从桶里取一只砝码', '砝码桶'));
+    meta.actions.push(SceneBuilders.action('hook', '挂上／取下砝码桶', '砝码桶'));
+    meta.actions.push(SceneBuilders.action('power', '接通／断开电源', '计时器'));
+    meta.actions.push(SceneBuilders.action('push', '轻推小车', '计时器'));
+    meta.actions.push(SceneBuilders.action('release', '释放小车', '计时器'));
+    meta.actions.push(SceneBuilders.action('record', '记录这一条纸带', '记录'));
+    meta.observables.push(SceneBuilders.observable('distance', '小车沿板朝滑轮走的距离 s', 'm', 3, true));
+    meta.observables.push(SceneBuilders.observable('velocity', '速度 v', 'm/s', 3, true));
+    meta.observables.push(SceneBuilders.observable('n2CartMassKg', '小车与槽码 M', 'kg', 3, false));
+    meta.observables.push(SceneBuilders.observable('n2PullMassKg', '砝码桶与砝码 m', 'kg', 3, false));
+    meta.observables.push(SceneBuilders.observable('n2WedgeLayers', '垫块层数', '层', 0, false));
+    meta.observables.push(SceneBuilders.observable('n2RiseMm', '板端抬高', 'mm', 0, false));
+    meta.observables.push(SceneBuilders.observable('n2TiltDeg', '板面倾角', '°', 2, false));
+    meta.observables.push(SceneBuilders.observable('n2AccelTape', '本条纸带逐差法求出的 a', 'm/s²', 3, false));
+    meta.observables.push(SceneBuilders.observable('tapeSegments', '切出的计数段数', '段', 0, false));
+    meta.observables.push(SceneBuilders.observable('n2IdleSpreadMm', '轻推那次的点距跨度', 'mm', 2, false));
+    meta.observables.push(SceneBuilders.observable('n2ChecksDone', '空载轻推检查', '次', 0, false));
+    meta.observables.push(SceneBuilders.observable('n2UsableCount', '算得出 a 的组数', '组', 0, false));
+    meta.observables.push(SceneBuilders.observable('n2ForceSteps', '同一质量下换过的拉力档', '档', 0, false));
+    meta.observables.push(SceneBuilders.observable('n2MassSteps', '同一拉力下试过质量', '种', 0, false));
+    meta.charts.push(SceneBuilders.timeChart('速度-时间 v-t（斜率即 a）', 'v', 'm/s', [
+      SceneBuilders.trace('velocity', 'v', SceneBuilders.palette(0))
+    ]));
+    meta.tasks.push(SceneBuilders.task('n2-a-f-bend',
+      '把各组砝码桶重力与对应的 a 描成 a-F 图。桶加重到跟小车一个量级时，图线为什么在高力端往下弯？绳的拉力与 m桶g 到底差在哪个分母上。', Number.NaN, 0));
+    meta.tasks.push(SceneBuilders.task('n2-balance-direction',
+      '垫块抬得不够与抬过头，空载纸带上的点距各是什么样子？说明为什么只有匀速那一次才算摩擦力被抵住，再说说没抵干净时 a-F 图线与坐标轴的交点在哪。', Number.NaN, 0));
+    meta.rubricId = 'newton-second-rubric';
     return meta;
   }
 

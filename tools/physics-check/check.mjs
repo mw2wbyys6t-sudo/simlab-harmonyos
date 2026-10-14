@@ -74,6 +74,7 @@ const MODULES = [
   'bench/RubricTape',
   'bench/RubricEnergy',
   'bench/RubricSpeed',
+  'bench/RubricNewton',
   'bench/RubricBrine',
   'bench/RubricMeasure',
   'bench/MeasureVerdict',
@@ -108,6 +109,7 @@ const MODULES = [
   'physics/TapeStrip',
   'physics/FreeFallRunner',
   'physics/StopwatchCartRunner',
+  'physics/NewtonSecondRunner',
   'physics/SpringMassRunner',
   'physics/InclineRunner',
   'runner/IExperimentRunner',
@@ -4835,9 +4837,10 @@ function checkRel(label, actual, expected, relTolerance) {
   check('其中高中', rows.filter((e) => e.stage === SchoolStage.SENIOR).length, 22, 0);
   // 这一档的 RUNNABLE 是拿去和注册表对账的,多一条就是虚报
   const shippedHere = rows.filter((e) => e.feasibility === Feasibility.RUNNABLE).map((e) => e.id).sort();
-  assertTrue('中学表里 RUNNABLE 正好是注册表真装着的那十条',
+  assertTrue('中学表里 RUNNABLE 正好是注册表真装着的那十一条',
     shippedHere.join(',') === ['phy-jr-001', 'phy-jr-002', 'phy-jr-007', 'phy-jr-017',
-      'phy-sr-001', 'phy-sr-002', 'phy-sr-003', 'phy-sr-004', 'phy-sr-008', 'phy-sr-010'].join(','),
+      'phy-sr-001', 'phy-sr-002', 'phy-sr-003', 'phy-sr-004', 'phy-sr-006', 'phy-sr-008',
+      'phy-sr-010'].join(','),
     shippedHere.join(','));
   // 出处:代理取到了湖南省教育厅《初中必做实验目录(2023版)》与教育部《中小学实验教学基本目录》
   // 两份政府发布页原文。这条断言把"已核实"钉在一个数上 —— 往下掉说明有人把出处改浅了。
@@ -5023,8 +5026,8 @@ function checkRel(label, actual, expected, relTolerance) {
   // 现有场景确实给得出这条曲线,所以两门课今天都能开这一个实验。但记账要说明白,
   // 否则"完成度"会被一次实现记两次功劳。
   const SHIPPED_RUNNABLE = ['chem-u-004', 'ele-u-003', 'ele-u-007', 'phy-jr-001', 'phy-jr-002',
-    'phy-jr-007', 'phy-jr-017', 'phy-sr-001', 'phy-sr-002', 'phy-sr-003', 'phy-sr-004', 'phy-sr-008',
-    'phy-sr-010', 'phy-u-014'];
+    'phy-jr-007', 'phy-jr-017', 'phy-sr-001', 'phy-sr-002', 'phy-sr-003', 'phy-sr-004', 'phy-sr-006',
+    'phy-sr-008', 'phy-sr-010', 'phy-u-014'];
   const runnableIds = runnable.map((e) => e.id).sort();
   assertTrue('地图自称可打开的条目必须等于应用真装了的实验',
     runnableIds.join(',') === SHIPPED_RUNNABLE.join(','),
@@ -5039,25 +5042,26 @@ function checkRel(label, actual, expected, relTolerance) {
     'phy-sr-010': 'emf-internal-resistance',
     'phy-sr-003': 'tape-cart',
     'phy-sr-008': 'free-fall',
-    'phy-jr-007': 'stopwatch-cart'
+    'phy-jr-007': 'stopwatch-cart',
+    'phy-sr-006': 'newton-second-cart'
   };
   const lostBasis = Object.keys(BASIS)
     .filter((mapId) => registered.indexOf(BASIS[mapId]) < 0)
     .map((mapId) => `${mapId} 声称可打开,但注册表里没有 ${BASIS[mapId]}`);
   assertTrue('每条按注册表登记的 RUNNABLE 都指得到一个真注册了的场景', lostBasis.length === 0,
     lostBasis.join(' | '));
-  check('注册表里的场景数', registered.length, 12, 0);
+  check('注册表里的场景数', registered.length, 13, 0);
   assertTrue('生物学科现在一条可打开的都没有(与地图自己的判断一致)',
     CurriculumIndex.experimentsOf(MapSubject.BIOLOGY)
       .every((e) => e.feasibility !== Feasibility.RUNNABLE), '生物出现了 RUNNABLE 条目');
   // 「待补场景」这一档是为电子那 8 条而加的(引擎够、场景没有)。
   // 一条新枚举值若没有数据在用,它就是死代码 —— 这条断言同时守住"最低成本的施工面"别被误降级。
-  // 电子 6 + 中学物理 3 + 中学化学 11 = 20 条最低成本的施工面。
-  // (中学物理原有 9 条,phy-sr-004 / phy-jr-017 / phy-sr-010 / phy-sr-003 / phy-sr-008 / phy-jr-007 各做成一条场景,减六条;
+  // 电子 6 + 中学物理 2 + 中学化学 11 = 19 条最低成本的施工面。
+  // (中学物理原有 9 条,phy-sr-004 / phy-jr-017 / phy-sr-010 / phy-sr-003 / phy-sr-008 / phy-jr-007 / phy-sr-006 各做成一条场景,减七条;
   //  电子原有 8 条,已做成场景的 ele-u-003 与 ele-u-007 各减一条;中学化学那 11 条
   //  是"台架能拖出反应但没有细则",见 #54)
   check('待补场景的实验条数(引擎够用,只差场景与细则)',
-    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 20, 0);
+    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 19, 0);
 
   let periodSum = 0;
   for (let p = 1; p <= 7; p++) {
@@ -5929,6 +5933,14 @@ function checkRel(label, actual, expected, relTolerance) {
     check('没通电一个点也不打', off.count(), 0, 1e-12);
     off.setPower(true, 2);
     check('两秒后才通电,头一段漏了 100 个点', off.lostHeadDots(), 100, 1e-9);
+
+    // 逐差法本体:每 5 个点取一个计数点,前 3 段与后 3 段对应相减。
+    // 恒加速度下这个还原是**精确**的(误差只来自浮点),所以容差给到 1e-6 ——
+    // 它是第 6 条实验(a 由纸带逐差法求得)唯一的算本,算错了整条实验都在教错的东西。
+    checkRel('逐差法从纸带还原出 a', tape.accelByChunking(0, 5, 3), 0.8, 1e-6);
+    checkRel('换个起点照样还原出 a', tape.accelByChunking(20, 5, 3), 0.8, 1e-6);
+    assertTrue('段数不够逐差时不报数',
+      Number.isNaN(tape.accelByChunking(0, 5, 40)), String(tape.accelByChunking(0, 5, 40)));
   }
 
   /** 跑一遍操作脚本:act 按按钮,step 走多少帧,其余当参数拖 */
@@ -6238,6 +6250,312 @@ function checkRel(label, actual, expected, relTolerance) {
     check('画面上有一只停表', dial.length, 1, 1e-12);
     assertTrue('表上印着读数', snap.labels.some((l) => / s$/.test(l.text) && l.align === 'center'),
       snap.labels.map((l) => l.text).join('|'));
+  }
+}
+
+// ---- L3 示踪弹 6:探究加速度与物体受力、物体质量的关系(phy-sr-006 / newton-second-cart)
+// 这条实验有两个别的场景没有的东西:**两体**动力学(绳的拉力不等于砝码桶重力)
+// 与**平衡摩擦**(取下桶轻推一次,看空载纸带均不均匀)。判据读的就是这两件。
+{
+  const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
+  const { Rubrics } = require(join(OUT, 'bench/RubricMeasure.cjs'));
+  const { RubricNewton } = require(join(OUT, 'bench/RubricNewton.cjs'));
+  const { Judgment } = require(join(OUT, 'bench/Judgment.cjs'));
+  const { FactLabels } = require(join(OUT, 'model/FactLabels.cjs'));
+  const { FactSheet } = require(join(OUT, 'model/FactSheet.cjs'));
+
+  const meta = ExperimentRegistry.find('newton-second-cart').meta;
+  checkText('地图条目 phy-sr-006 配的场景 id', meta.id, 'newton-second-cart');
+  assertTrue('细则能被索引解析到', Rubrics.byId(meta.rubricId) !== null, meta.rubricId);
+
+  // 与求解器同一套常量:改了器材参数,这里的期望值必须跟着改,不然断言就是在替旧配置背书
+  const G = 9.8;
+  const MU = 0.08;
+  const RISE = 0.16;
+  const BOARD = 4.0;
+  const CART = 0.2;
+  const SLOT = 0.05;
+  const BUCKET = 0.005;
+  const LOAD = 0.01;
+  /** 精确两体解:绳是同一根,加速度由 M+m 一起分 */
+  const exactA = (layers, slots, loads) => {
+    const sinT = layers * RISE / BOARD;
+    const cosT = Math.sqrt(1 - sinT * sinT);
+    const m = BUCKET + loads * LOAD;
+    const M = CART + slots * SLOT;
+    return (m * G + M * G * sinT - MU * M * G * cosT) / (M + m);
+  };
+
+  function run(steps) {
+    const runner = ExperimentRegistry.createRunner('newton-second-cart');
+    runner.setup(meta);
+    for (const [key, value] of steps) {
+      if (key === 'act') {
+        runner.doAction(value);
+      } else if (key === 'run') {
+        for (let i = 0; i < value; i++) runner.step(1 / 60);
+      } else if (key === 'reset') {
+        runner.reset();
+      } else {
+        runner.setParam(key, value);
+      }
+    }
+    const sheet = new FactSheet();
+    runner.collectFacts(sheet);
+    const card = Judgment.score(RubricNewton.create(), sheet);
+    return { runner: runner, card: card, sheet: sheet };
+  }
+
+  const SET = (slots, loads) => {
+    const s = [];
+    for (let i = 0; i < slots; i++) s.push(['act', 'slot+']);
+    for (let i = 0; i < loads; i++) s.push(['act', 'load+']);
+    return s;
+  };
+  const CLEAR = (slots, loads) => {
+    const s = [];
+    for (let i = 0; i < loads; i++) s.push(['act', 'load-']);
+    for (let i = 0; i < slots; i++) s.push(['act', 'slot-']);
+    return s;
+  };
+  /** 一次测量:重置让纸带从头打,摆好质量,先通电待稳定再放车,走完记一组 */
+  const GROUP = (slots, loads) => [['reset']].concat(SET(slots, loads))
+    .concat([['act', 'power'], ['run', 6], ['act', 'release'], ['run', 240], ['act', 'record']])
+    .concat(CLEAR(slots, loads));
+  /** 平衡摩擦那次检查:垫够层数、取下桶、通电后轻推一把,量完再把桶挂回去 */
+  const checkSteps = (layers) => {
+    const st = [];
+    for (let i = 0; i < layers; i++) st.push(['act', 'wedge+']);
+    st.push(['act', 'hook'], ['act', 'power'], ['run', 6], ['act', 'push'], ['run', 260]);
+    return st.concat([['reset'], ['act', 'hook']]);
+  };
+  const allGroups = (list) => list.map((g) => GROUP(g[0], g[1])).reduce((a, b) => a.concat(b), []);
+  const GROUPS = [[0, 1], [0, 3], [0, 5], [2, 3], [4, 3], [6, 3]];
+  const diligent = (layers) => checkSteps(layers).concat(allGroups(GROUPS));
+
+  // 1. 两体解:纸带逐差法读出的 a 必须等于精确解,而且明显低于"把拉力当成 m桶g"的算法
+  {
+    const out = run(diligent(2));
+    for (const [slots, loads] of GROUPS) {
+      const one = run([['act', 'wedge+'], ['act', 'wedge+'], ['act', 'power'], ['run', 6]]
+        .concat(SET(slots, loads))
+        .concat([['act', 'release'], ['run', 240]]));
+      const tape = one.runner.readObservable('n2AccelTape');
+      checkRel(`逐差法的 a 等于两体精确解(槽码 ${slots} 只、砝码 ${loads} 只)`,
+        tape, exactA(2, slots, loads), 2e-3);
+      assertTrue(`同一组里"拉力≈m桶g"的算法偏大(槽码 ${slots} 只、砝码 ${loads} 只)`,
+        exactA(2, slots, loads) < (BUCKET + loads * LOAD) * G / (CART + slots * SLOT),
+        `${exactA(2, slots, loads).toFixed(4)} vs ${((BUCKET + loads * LOAD) * G / (CART + slots * SLOT)).toFixed(4)}`);
+    }
+    // 桶越重,精确解与"近似"的差越大 —— a-F 图高力端往下弯就是这么来的
+    const lightGap = (BUCKET + 1 * LOAD) * G / CART - exactA(2, 0, 1);
+    const heavyGap = (BUCKET + 5 * LOAD) * G / CART - exactA(2, 0, 5);
+    assertTrue('砝码越多,把拉力当成 m桶g 错得越离谱', heavyGap > lightGap * 2,
+      `一档差 ${lightGap.toFixed(3)}、五档差 ${heavyGap.toFixed(3)} m/s²`);
+  }
+
+  // 2. 平衡摩擦:两层刚好抵住(点距差不到 0.4 mm),一层与三层都读得出不匀
+  {
+    const idle = (layers) => {
+      const st = [];
+      for (let i = 0; i < layers; i++) st.push(['act', 'wedge+']);
+      st.push(['act', 'hook'], ['act', 'power'], ['run', 6], ['act', 'push'], ['run', 260]);
+      return run(st);
+    };
+    const balanced = idle(2);
+    check('这次检查被记了一次', balanced.sheet.num('n2ChecksDone'), 1, 1e-12);
+    const spread = balanced.sheet.num('n2IdleSpreadMm');
+    assertTrue('两层垫块时空载点距匀到 0.4 mm 以内', spread >= 0 && spread < 0.4, String(spread));
+    assertTrue('两层垫块不因"不匀"扣分',
+      !balanced.card.deductions.some((d) => d.criterionId === 'n2-idle-not-uniform'),
+      balanced.card.deductions.map((d) => d.criterionId).join(','));
+    // 抬得不够:车被静摩擦按住,纸带头上还有几段,后面全叠在一起
+    const low = idle(1);
+    assertTrue('一层垫块读得出越打越密', low.sheet.num('n2IdleSpreadMm') > 8,
+      String(low.sheet.num('n2IdleSpreadMm')));
+    const zero = idle(0);
+    check('一层没垫也算做过一次检查', zero.sheet.num('n2ChecksDone'), 1, 1e-12);
+    assertTrue('完全没垫时检查照样量得出跨度(不能因为车停了就不报数)',
+      Number.isFinite(zero.sheet.num('n2IdleSpreadMm')), String(zero.sheet.num('n2IdleSpreadMm')));
+    const high = idle(3);
+    assertTrue('三层垫块读得出越打越疏', high.sheet.num('n2IdleSpreadMm') > 8,
+      String(high.sheet.num('n2IdleSpreadMm')));
+    // 静摩擦该扛住的时候必须真扛住:不挂桶、不垫板,推一下之后车要停下而不是倒着走
+    const stuck = idle(0);
+    check('停在起点附近不再动', stuck.runner.readObservable('distance') < 0.2 ? 1 : 0, 1, 1e-12);
+    assertTrue('速度不会自己翻向', stuck.runner.readObservable('velocity') >= 0,
+      String(stuck.runner.readObservable('velocity')));
+  }
+
+  // 2b. 人手没那么快:通电之后隔一秒才按第二下,头上那一段重叠点不该进量窗
+  {
+    const slow = run([['act', 'wedge+'], ['act', 'wedge+'], ['act', 'hook'],
+      ['act', 'power'], ['run', 60], ['act', 'push'], ['run', 260]]);
+    assertTrue('慢一秒按下的那次检查仍算做过', slow.sheet.num('n2ChecksDone') >= 1,
+      String(slow.sheet.num('n2ChecksDone')));
+    const spread = slow.sheet.num('n2IdleSpreadMm');
+    assertTrue('重叠点不进量窗:两层垫块还是读得出匀速', spread >= 0 && spread < 0.4,
+      `实得 ${spread} mm(设备实测漏这一条时读到 30.08 mm)`);
+    const slowRun = run([['act', 'wedge+'], ['act', 'wedge+'], ['act', 'load+'], ['act', 'load+'],
+      ['act', 'power'], ['run', 60], ['act', 'release'], ['run', 240]]);
+    checkRel('慢一秒放车,逐差法照样还原出两体解的 a',
+      slowRun.runner.readObservable('n2AccelTape'), exactA(2, 0, 2), 2e-3);
+    // 设备实测的那个数:重叠点正好压在默认起点上,一半在原地一半在走
+    const mixed = run([['act', 'wedge+'], ['act', 'wedge+'], ['act', 'hook'],
+      ['act', 'power'], ['run', 20], ['act', 'push'], ['run', 260]]);
+    assertTrue('重叠点跨在量窗边上时也读得出匀速',
+      mixed.sheet.num('n2IdleSpreadMm') < 0.4, `实得 ${mixed.sheet.num('n2IdleSpreadMm')} mm`);
+    // 一整条都没走:那不该是"a=0 的一组数据",而是没量出来
+    // 板子没垫够(一层)、桶又挂着不动力的场景对照:取下桶之后放车,静摩擦把它按住 ——
+    // 一整条纸带全叠在原地,那不该是"a=0 的一组数据",而是压根没量出来
+    const still = run([['act', 'wedge+'], ['act', 'hook'], ['act', 'power'], ['run', 6],
+      ['act', 'release'], ['run', 240], ['act', 'record']]);
+    assertTrue('车一步没走时逐差法不报数',
+      !Number.isFinite(still.runner.readObservable('n2AccelTape')),
+      String(still.runner.readObservable('n2AccelTape')));
+    check('这样的组不算"算得出 a 的一组"', still.sheet.num('n2UsableCount'), 0, 1e-12);
+  }
+
+  // 3. 认真做完一分不扣
+  {
+    const good = run(diligent(2));
+    check('记下六组', good.sheet.num('n2RecordCount'), 6, 1e-12);
+    check('六组都算得出 a', good.sheet.num('n2UsableCount'), 6, 1e-12);
+    check('同一质量下换过三档拉力', good.sheet.num('n2ForceSteps'), 3, 1e-12);
+    check('同一拉力下试过四种质量', good.sheet.num('n2MassSteps'), 4, 1e-12);
+    check('检查做过一次', good.sheet.num('n2ChecksDone'), 1, 1e-12);
+    check('认真做完不扣分', good.card.awarded, 100, 1e-9);
+    check('扣分条数为 0', good.card.deductions.length, 0, 1e-12);
+    // 报告页的"第一次记录读数"用的是动作那一刻,不是交卷那一瞬。
+    // 每组开头的「重置」会把时钟归零,所以这里不套整条脚本,单跑一段能对拍的:
+    // 按下记录时表上约 1.1 s,之后再空走 2 s 才收事实 —— 收事实那一刻来当时刻就露馅。
+    const timed = run([['act', 'wedge+'], ['act', 'wedge+'], ['act', 'load+'], ['act', 'load+'],
+      ['act', 'power'], ['run', 6], ['act', 'release'], ['run', 60], ['act', 'record'],
+      ['reset'], ['run', 6]]);
+    check('时刻是按下记录那一刻,不是交卷那一瞬',
+      timed.sheet.at('recorded') > timed.runner.elapsedTime() ? 1 : 0, 1, 1e-12);
+    assertTrue('按下记录时表上已走了约 1.1 s', timed.sheet.at('recorded') > 0.8,
+      String(timed.sheet.at('recorded')));
+    check('一次都没记就不给时刻',
+      run([['act', 'power'], ['run', 60]]).sheet.at('recorded'), -1, 1e-12);
+  }
+
+  // 4. 五条判据各自能被触发,而且各自只被自己那一处不规范触发
+  const FIRES = [
+    // 少做一组:五条里只中"组数太少"
+    ['n2-records-few', checkSteps(2).concat(allGroups(GROUPS.slice(0, 5)))],
+    // 六组只换小车质量、拉力一档没动:组数够,但"改拉力"那一半没做
+    ['n2-force-steps-few', checkSteps(2)
+      .concat(allGroups([[0, 3], [0, 3], [2, 3], [2, 3], [4, 3], [4, 3], [6, 3]]))],
+    // 反过来:六组只换砝码桶,车上槽码一个没动
+    ['n2-mass-steps-few', checkSteps(2)
+      .concat(allGroups([[0, 1], [0, 1], [0, 3], [0, 3], [0, 5], [0, 5]]))],
+    // 一次都没轻推,其余全按认真做来
+    ['n2-no-friction-check', (() => {
+      const st = [['act', 'wedge+'], ['act', 'wedge+']];
+      for (const [slots, loads] of GROUPS) st.push(...GROUP(slots, loads));
+      return st;
+    })()],
+    // 垫一层就去测:组数与两半控制变量都齐,只有摩擦没抵住
+    ['n2-idle-not-uniform', diligent(1)],
+  ];
+  for (const [criterionId, steps] of FIRES) {
+    const out = run(steps);
+    const hit = out.card.deductions.filter((d) => d.criterionId === criterionId);
+    assertTrue('判据 ' + criterionId + ' 能被触发', hit.length === 1,
+      '扣分项:' + out.card.deductions.map((d) => d.criterionId).join(',') + ' / 得分 ' + out.card.awarded);
+    assertTrue('判据 ' + criterionId + ' 只被自己那一处不规范触发',
+      out.card.deductions.length === 1, out.card.deductions.map((d) => d.criterionId).join(','));
+    assertTrue('判据 ' + criterionId + ' 的证据里带上了当时的数',
+      /\d/.test(hit.length > 0 ? hit[0].evidence : ''), hit.length > 0 ? hit[0].evidence : '');
+  }
+
+  // 5. 纸带不够长就记不进"能算的一组":按了记录不等于有一组数据
+  {
+    const early = run([['act', 'wedge+'], ['act', 'wedge+'], ['act', 'load+'], ['act', 'load+'],
+      ['act', 'power'], ['run', 6], ['act', 'release'], ['run', 10], ['act', 'record']]);
+    check('按了一次记录', early.sheet.num('n2RecordCount'), 1, 1e-12);
+    check('但这条纸带切不出六段', early.sheet.num('n2UsableCount'), 0, 1e-12);
+    assertTrue('没段数时不报 a', !Number.isFinite(early.runner.readObservable('n2AccelTape')),
+      String(early.runner.readObservable('n2AccelTape')));
+    checkText('没量过的事实印成破折号', FactLabels.valueText('n2IdleSpreadMm', Number.NaN), '—');
+  }
+
+  // 6. 「重置」只把车放回起点:器材与记录本都不该被清空
+  {
+    const kept = run(diligent(2).concat([['reset'], ['run', 3]]));
+    check('重置后六组还在', kept.sheet.num('n2RecordCount'), 6, 1e-12);
+    check('重置后检查还在', kept.sheet.num('n2ChecksDone'), 1, 1e-12);
+    check('重置后垫块还垫着两层', kept.runner.readObservable('n2WedgeLayers'), 2, 1e-12);
+    check('重置后桶还挂着', kept.runner.readObservable('n2PullMassKg'), BUCKET, 1e-12);
+  }
+
+  // 7. 画面上:器材跟着动作变,纸带的点落在纸带那条线上
+  {
+    const bare = ExperimentRegistry.createRunner('newton-second-cart');
+    bare.setup(meta);
+    const snap0 = bare.snapshot();
+    check('一开始车上没有槽码', snap0.boxes.filter((b) => b.color === '#8E5BD9').length, 0, 1e-12);
+    check('一开始板端下面没有垫块', snap0.boxes.filter((b) => b.color === '#C7A44A').length, 0, 1e-12);
+    bare.doAction('slot+');
+    bare.doAction('slot+');
+    bare.doAction('wedge+');
+    bare.doAction('wedge+');
+    const snap1 = bare.snapshot();
+    check('加两只槽码就画两块', snap1.boxes.filter((b) => b.color === '#8E5BD9').length, 2, 1e-12);
+    check('加两层垫块就画两块', snap1.boxes.filter((b) => b.color === '#C7A44A').length, 2, 1e-12);
+    // 桶挂没挂要看得出来:取下之后那只蓝框与它的悬绳都不该在
+    const beforeHook = bare.snapshot();
+    bare.doAction('hook');
+    const afterHook = bare.snapshot();
+    const bucketOf = (snap) => snap.boxes.filter((b) => b.color === '#2F6FB5').length;
+    check('挂着时画得出砝码桶', bucketOf(beforeHook), 1, 1e-12);
+    check('取下后砝码桶不再画', bucketOf(afterHook), 0, 1e-12);
+    assertTrue('板高端比低端高', snap1.segments.some((sg) =>
+      sg.color === '#5A6B7F' && sg.y1 > sg.y2), '木板段没有左高右低');
+
+    // 桶走到尽头时应当正好贴在地面线上:画到地板下面去就等于把"桶的落地距离"这条限制画丢了
+    const bottomed = run(diligent(2).concat([['reset'], ['act', 'power'], ['run', 6],
+      ['act', 'release'], ['run', 300]]));
+    const bucket =bottomed.runner.snapshot().boxes.filter((b) => b.color === '#2F6FB5');
+    check('跑到尽头时桶还画着', bucket.length, 1, 1e-12);
+    assertTrue('桶底不穿到地面线以下', bucket.length > 0 && bucket[0].cy - 0.2 >= 0.5 - 1e-9,
+      bucket.length > 0 ? `桶底 ${bucket[0].cy.toFixed(3)} vs 地面 0.5` : '没画桶');
+    assertTrue('桶真走到了尽头',bottomed.runner.finished() === true, 'finished 仍为 false');
+    // 到头这件事合进桶那一格,不再单开一行 —— 单开那行与读数挤在同一带里撞过
+    const bucketTag = bottomed.runner.snapshot().labels.filter((l) => l.text.indexOf('砝码桶') >= 0);
+    check('桶那一格只有一条标签', bucketTag.length, 1, 1e-12);
+    assertTrue('到头时写在桶那一格里', bucketTag.length > 0 &&
+      bucketTag[0].text.indexOf('已降到底') > 0, bucketTag.length > 0 ? bucketTag[0].text : '没有');
+    assertTrue('桶的标签留在右侧那一列,不进读数所在的空档',
+      bucketTag.length > 0 && bucketTag[0].x > 5.2, bucketTag.length > 0 ? String(bucketTag[0].x) : '');
+    // 画布上只留一条状态读数。"板端抬高"那个数改进读数面板:
+    // 跟着层数一起写在画布上,那一行就有 20 来个字,右端跨过悬绳压在数字上(截图量过)
+    const notes = bottomed.runner.snapshot().labels.filter((l) => l.text.indexOf('s=') === 0);
+    check('画面上有一块状态读数', notes.length, 1, 1e-12);
+    // 画面里唯一整块空着的地方是两条桌腿之间(桌腿在 x=1.1 与 4.67)。
+    // 文字宽度模型层算不出(单位是 vp),所以只能按"起点落在两腿之间"判 —— 压到滑轮或压到桶都出过事
+    assertTrue('读数摆在两条桌腿之间的空档里',
+      notes.every((l) => l.x > 1.15 && l.x < 4.5), notes.map((l) => l.x.toFixed(2)).join(','));
+    assertTrue('读数摆在桌面以下、地面以上',
+      notes.every((l) => l.y < 2.9 && l.y > 0.6), notes.map((l) => l.y).join(','));
+    assertTrue('板端抬高进读数面板',
+      meta.observables.some((o) => o.key === 'n2RiseMm'), '面板里没有这一格');
+    check('两层就是 320 mm', bottomed.runner.readObservable('n2RiseMm'), 320, 1e-9);
+
+    const good = run(diligent(2));
+    const dots = good.runner.snapshot().circles
+      .filter((c) => Math.abs(c.cy - 4.9) < 1e-9 && c.r < 0.05);
+    assertTrue('纸带上的点被画出来', dots.length >= 40, `实得 ${dots.length} 个`);
+    const xs = dots.map((c) => c.cx).sort((a, b) => a - b);
+    let rising = true;
+    for (let i = 2; i < xs.length; i++) {
+      if (xs[i] - xs[i - 1] < xs[i - 1] - xs[i - 2] - 1e-9) {
+        rising = false;
+        break;
+      }
+    }
+    assertTrue('挂桶跑的那条纸带一路变疏', rising, xs.length + ' 个点');
   }
 }
 

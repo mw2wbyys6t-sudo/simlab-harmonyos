@@ -81,6 +81,13 @@ export class FactLabels {
     table.set('speedTrials', new FactLabel('按完的次数', ' 次'));
     table.set('speedSegments', new FactLabel('测到的不同区间', ' 段'));
     table.set('speedLongestS', new FactLabel('最长一段用的时间', ' s'));
+    // 牛顿第二定律:判的是控制变量与平衡摩擦这两个动作,不是 a 等于多少
+    table.set('n2RecordCount', new FactLabel('记下几组', ' 组'));
+    table.set('n2UsableCount', new FactLabel('算得出加速度的组数', ' 组'));
+    table.set('n2ForceSteps', new FactLabel('同一质量下换过的拉力档', ' 档'));
+    table.set('n2MassSteps', new FactLabel('同一拉力下试过质量', ' 种'));
+    table.set('n2ChecksDone', new FactLabel('空载轻推检查', ' 次'));
+    table.set('n2IdleSpreadMm', new FactLabel('轻推那次的点距跨度', ' mm'));
     return table;
   }
 

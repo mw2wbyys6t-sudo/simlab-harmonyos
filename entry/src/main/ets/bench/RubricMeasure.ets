@@ -8,6 +8,7 @@ import { RubricEmf } from './RubricEmf';
 import { RubricTape } from './RubricTape';
 import { RubricEnergy } from './RubricEnergy';
 import { RubricSpeed } from './RubricSpeed';
+import { RubricNewton } from './RubricNewton';
 
 /**
  * 量取参考细则。
@@ -116,6 +117,7 @@ export class Rubrics {
     new RubricSource(RubricTape.ID, (): Rubric => RubricTape.create()),
     new RubricSource(RubricEnergy.ID, (): Rubric => RubricEnergy.create()),
     new RubricSource(RubricSpeed.ID, (): Rubric => RubricSpeed.create()),
+    new RubricSource(RubricNewton.ID, (): Rubric => RubricNewton.create()),
   ];
 
   static byId(id: string): Rubric | null {
