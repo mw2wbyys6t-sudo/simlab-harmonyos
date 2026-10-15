@@ -88,6 +88,12 @@ export class FactLabels {
     table.set('n2MassSteps', new FactLabel('同一拉力下试过质量', ' 种'));
     table.set('n2ChecksDone', new FactLabel('空载轻推检查', ' 次'));
     table.set('n2IdleSpreadMm', new FactLabel('轻推那次的点距跨度', ' mm'));
+    // 描图:判的是"这幅图是怎么按出来的",不是它长得好不好看
+    table.set('imgSamples', new FactLabel('按下的取样点', ' 个'));
+    table.set('imgSpanT', new FactLabel('覆盖的周期数', ' 个'));
+    table.set('imgMaxGapT', new FactLabel('最大的取样间隔', ' 个周期'));
+    table.set('imgSwingCm', new FactLabel('点铺开的位置范围', ' cm'));
+    table.set('imgDistortCm', new FactLabel('与真实曲线的最大差', ' cm'));
     return table;
   }
 

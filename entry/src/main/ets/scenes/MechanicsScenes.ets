@@ -6,6 +6,7 @@ import { TapeCartRunner } from '../physics/TapeCartRunner';
 import { FreeFallRunner } from '../physics/FreeFallRunner';
 import { StopwatchCartRunner } from '../physics/StopwatchCartRunner';
 import { NewtonSecondRunner } from '../physics/NewtonSecondRunner';
+import { SpringImageRunner } from '../physics/SpringImageRunner';
 import { SpringMassRunner } from '../physics/SpringMassRunner';
 import { SpringForceRunner } from '../physics/SpringForceRunner';
 
@@ -22,6 +23,7 @@ export class MechanicsScenes {
     ExperimentRegistry.register(MechanicsScenes.freeFall(), (): FreeFallRunner => new FreeFallRunner());
     ExperimentRegistry.register(MechanicsScenes.stopwatchCart(), (): StopwatchCartRunner => new StopwatchCartRunner());
     ExperimentRegistry.register(MechanicsScenes.newtonSecond(), (): NewtonSecondRunner => new NewtonSecondRunner());
+    ExperimentRegistry.register(MechanicsScenes.springImage(), (): SpringImageRunner => new SpringImageRunner());
   }
 
   private static springMass(): ExperimentMeta {
@@ -297,6 +299,48 @@ export class MechanicsScenes {
     meta.tasks.push(SceneBuilders.task('n2-balance-direction',
       '垫块抬得不够与抬过头，空载纸带上的点距各是什么样子？说明为什么只有匀速那一次才算摩擦力被抵住，再说说没抵干净时 a-F 图线与坐标轴的交点在哪。', Number.NaN, 0));
     meta.rubricId = 'newton-second-rubric';
+    return meta;
+  }
+
+  /**
+   * 描绘简谐运动的图像(地图条目 `phy-sr-015`)。
+   *
+   * 这条场景故意**不声明任何图线**:外壳那张自动 x-t 图,正是学生要自己一下一下按出来的东西。
+   * 把它摆在旁边,判「描得准不准」就成了替学生描。振子照常跑,画面下方那块描图区只收他按下的点。
+   *
+   * 默认 m=4 kg、k=2 N/m → T≈8.9 s:慢到手指跟得上(每半秒一下就是一个周期十八个点),
+   * 又不至于让「按太慢」这件事要等上半分钟才显出来。
+   */
+  private static springImage(): ExperimentMeta {
+    const meta = new ExperimentMeta();
+    meta.id = 'spring-image';
+    meta.title = '描绘简谐运动的图像';
+    meta.subject = Subject.PHYSICS_MECHANICS;
+    meta.renderer = RendererKind.PHYSICS_2D;
+    meta.summary = '让振子跑起来，每隔一点时间按一次「记下这一个点」，再把描出的折线跟真实曲线比一比：按得太慢，图就走样。';
+    meta.gradeBand = '高中物理 · 选择性必修一';
+    meta.durationMinutes = 40;
+    meta.worldWidth = 6;
+    meta.worldHeight = 3.6;
+    meta.params.push(SceneBuilders.param('mass', '振体质量', 'kg', 0.5, 10, 0.1, 4, '器材'));
+    meta.params.push(SceneBuilders.param('stiffness', '弹簧劲度系数', 'N/m', 0.5, 20, 0.1, 2, '器材'));
+    meta.params.push(SceneBuilders.param('amplitude', '初始位移（重置后生效）', 'm', 0.2, 1.2, 0.05, 0.9, '条件'));
+    meta.actions.push(SceneBuilders.action('sample', '记下这一个点', '描图'));
+    meta.observables.push(SceneBuilders.observable('displacement', '位移 x', 'm', 3, false));
+    meta.observables.push(SceneBuilders.observable('velocity', '速度 v', 'm/s', 3, false));
+    meta.observables.push(SceneBuilders.observable('acceleration', '加速度 a', 'm/s²', 3, false));
+    meta.observables.push(SceneBuilders.observable('amplitude', '振幅 A', 'm', 3, false));
+    meta.observables.push(SceneBuilders.observable('periodTheory', '周期 T', 's', 3, false));
+    meta.observables.push(SceneBuilders.observable('imgSamples', '按下的取样点', '个', 0, false));
+    meta.observables.push(SceneBuilders.observable('imgSpanT', '覆盖的周期数', '个', 2, false));
+    meta.observables.push(SceneBuilders.observable('imgMaxGapT', '最大的取样间隔', '个周期', 2, false));
+    meta.observables.push(SceneBuilders.observable('imgSwingCm', '点铺开的位置范围', 'cm', 0, false));
+    meta.observables.push(SceneBuilders.observable('imgDistortCm', '与真实曲线的最大差', 'cm', 1, false));
+    meta.tasks.push(SceneBuilders.task('img-read-a-t',
+      '从你描的图上读出振幅与周期，各带上单位；再说清你是从哪几个点读出来的，为什么不能只拿相邻两点相减当周期。', Number.NaN, 0));
+    meta.tasks.push(SceneBuilders.task('img-alias-threshold',
+      '故意把手速拖慢再描一次，看「与真实曲线的最大差」这一格涨到多少。说明取样间隔接近半个周期时，峰和谷为什么会被错接成锯齿，而不只是「没那么平滑」。', Number.NaN, 0));
+    meta.rubricId = 'spring-image-rubric';
     return meta;
   }
 

@@ -75,6 +75,7 @@ const MODULES = [
   'bench/RubricEnergy',
   'bench/RubricSpeed',
   'bench/RubricNewton',
+  'bench/RubricImage',
   'bench/RubricBrine',
   'bench/RubricMeasure',
   'bench/MeasureVerdict',
@@ -110,6 +111,7 @@ const MODULES = [
   'physics/FreeFallRunner',
   'physics/StopwatchCartRunner',
   'physics/NewtonSecondRunner',
+  'physics/SpringImageRunner',
   'physics/SpringMassRunner',
   'physics/InclineRunner',
   'runner/IExperimentRunner',
@@ -4837,10 +4839,10 @@ function checkRel(label, actual, expected, relTolerance) {
   check('其中高中', rows.filter((e) => e.stage === SchoolStage.SENIOR).length, 22, 0);
   // 这一档的 RUNNABLE 是拿去和注册表对账的,多一条就是虚报
   const shippedHere = rows.filter((e) => e.feasibility === Feasibility.RUNNABLE).map((e) => e.id).sort();
-  assertTrue('中学表里 RUNNABLE 正好是注册表真装着的那十一条',
+  assertTrue('中学表里 RUNNABLE 正好是注册表真装着的那十二条',
     shippedHere.join(',') === ['phy-jr-001', 'phy-jr-002', 'phy-jr-007', 'phy-jr-017',
       'phy-sr-001', 'phy-sr-002', 'phy-sr-003', 'phy-sr-004', 'phy-sr-006', 'phy-sr-008',
-      'phy-sr-010'].join(','),
+      'phy-sr-010', 'phy-sr-015'].join(','),
     shippedHere.join(','));
   // 出处:代理取到了湖南省教育厅《初中必做实验目录(2023版)》与教育部《中小学实验教学基本目录》
   // 两份政府发布页原文。这条断言把"已核实"钉在一个数上 —— 往下掉说明有人把出处改浅了。
@@ -5027,7 +5029,7 @@ function checkRel(label, actual, expected, relTolerance) {
   // 否则"完成度"会被一次实现记两次功劳。
   const SHIPPED_RUNNABLE = ['chem-u-004', 'ele-u-003', 'ele-u-007', 'phy-jr-001', 'phy-jr-002',
     'phy-jr-007', 'phy-jr-017', 'phy-sr-001', 'phy-sr-002', 'phy-sr-003', 'phy-sr-004', 'phy-sr-006',
-    'phy-sr-008', 'phy-sr-010', 'phy-u-014'];
+    'phy-sr-008', 'phy-sr-010', 'phy-sr-015', 'phy-u-014'];
   const runnableIds = runnable.map((e) => e.id).sort();
   assertTrue('地图自称可打开的条目必须等于应用真装了的实验',
     runnableIds.join(',') === SHIPPED_RUNNABLE.join(','),
@@ -5043,25 +5045,26 @@ function checkRel(label, actual, expected, relTolerance) {
     'phy-sr-003': 'tape-cart',
     'phy-sr-008': 'free-fall',
     'phy-jr-007': 'stopwatch-cart',
-    'phy-sr-006': 'newton-second-cart'
+    'phy-sr-006': 'newton-second-cart',
+    'phy-sr-015': 'spring-image'
   };
   const lostBasis = Object.keys(BASIS)
     .filter((mapId) => registered.indexOf(BASIS[mapId]) < 0)
     .map((mapId) => `${mapId} 声称可打开,但注册表里没有 ${BASIS[mapId]}`);
   assertTrue('每条按注册表登记的 RUNNABLE 都指得到一个真注册了的场景', lostBasis.length === 0,
     lostBasis.join(' | '));
-  check('注册表里的场景数', registered.length, 13, 0);
+  check('注册表里的场景数', registered.length, 14, 0);
   assertTrue('生物学科现在一条可打开的都没有(与地图自己的判断一致)',
     CurriculumIndex.experimentsOf(MapSubject.BIOLOGY)
       .every((e) => e.feasibility !== Feasibility.RUNNABLE), '生物出现了 RUNNABLE 条目');
   // 「待补场景」这一档是为电子那 8 条而加的(引擎够、场景没有)。
   // 一条新枚举值若没有数据在用,它就是死代码 —— 这条断言同时守住"最低成本的施工面"别被误降级。
-  // 电子 6 + 中学物理 2 + 中学化学 11 = 19 条最低成本的施工面。
-  // (中学物理原有 9 条,phy-sr-004 / phy-jr-017 / phy-sr-010 / phy-sr-003 / phy-sr-008 / phy-jr-007 / phy-sr-006 各做成一条场景,减七条;
+  // 电子 6 + 中学物理 1 + 中学化学 11 = 18 条最低成本的施工面。
+  // (中学物理原有 9 条,phy-sr-004 / phy-jr-017 / phy-sr-010 / phy-sr-003 / phy-sr-008 / phy-jr-007 / phy-sr-006 / phy-sr-015 各做成一条场景,减八条;
   //  电子原有 8 条,已做成场景的 ele-u-003 与 ele-u-007 各减一条;中学化学那 11 条
   //  是"台架能拖出反应但没有细则",见 #54)
   check('待补场景的实验条数(引擎够用,只差场景与细则)',
-    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 19, 0);
+    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 18, 0);
 
   let periodSum = 0;
   for (let p = 1; p <= 7; p++) {
@@ -6556,6 +6559,172 @@ function checkRel(label, actual, expected, relTolerance) {
       }
     }
     assertTrue('挂桶跑的那条纸带一路变疏', rising, xs.length + ' 个点');
+  }
+}
+
+// ---- L3 示踪弹 7:描绘简谐运动的图像(phy-sr-015 / spring-image)------------------
+// 这条的产物就是学生一下一下按出来的那幅图。判三件事:按了几下、覆盖几个周期、
+// 描出的折线离真实曲线差多少厘米 —— 最后这件是"采样太稀就走样"唯一能被量的形式。
+{
+  const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
+  const { Rubrics } = require(join(OUT, 'bench/RubricMeasure.cjs'));
+  const { RubricImage } = require(join(OUT, 'bench/RubricImage.cjs'));
+  const { Judgment } = require(join(OUT, 'bench/Judgment.cjs'));
+  const { FactLabels } = require(join(OUT, 'model/FactLabels.cjs'));
+  const { FactSheet } = require(join(OUT, 'model/FactSheet.cjs'));
+
+  const meta = ExperimentRegistry.find('spring-image').meta;
+  checkText('地图条目 phy-sr-015 配的场景 id', meta.id, 'spring-image');
+  assertTrue('细则能被索引解析到', Rubrics.byId(meta.rubricId) !== null, meta.rubricId);
+  // 外壳那张自动 x-t 图正是学生要自己描的东西:声明了就等于替他描完
+  assertTrue('这条场景不声明自动图线', meta.charts.length === 0,
+    `带了 ${meta.charts.length} 张自动图线`);
+
+  const M = 4;
+  const K = 2;
+  const A = 0.9;
+  const W = Math.sqrt(K / M);
+  const T = 2 * Math.PI / W;
+
+  function run(steps) {
+    const runner = ExperimentRegistry.createRunner('spring-image');
+    runner.setup(meta);
+    for (const [key, value] of steps) {
+      if (key === 'act') {
+        runner.doAction(value);
+      } else if (key === 'run') {
+        for (let i = 0; i < value; i++) runner.step(1 / 60);
+      } else if (key === 'reset') {
+        runner.reset();
+      } else {
+        runner.setParam(key, value);
+      }
+    }
+    const sheet = new FactSheet();
+    runner.collectFacts(sheet);
+    const card = Judgment.score(RubricImage.create(), sheet);
+    return { runner: runner, card: card, sheet: sheet };
+  }
+
+  /** 每 frames 帧按一次手、连按 times 下:模拟一个手速稳定的学生 */
+  const tapEvery = (frames, times) => {
+    const s = [];
+    for (let i = 0; i < times; i++) s.push(['run', frames], ['act', 'sample']);
+    return s;
+  };
+  const DILIGENT = tapEvery(27, 32);
+  const good = run(DILIGENT);
+
+  // 1. 描出来的东西真的进了画面:点数、折线段数、以及"时间越界贴在最右"
+  {
+    const snap = good.runner.snapshot();
+    const dots = snap.circles.filter((c) => c.color === '#E2574C');
+    check('按了几下手就画几个点', dots.length, 32, 1e-12);
+    check('点按顺序连成折线', snap.segments.filter((g) => g.color === '#2E9E7A').length, 31, 1e-12);
+    const xs = dots.map((c) => c.cx).sort((a, b) => a - b);
+    assertTrue('点沿横轴从左往右铺', xs[0] < xs[xs.length - 1], `${xs[0]} → ${xs[xs.length - 1]}`);
+    // 按 80 下要一分半(每次点击本身一秒多)。横轴若定死 24 s,后半幅的点会叠成
+    // 右边界上一条竖线 —— 设备截图里看得见。所以描得久,横轴要跟着一起变长。
+    const long = run(tapEvery(27, 120));
+    const late = long.runner.snapshot().circles.filter((c) => c.color === '#E2574C')
+      .map((c) => c.cx).sort((a, b) => a - b);
+    check('描了 120 下', long.sheet.num('imgSamples'), 120, 1e-12);
+    assertTrue('点全在画内,没有一个叠到右边界上',
+      late[late.length - 1] < 5.7, String(late[late.length - 1]));
+    assertTrue('点铺满了横轴的大部分,不是堆在右边界一竖条',
+      (late[late.length - 1] - late[0]) / (5.7 - 0.6) > 0.5,
+      ((late[late.length - 1] - late[0]) / 5.1).toFixed(3));
+    const shortTag = good.runner.snapshot().labels.filter((l) => l.text.indexOf('横轴一格') >= 0);
+    const longTag = long.runner.snapshot().labels.filter((l) => l.text.indexOf('横轴一格') >= 0);
+    check('描得不久时横轴一格 5 s', shortTag.length > 0 && shortTag[0].text.indexOf('5 s') > 0 ? 1 : 0, 1, 1e-12);
+    check('描到 54 s 时横轴自己涨到一格 10 s',
+      longTag.length > 0 && longTag[0].text.indexOf('10 s') > 0 ? 1 : 0, 1, 1e-12);
+    // 刻度线要真画出来:没有它,"一格几秒"就只是句口号,周期没法从图上量
+    check('横轴画了八格刻度', good.runner.snapshot().segments
+      .filter((g) => g.color === '#5A6B7F' && Math.abs(g.x2 - g.x1) < 1e-9
+        && Math.abs((g.y2 - g.y1) - 0.14) < 1e-9).length,
+      8, 1e-12);
+    assertTrue('纵轴按真实位移铺:最高与最低差点到 ±振幅',
+      Math.abs((Math.max.apply(null, dots.map((c) => c.cy)) - Math.min.apply(null, dots.map((c) => c.cy)))
+        - 2 * A * (0.72 / 1.2)) < 0.25,
+      '上下铺开 ' + (Math.max.apply(null, dots.map((c) => c.cy)) - Math.min.apply(null, dots.map((c) => c.cy))).toFixed(3));
+  }
+
+  // 2. 认真描完一分不扣
+  {
+    check('按了 32 下', good.sheet.num('imgSamples'), 32, 1e-12);
+    checkRel('覆盖约 1.57 个周期', good.sheet.num('imgSpanT'), 31 * 0.45 / T, 0.02);
+    assertTrue('失真只有厘米级', good.sheet.num('imgDistortCm') < 3,
+      String(good.sheet.num('imgDistortCm')));
+    check('认真描完不扣分', good.card.awarded, 100, 1e-9);
+    check('扣分条数为 0', good.card.deductions.length, 0, 1e-12);
+  }
+
+  // 3. 失真度这个度量本身要站得住:按得越稀,差得越大,而且方向与"半个周期"对得上
+  {
+    const half8 = run(tapEvery(Math.round(T * 60 / 16), 26)).sheet.num('imgDistortCm');
+    const dense = run(tapEvery(Math.round(T * 60 / 8), 20)).sheet.num('imgDistortCm');
+    const loose = run(tapEvery(Math.round(T * 60 / 4), 12)).sheet.num('imgDistortCm');
+    const aliased = run(tapEvery(Math.round(T * 60 / 2), 12)).sheet.num('imgDistortCm');
+    // 间隔足够小时,弦对圆弧的矢高按 Δ² 涨:A(ωΔ)²/8 —— 这是这条度量该有的物理行为,
+    // 也是"只比每段两端"那种假实现过不了的一关(那样两个数都会塌到噪声级)
+    checkRel('间隔减半,失真约减到四分之一', half8 * 4, dense, 0.35);
+    assertTrue('每周期 8 个点还描得出形状(差 < 15 cm)', dense < 15, String(dense));
+    assertTrue('每周期 4 个点就越过判分线', loose > 15, String(loose));
+    // 每周期只按两下时,折线是一段段直线穿过平衡位置,而真实曲线那时正处在端点附近。
+    // 差值不再随间隔猛涨(已被 2A 这个上限压住),但仍在涨,而且稳稳越过 15 cm 这条线
+    assertTrue('隔半个周期按一下,失真越过判分线且比四分之一个周期更大',
+      aliased > 15 && aliased > loose, `${loose} → ${aliased}`);
+    assertTrue('失真不会超过两倍振幅这个物理上限', aliased <= 2 * A * 100 + 1e-6, String(aliased));
+  }
+
+  // 4. 三条判据各自能被单独触发
+  const FIRES = [
+    // 手速够、覆盖够,只是按了 11 下
+    ['img-few-samples', tapEvery(80, 11)],
+    // 按得密,但只描了约一个周期就停手
+    ['img-short-span', tapEvery(27, 21)],
+    // 点数与覆盖都够,唯独按得太稀 —— 走样
+    ['img-distorted', tapEvery(Math.round(T * 60 / 2), 12)],
+  ];
+  for (const [criterionId, steps] of FIRES) {
+    const out = run(steps);
+    const hit = out.card.deductions.filter((d) => d.criterionId === criterionId);
+    assertTrue('判据 ' + criterionId + ' 能被触发', hit.length === 1,
+      '扣分项:' + out.card.deductions.map((d) => d.criterionId).join(',') + ' / 得分 ' + out.card.awarded);
+    assertTrue('判据 ' + criterionId + ' 只被自己那一处不规范触发',
+      out.card.deductions.length === 1, out.card.deductions.map((d) => d.criterionId).join(','));
+    assertTrue('判据 ' + criterionId + ' 的证据里带上了当时的数',
+      /\d/.test(hit.length > 0 ? hit[0].evidence : ''), hit.length > 0 ? hit[0].evidence : '');
+  }
+
+  // 5. 一下都没按:除了"点太少",其余三条都拿不到事实,不该跟着扣分
+  {
+    const blank = run([['run', 300]]);
+    check('一个点也没按', blank.sheet.num('imgSamples'), 0, 1e-12);
+    assertTrue('没描就不报覆盖几个周期', !Number.isFinite(blank.sheet.num('imgSpanT')),
+      String(blank.sheet.num('imgSpanT')));
+    assertTrue('没描就不报失真', !Number.isFinite(blank.sheet.num('imgDistortCm')),
+      String(blank.sheet.num('imgDistortCm')));
+    check('只扣"点太少"这一条', blank.card.deductions.length, 1, 1e-12);
+    check('扣完还剩 66 分', blank.card.awarded, 66, 1e-9);
+    checkText('没量过的事实印成破折号', FactLabels.valueText('imgDistortCm', Number.NaN), '—');
+  }
+
+  // 5b. 描到一半去拖「初始位移」滑杆:那是起跑条件,不该把对照用的真实曲线改掉
+  {
+    const drift = run(tapEvery(27, 16).concat([['amplitude', 0.3]]).concat(tapEvery(27, 16)));
+    checkRel('描出来的形状没变:失真仍是厘米级', drift.sheet.num('imgDistortCm'),
+      good.sheet.num('imgDistortCm'), 0.6);
+    assertTrue('拖过滑杆之后失真仍远小于判分线', drift.sheet.num('imgDistortCm') < 15,
+      String(drift.sheet.num('imgDistortCm')));
+  }
+
+  // 6. 「重置」= 换一条纸带:描出来的点清掉,振子回到起点
+  {
+    const after = run(DILIGENT.concat([['reset'], ['run', 5]]));
+    check('重置后纸带空了', after.sheet.num('imgSamples'), 0, 1e-12);
+    check('重置后横轴也从零开始', after.runner.readObservable('displacement') > A - 0.02 ? 1 : 0, 1, 1e-12);
   }
 }
 
