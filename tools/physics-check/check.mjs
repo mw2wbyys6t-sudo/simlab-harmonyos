@@ -76,6 +76,7 @@ const MODULES = [
   'bench/RubricSpeed',
   'bench/RubricNewton',
   'bench/RubricImage',
+  'bench/RubricProjectile',
   'bench/RubricBrine',
   'bench/RubricMeasure',
   'bench/MeasureVerdict',
@@ -111,6 +112,7 @@ const MODULES = [
   'physics/FreeFallRunner',
   'physics/StopwatchCartRunner',
   'physics/NewtonSecondRunner',
+  'physics/ProjectileRunner',
   'physics/SpringImageRunner',
   'physics/SpringMassRunner',
   'physics/InclineRunner',
@@ -4757,8 +4759,8 @@ function checkRel(label, actual, expected, relTolerance) {
   check('高中化学知识表已全部核实', srChemRows.filter((e) => e.verified).length, 71, 0);
 
   // 判点率地板:深不深看的是「有没有能判对错的分界」,不是字数。
-  // 2026-10-10 补判点前的实测最低是 21%(大学物理),补完后全表最低 64%(物理·初中),
-  // 地板取 60 —— 谁把判点删掉或写回一句光秃秃的定义,这里会红。
+  // 2026-10-10 补判点前的实测最低是 21%(大学物理),那一轮补完最低 64%(物理·初中),地板取 60。
+  // (这一档地板在下一笔内容提交里按实测升到 100%)
   // 地板值来自实测,不是先定一个数再去凑(那条教训记在处置断言上)。
   for (const [name, rows] of tables) {
     const rate = discriminatorRate(rows);
@@ -4839,10 +4841,10 @@ function checkRel(label, actual, expected, relTolerance) {
   check('其中高中', rows.filter((e) => e.stage === SchoolStage.SENIOR).length, 22, 0);
   // 这一档的 RUNNABLE 是拿去和注册表对账的,多一条就是虚报
   const shippedHere = rows.filter((e) => e.feasibility === Feasibility.RUNNABLE).map((e) => e.id).sort();
-  assertTrue('中学表里 RUNNABLE 正好是注册表真装着的那十二条',
+  assertTrue('中学表里 RUNNABLE 正好是注册表真装着的那十三条',
     shippedHere.join(',') === ['phy-jr-001', 'phy-jr-002', 'phy-jr-007', 'phy-jr-017',
-      'phy-sr-001', 'phy-sr-002', 'phy-sr-003', 'phy-sr-004', 'phy-sr-006', 'phy-sr-008',
-      'phy-sr-010', 'phy-sr-015'].join(','),
+      'phy-sr-001', 'phy-sr-002', 'phy-sr-003', 'phy-sr-004', 'phy-sr-006', 'phy-sr-007',
+      'phy-sr-008', 'phy-sr-010', 'phy-sr-015'].join(','),
     shippedHere.join(','));
   // 出处:代理取到了湖南省教育厅《初中必做实验目录(2023版)》与教育部《中小学实验教学基本目录》
   // 两份政府发布页原文。这条断言把"已核实"钉在一个数上 —— 往下掉说明有人把出处改浅了。
@@ -5029,7 +5031,7 @@ function checkRel(label, actual, expected, relTolerance) {
   // 否则"完成度"会被一次实现记两次功劳。
   const SHIPPED_RUNNABLE = ['chem-u-004', 'ele-u-003', 'ele-u-007', 'phy-jr-001', 'phy-jr-002',
     'phy-jr-007', 'phy-jr-017', 'phy-sr-001', 'phy-sr-002', 'phy-sr-003', 'phy-sr-004', 'phy-sr-006',
-    'phy-sr-008', 'phy-sr-010', 'phy-sr-015', 'phy-u-014'];
+    'phy-sr-007', 'phy-sr-008', 'phy-sr-010', 'phy-sr-015', 'phy-u-014'];
   const runnableIds = runnable.map((e) => e.id).sort();
   assertTrue('地图自称可打开的条目必须等于应用真装了的实验',
     runnableIds.join(',') === SHIPPED_RUNNABLE.join(','),
@@ -5046,25 +5048,26 @@ function checkRel(label, actual, expected, relTolerance) {
     'phy-sr-008': 'free-fall',
     'phy-jr-007': 'stopwatch-cart',
     'phy-sr-006': 'newton-second-cart',
-    'phy-sr-015': 'spring-image'
+    'phy-sr-015': 'spring-image',
+    'phy-sr-007': 'projectile-frame'
   };
   const lostBasis = Object.keys(BASIS)
     .filter((mapId) => registered.indexOf(BASIS[mapId]) < 0)
     .map((mapId) => `${mapId} 声称可打开,但注册表里没有 ${BASIS[mapId]}`);
   assertTrue('每条按注册表登记的 RUNNABLE 都指得到一个真注册了的场景', lostBasis.length === 0,
     lostBasis.join(' | '));
-  check('注册表里的场景数', registered.length, 14, 0);
+  check('注册表里的场景数', registered.length, 15, 0);
   assertTrue('生物学科现在一条可打开的都没有(与地图自己的判断一致)',
     CurriculumIndex.experimentsOf(MapSubject.BIOLOGY)
       .every((e) => e.feasibility !== Feasibility.RUNNABLE), '生物出现了 RUNNABLE 条目');
   // 「待补场景」这一档是为电子那 8 条而加的(引擎够、场景没有)。
   // 一条新枚举值若没有数据在用,它就是死代码 —— 这条断言同时守住"最低成本的施工面"别被误降级。
-  // 电子 6 + 中学物理 1 + 中学化学 11 = 18 条最低成本的施工面。
-  // (中学物理原有 9 条,phy-sr-004 / phy-jr-017 / phy-sr-010 / phy-sr-003 / phy-sr-008 / phy-jr-007 / phy-sr-006 / phy-sr-015 各做成一条场景,减八条;
+  // 电子 6 + 中学化学 11 = 17 条最低成本的施工面(中学物理这一档已清空)。
+  // (中学物理原有 9 条,phy-sr-004 / phy-jr-017 / phy-sr-010 / phy-sr-003 / phy-sr-008 / phy-jr-007 / phy-sr-006 / phy-sr-015 / phy-sr-007 各做成一条场景,减九条;
   //  电子原有 8 条,已做成场景的 ele-u-003 与 ele-u-007 各减一条;中学化学那 11 条
   //  是"台架能拖出反应但没有细则",见 #54)
   check('待补场景的实验条数(引擎够用,只差场景与细则)',
-    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 18, 0);
+    CurriculumIndex.countByFeasibility(exps, Feasibility.NEEDS_SCENE), 17, 0);
 
   let periodSum = 0;
   for (let p = 1; p <= 7; p++) {
@@ -6725,6 +6728,270 @@ function checkRel(label, actual, expected, relTolerance) {
     const after = run(DILIGENT.concat([['reset'], ['run', 5]]));
     check('重置后纸带空了', after.sheet.num('imgSamples'), 0, 1e-12);
     check('重置后横轴也从零开始', after.runner.readObservable('displacement') > A - 0.02 ? 1 : 0, 1, 1e-12);
+  }
+}
+
+
+// ---- L3 示踪弹 8:探究平抛运动的特点(phy-sr-007 / projectile-frame)----------------
+// 这条的学生动作只有两下:把卡片挪到第几格、从斜槽第几格静止释放。
+// 判的四件事全是这两下留下的后果:描了几个点、有没有先定原点、几次释放是不是同一高度、
+// 卡片摆得齐不齐。y/x² 只当读数 —— 它永远被"定没定原点"带着走,当判据就是留一条假判据。
+{
+  const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
+  const { Rubrics } = require(join(OUT, 'bench/RubricMeasure.cjs'));
+  const { RubricProjectile } = require(join(OUT, 'bench/RubricProjectile.cjs'));
+  const { Judgment } = require(join(OUT, 'bench/Judgment.cjs'));
+  const { FactLabels } = require(join(OUT, 'model/FactLabels.cjs'));
+  const { FactSheet } = require(join(OUT, 'model/FactSheet.cjs'));
+
+  const meta = ExperimentRegistry.find('projectile-frame').meta;
+  checkText('地图条目 phy-sr-007 配的场景 id', meta.id, 'projectile-frame');
+  assertTrue('细则能被索引解析到', Rubrics.byId(meta.rubricId) !== null, meta.rubricId);
+  // 抛物线本身就是要学生自己检验出来的东西:画出来或给自动图线都等于替他做完
+  assertTrue('这条场景不声明自动图线', meta.charts.length === 0,
+    `带了 ${meta.charts.length} 张自动图线`);
+  // 「每次从同一位置静止释放」与「按水平等间隔取点」只有做成档位才留得下事实
+  assertTrue('这条场景一个滑杆也没有', meta.params.length === 0,
+    `带了 ${meta.params.length} 个滑杆`);
+  check('细则四条各 25 分', RubricProjectile.create().criteria.length, 4, 1e-12);
+
+  const G = 9.8;
+  const EXIT_X = 1.15;
+  const EXIT_Y = 2.75;
+  const SLOT_STEP = 0.05;
+  const CARD_STEP = 0.15;
+  const FALL = Math.sqrt(2 * (EXIT_Y - 0.4) / G);
+  const v0Of = (slot) => Math.sqrt(2 * G * slot * SLOT_STEP);
+
+  /** 每一步都是"按下"而不是"拖到":档位从默认的斜槽第 2 格、卡片第 3 格走 */
+  function plan() {
+    let slot = 2;
+    let card = 3;
+    const steps = [];
+    const api = {
+      steps: steps,
+      origin() {
+        steps.push(['act', 'origin']);
+        return api;
+      },
+      toSlot(t) {
+        while (slot < t) {
+          steps.push(['act', 'slot+']);
+          slot++;
+        }
+        while (slot > t) {
+          steps.push(['act', 'slot-']);
+          slot--;
+        }
+        return api;
+      },
+      toCard(t) {
+        while (card < t) {
+          steps.push(['act', 'card+']);
+          card++;
+        }
+        while (card > t) {
+          steps.push(['act', 'card-']);
+          card--;
+        }
+        return api;
+      },
+      /** 释放一次并跑够落地(0.69 s ≈ 42 帧),默认 50 帧 */
+      release(frames) {
+        steps.push(['act', 'release']);
+        steps.push(['run', frames === undefined ? 50 : frames]);
+        return api;
+      },
+      reset() {
+        steps.push(['reset']);
+        return api;
+      }
+    };
+    return api;
+  }
+
+  function run(steps) {
+    const runner = ExperimentRegistry.createRunner('projectile-frame');
+    runner.setup(meta);
+    for (const [key, value] of steps) {
+      if (key === 'act') {
+        runner.doAction(value);
+      } else if (key === 'run') {
+        for (let i = 0; i < value; i++) {
+          runner.step(1 / 60);
+        }
+      } else {
+        runner.reset();
+      }
+    }
+    const sheet = new FactSheet();
+    runner.collectFacts(sheet);
+    const card = Judgment.score(RubricProjectile.create(), sheet);
+    return { runner: runner, card: card, sheet: sheet };
+  }
+
+  /** 纸上描出来的点,还原成"按抛出点量的坐标" */
+  const dotsOf = (runner) => runner.snapshot().circles
+    .filter((c) => c.color === '#25313F')
+    .map((c) => ({ x: c.cx - EXIT_X, y: EXIT_Y - c.cy }))
+    .sort((a, b) => a.x - b.x);
+
+  // 1. 认真做完一分不扣,而且描出来的点真的落在抛物线上
+  //    卡片等间隔 → 从抛出点数起的竖直段必须成 1:3:5:7,这条实验要检验的就是它
+  const DILIGENT = plan().origin().toSlot(4).toCard(1).release()
+    .toCard(2).release().toCard(3).release().toCard(4).release().steps;
+  const good = run(DILIGENT);
+  const bare = run([['run', 10]]);
+  {
+    const dots = dotsOf(good.runner);
+    check('四次释放描了四个点', dots.length, 4, 1e-12);
+    check('按下几次就描几个点,不会一次释放连描一串',
+      good.sheet.num('pjPointCount'), 4, 1e-12);
+    for (let i = 0; i < dots.length; i++) {
+      const wantX = (i + 1) * CARD_STEP;
+      const wantY = 0.5 * G * Math.pow(wantX / v0Of(4), 2);
+      assertTrue(`第 ${i + 1} 个点横在卡片那一格`, Math.abs(dots[i].x - wantX) < 1e-9,
+        String(dots[i].x));
+      // y = g/(2v0²)·x² —— 比值恒为 1.25 就是"水平匀速 + 竖直自由落体"的合成结果
+      assertTrue(`第 ${i + 1} 个点的 y/x² 等于 g/(2v0²)`,
+        Math.abs(dots[i].y - wantY) < 1e-9, `${dots[i].y} vs ${wantY}`);
+    }
+    checkRel('y/x² 的离散度为 0:原点定对了、高度也没变',
+      good.sheet.num('pjRatioErr'), 0, 1e-9);
+    const seg = [];
+    for (let i = 0; i < dots.length; i++) {
+      seg.push(dots[i].y - (i === 0 ? 0 : dots[i - 1].y));
+    }
+    for (let i = 0; i < seg.length; i++) {
+      checkRel(`相等水平间隔的第 ${i + 1} 段竖直 = ${2 * i + 1} 份`,
+        seg[i] / seg[0], 2 * i + 1, 1e-9);
+    }
+    check('认真做完不扣分', good.card.awarded, 100, 1e-9);
+    check('扣分条数为 0', good.card.deductions.length, 0, 1e-12);
+  }
+
+  // 2. 场景不替学生连轨迹:点描多描少,线段数一个不变
+  {
+    const originOnly = run(plan().origin().steps);
+    const lines = (r) => r.snapshot().segments.length + r.snapshot().frontSegments.length;
+    check('没挂线、没描点时的线条数', lines(bare.runner), lines(originOnly.runner) - 1, 1e-12);
+    check('描了四个点之后线条数仍不变(没有一条是连出来的)',
+      lines(originOnly.runner), lines(good.runner), 1e-12);
+    check('画面上只有描下来的点', good.runner.snapshot().circles
+      .filter((c) => c.color === '#25313F').length, 4, 1e-12);
+    // 重垂线是"定原点"这个动作留下的实物:定了才挂得出来
+    // 重垂线、斜槽、卡片导引线都必须画在纸面**之上**:segments 那一层会被不透明的填充件盖掉,
+    // 设备截图上表现为"这条线根本没画"(2026-10-15 量到)。
+    check('定原点前没有重垂线', bare.runner.snapshot().frontSegments
+      .filter((g) => g.color === '#2E9E7A').length, 0, 1e-12);
+    check('定原点后就有一条重垂线', good.runner.snapshot().frontSegments
+      .filter((g) => g.color === '#2E9E7A').length, 1, 1e-12);
+    check('这个场景的线全在纸面之上,底下只剩一条地面线',
+      good.runner.snapshot().segments.length, 1, 1e-12);
+  }
+
+  // 3. 槽口速度只由释放高度决定:v0² 与格数成正比 —— 这就是"必须同一高度"的所以然
+  {
+    const s1 = run(plan().toSlot(1).steps).runner.readObservable('pjLaunchSpeed');
+    const s2 = run(plan().toSlot(2).steps).runner.readObservable('pjLaunchSpeed');
+    const s4 = run(plan().toSlot(4).steps).runner.readObservable('pjLaunchSpeed');
+    checkRel('第 2 格是第 1 格的 √2 倍', s2, s1 * Math.SQRT2, 1e-9);
+    checkRel('第 4 格是第 2 格的 √2 倍', s4, s2 * Math.SQRT2, 1e-9);
+    checkRel('v0² 正比于格数', s4 * s4 / (s1 * s1), 4, 1e-9);
+  }
+
+  // 4. 卡片摆到球飞不到的那一格:这一次什么都不该留下,而且要说出来
+  {
+    const miss = run(plan().toSlot(1).toCard(8).release().steps);
+    check('球先落地,卡片那一格什么都没描上', miss.sheet.num('pjPointCount'), 0, 1e-12);
+    assertTrue('画面上说明了为什么没描上',
+      miss.runner.snapshot().labels.some((l) => l.text.indexOf('球落在卡片之前') >= 0),
+      miss.runner.snapshot().labels.map((l) => l.text).join('|'));
+    check('这一格卡片离槽口 1.20 m', miss.runner.readObservable('pjCardDistance'), 1.2, 1e-9);
+    check('第 1 格只能飞 0.69 m', miss.runner.readObservable('pjRange'),
+      v0Of(1) * FALL, 1e-9);
+    // 反面对照:同一格释放,摆得近照样描得上 —— 接不住是因为卡片比落点远,不是因为释放高度本身描不了点
+    const ok = run(plan().toSlot(1).toCard(4).release().steps);
+    check('换到第 4 格就接得住球了', ok.sheet.num('pjPointCount'), 1, 1e-12);
+  }
+
+  // 5. 四条判据各自能被单独触发
+  const FIRES = [
+    // 定好了原点、高度也一致,只是只描了三下
+    ['pj-few-points', plan().origin().toSlot(4).toCard(1).release()
+      .toCard(2).release().toCard(3).release().steps],
+    // 描了四点,但前两下发生在挂重垂线之前(释放高度一直没动)
+    ['pj-origin-late', plan().toCard(1).release().toCard(2).release().origin()
+      .toCard(5).release().toCard(6).release().steps],
+    // 原点定了、间隔也齐,唯独中途换了释放高度
+    ['pj-mixed-launch', plan().origin().toSlot(4).toCard(1).release().toCard(3).release()
+      .toSlot(3).toCard(5).release().toCard(7).release().steps],
+    // 前三格连着描,第四下突然挪到第 8 格
+    ['pj-uneven-x', plan().origin().toSlot(4).toCard(1).release().toCard(2).release()
+      .toCard(3).release().toCard(8).release().steps],
+  ];
+  for (const [criterionId, steps] of FIRES) {
+    const out = run(steps);
+    const hit = out.card.deductions.filter((d) => d.criterionId === criterionId);
+    assertTrue('判据 ' + criterionId + ' 能被触发', hit.length === 1,
+      '扣分项:' + out.card.deductions.map((d) => d.criterionId).join(',') + ' / 得分 ' + out.card.awarded);
+    assertTrue('判据 ' + criterionId + ' 只被自己那一处不规范触发',
+      out.card.deductions.length === 1, out.card.deductions.map((d) => d.criterionId).join(','));
+    assertTrue('判据 ' + criterionId + ' 的证据里带上了当时的数',
+      /\d/.test(hit.length > 0 ? hit[0].evidence : ''), hit.length > 0 ? hit[0].evidence : '');
+  }
+
+  // 5b. 换高度那一次,y/x² 立刻散开 25%,但判分只认"没同一高度" —— 读数不偷偷打分
+  {
+    const mixed = run(FIRES[2][1]);
+    checkRel('两条抛物线的点混在一起:y/x² 散开 25%', mixed.sheet.num('pjRatioErr'), 25, 0.02);
+    check('这条读数没有多带一条扣分', mixed.card.deductions.length, 1, 1e-12);
+  }
+
+  // 5c. 没定原点时按板角量的坐标:y/x² 差到九成,同样只由"原点没定"这一条来扣
+  {
+    const lateAll = run(plan().toSlot(4).toCard(1).release().toCard(2).release()
+      .toCard(3).release().toCard(4).release().steps);
+    check('四个点全在定原点之前', lateAll.sheet.num('pjEarlyMarks'), 4, 1e-12);
+    assertTrue('按板角量的坐标根本不成正比', lateAll.sheet.num('pjRatioErr') > 50,
+      String(lateAll.sheet.num('pjRatioErr')));
+    check('基准齐的,间隔比照样报得出数', lateAll.sheet.num('pjXGapRatio'), 1, 1e-9);
+    check('仍然只扣"没定原点"一条', lateAll.card.deductions.length, 1, 1e-12);
+  }
+
+  // 6. 描了一半才想起挂重垂线:两套基准拼不到一起,两条读数宁可没有值
+  //    —— 不能拿一个"基准问题算成间隔问题"的假数去扣间隔那条分
+  {
+    const half = run(FIRES[1][1]);
+    check('定原点前描了两个', half.sheet.num('pjEarlyMarks'), 2, 1e-12);
+    assertTrue('混了基准就不报水平间隔比', !Number.isFinite(half.sheet.num('pjXGapRatio')),
+      String(half.sheet.num('pjXGapRatio')));
+    assertTrue('混了基准就不报 y/x² 离散度', !Number.isFinite(half.sheet.num('pjRatioErr')),
+      String(half.sheet.num('pjRatioErr')));
+    check('只扣"没定原点"这一条', half.card.deductions.length, 1, 1e-12);
+    check('扣完还剩 75 分', half.card.awarded, 75, 1e-9);
+    checkText('没量过的事实印成破折号', FactLabels.valueText('pjXGapRatio', Number.NaN), '—');
+  }
+
+  // 7. 一下都没释放:只有"点太少"能响,其余三条拿不到事实
+  {
+    const blank = run([['run', 60]]);
+    check('一个点也没描', blank.sheet.num('pjPointCount'), 0, 1e-12);
+    assertTrue('没描就不报间隔比', !Number.isFinite(blank.sheet.num('pjXGapRatio')),
+      String(blank.sheet.num('pjXGapRatio')));
+    assertTrue('没描就不报离散度', !Number.isFinite(blank.sheet.num('pjRatioErr')),
+      String(blank.sheet.num('pjRatioErr')));
+    check('只扣"点太少"这一条', blank.card.deductions.length, 1, 1e-12);
+    check('扣完还剩 75 分', blank.card.awarded, 75, 1e-9);
+  }
+
+  // 8. 「重置」= 换一张白纸:描的点清零,原点也得重新挂
+  {
+    const after = run(DILIGENT.concat([['reset'], ['run', 5]]));
+    check('重置后纸上没有点了', after.sheet.num('pjPointCount'), 0, 1e-12);
+    check('重置后重垂线也掉了', after.runner.snapshot().segments
+      .filter((g) => g.color === '#2E9E7A').length, 0, 1e-12);
+    check('重置后卡片回到默认那格', after.runner.readObservable('pjCardDistance'), 3 * CARD_STEP, 1e-9);
   }
 }
 

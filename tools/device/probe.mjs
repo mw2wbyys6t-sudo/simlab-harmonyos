@@ -82,10 +82,11 @@ export class Probe {
   }
 
   dumpNodes() {
-    const remote = `/data/local/tmp/${this.tag}.json`;
-    const local = join(tmpdir(), `simlab-${this.tag}-dump.json`);
+    // 路径里带 pid:两个探针同时跑(哪怕 tag 相同)也不会互相删对方那份快照。
     // 先删掉设备上那份:dumpLayout 失败时它留的是**上一次的布局**,
     // 直接读回来会把过期快照当现状 —— 那是最坏的一种假绿
+    const remote = `/data/local/tmp/${this.tag}.${process.pid}.json`;
+    const local = join(tmpdir(), `simlab-${this.tag}.${process.pid}-dump.json`);
     this.shell(`rm -f ${remote}`);
     const dumped = this.shell(`uitest dumpLayout -p ${remote}`);
     if (!dumped.includes('DumpLayout saved')) {

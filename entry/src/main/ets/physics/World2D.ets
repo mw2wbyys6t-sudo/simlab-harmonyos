@@ -81,6 +81,12 @@ export class WorldSnapshot {
   boxes: BoxShape[] = [];
   circles: CircleShape[] = [];
   segments: SegmentShape[] = [];
+  /**
+   * 画在填充件**之上**的线:重垂线、卡片导引线这类"挂在器材前面"的东西。
+   * segments 在 boxes 之前画,纸面、板面这些不透明填充会把它整条盖掉 —— 设备截图上
+   * 表现为"线根本没画",而快照里它明明在。
+   */
+  frontSegments: SegmentShape[] = [];
   springs: SpringShape[] = [];
   labels: LabelShape[] = [];
   arrows: ArrowShape[] = [];
@@ -89,6 +95,7 @@ export class WorldSnapshot {
     this.boxes.length = 0;
     this.circles.length = 0;
     this.segments.length = 0;
+    this.frontSegments.length = 0;
     this.springs.length = 0;
     this.labels.length = 0;
     this.arrows.length = 0;

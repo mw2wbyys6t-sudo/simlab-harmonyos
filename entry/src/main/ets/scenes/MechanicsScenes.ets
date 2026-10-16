@@ -7,6 +7,7 @@ import { FreeFallRunner } from '../physics/FreeFallRunner';
 import { StopwatchCartRunner } from '../physics/StopwatchCartRunner';
 import { NewtonSecondRunner } from '../physics/NewtonSecondRunner';
 import { SpringImageRunner } from '../physics/SpringImageRunner';
+import { ProjectileRunner } from '../physics/ProjectileRunner';
 import { SpringMassRunner } from '../physics/SpringMassRunner';
 import { SpringForceRunner } from '../physics/SpringForceRunner';
 
@@ -24,6 +25,7 @@ export class MechanicsScenes {
     ExperimentRegistry.register(MechanicsScenes.stopwatchCart(), (): StopwatchCartRunner => new StopwatchCartRunner());
     ExperimentRegistry.register(MechanicsScenes.newtonSecond(), (): NewtonSecondRunner => new NewtonSecondRunner());
     ExperimentRegistry.register(MechanicsScenes.springImage(), (): SpringImageRunner => new SpringImageRunner());
+    ExperimentRegistry.register(MechanicsScenes.projectileFrame(), (): ProjectileRunner => new ProjectileRunner());
   }
 
   private static springMass(): ExperimentMeta {
@@ -341,6 +343,51 @@ export class MechanicsScenes {
     meta.tasks.push(SceneBuilders.task('img-alias-threshold',
       '故意把手速拖慢再描一次，看「与真实曲线的最大差」这一格涨到多少。说明取样间隔接近半个周期时，峰和谷为什么会被错接成锯齿，而不只是「没那么平滑」。', Number.NaN, 0));
     meta.rubricId = 'spring-image-rubric';
+    return meta;
+  }
+
+  /**
+   * 探究平抛运动的特点(地图条目 `phy-sr-007`)。
+   *
+   * 器材的手上功夫是「把带孔卡片挪到某个水平位置、从斜槽某一格静止释放、球穿过孔时在白纸上
+   * 留下一个点」,所以这条场景一个滑杆都没有:卡片在第几格、球从第几格释放,都是可数的按下 ——
+   * 「每次必须从同一位置静止释放」与「按水平等间隔取点」这两条要求,只有做成档位才留得下事实。
+   *
+   * 场景不画轨迹、也不给自动图线:抛物线的形状正是这条实验要学生自己按 y 与 x² 检验出来的东西。
+   * y/x² 的离散度只当读数摆在面板上,不做判分依据 —— 定过原点、释放高度又一致时它本来就恒定,
+   * 拿它当判据就是留一条永远跟着别人响的判据。
+   */
+  private static projectileFrame(): ExperimentMeta {
+    const meta = new ExperimentMeta();
+    meta.id = 'projectile-frame';
+    meta.title = '探究平抛运动的特点';
+    meta.subject = Subject.PHYSICS_MECHANICS;
+    meta.renderer = RendererKind.PHYSICS_2D;
+    meta.summary = '先挂重垂线、把槽口那一点定成原点；再从斜槽同一格静止释放，把卡片依次往外挪，让球每次穿过孔时留下一个点，检验水平方向匀速、竖直方向是自由落体。';
+    meta.gradeBand = '高中物理 · 必修二';
+    meta.durationMinutes = 40;
+    meta.worldWidth = 4.8;
+    meta.worldHeight = 4.2;
+    meta.actions.push(SceneBuilders.action('origin', '挂重垂线定抛出点', '基准'));
+    meta.actions.push(SceneBuilders.action('slot+', '释放位置往上一格', '斜槽'));
+    meta.actions.push(SceneBuilders.action('slot-', '释放位置往下一格', '斜槽'));
+    meta.actions.push(SceneBuilders.action('card+', '卡片往外挪一格', '卡片'));
+    meta.actions.push(SceneBuilders.action('card-', '卡片往里挪一格', '卡片'));
+    meta.actions.push(SceneBuilders.action('release', '静止释放钢球', '描点'));
+    meta.observables.push(SceneBuilders.observable('pjPointCount', '描下的点', '个', 0, false));
+    meta.observables.push(SceneBuilders.observable('pjEarlyMarks', '定原点前描的点', '个', 0, false));
+    meta.observables.push(SceneBuilders.observable('pjSlot', '释放位置', '格', 0, false));
+    meta.observables.push(SceneBuilders.observable('pjLaunchSpeed', '槽口速度 v0', 'm/s', 2, false));
+    meta.observables.push(SceneBuilders.observable('pjCardDistance', '卡片离槽口', 'm', 2, false));
+    meta.observables.push(SceneBuilders.observable('pjRange', '这一次能飞多远', 'm', 2, false));
+    meta.observables.push(SceneBuilders.observable('pjSlotSpread', '释放位置最大差', '格', 0, false));
+    meta.observables.push(SceneBuilders.observable('pjXGapRatio', '水平间隔最大/最小', '', 2, false));
+    meta.observables.push(SceneBuilders.observable('pjRatioErr', 'y/x² 的离散度', '%', 1, false));
+    meta.tasks.push(SceneBuilders.task('pj-y-over-x2',
+      '用你描下的点算几个 y/x² 出来：它们相等吗？由此为什么能同时说出水平分运动匀速、竖直分运动是自由落体？只说「看着像抛物线」为什么不算检验。', Number.NaN, 0));
+    meta.tasks.push(SceneBuilders.task('pj-same-release',
+      '说明为什么每次必须从同一位置静止释放；再回答槽面是不是必须光滑、把摩擦考虑进去会不会改变结论。', Number.NaN, 0));
+    meta.rubricId = 'projectile-frame-rubric';
     return meta;
   }
 

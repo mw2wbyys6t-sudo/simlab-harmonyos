@@ -94,6 +94,12 @@ export class FactLabels {
     table.set('imgMaxGapT', new FactLabel('最大的取样间隔', ' 个周期'));
     table.set('imgSwingCm', new FactLabel('点铺开的位置范围', ' cm'));
     table.set('imgDistortCm', new FactLabel('与真实曲线的最大差', ' cm'));
+    // 平抛:判的是"卡片摆在哪、从第几格释放"这两下留下的后果
+    table.set('pjPointCount', new FactLabel('描下的点', ' 个'));
+    table.set('pjEarlyMarks', new FactLabel('定原点前描的点', ' 个'));
+    table.set('pjSlotSpread', new FactLabel('释放位置最大差', ' 格'));
+    table.set('pjXGapRatio', new FactLabel('水平间隔最大/最小', ''));
+    table.set('pjRatioErr', new FactLabel('y/x² 的离散度', '%'));
     return table;
   }
 

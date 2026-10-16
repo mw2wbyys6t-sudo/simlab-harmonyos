@@ -20,6 +20,7 @@ export class CanvasPainter {
     CanvasPainter.drawSegments(ctx, snap.segments, vp);
     CanvasPainter.drawSprings(ctx, snap.springs, vp);
     CanvasPainter.drawBoxes(ctx, snap.boxes, vp);
+    CanvasPainter.drawSegments(ctx, snap.frontSegments, vp);
     CanvasPainter.drawCircles(ctx, snap.circles, vp);
     CanvasPainter.drawArrows(ctx, snap.arrows, vp);
     CanvasPainter.drawLabels(ctx, snap.labels, vp);
