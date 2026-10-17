@@ -686,6 +686,81 @@ function checkRel(label, actual, expected, relTolerance) {
   }
 }
 
+// ---- 填空的三条判据:先抽成「返回失败清单」的纯函数 --------------------------
+// 写法照抄调色板那一节(auditPalette)与课程地图那一节的负对照:判据若直接 assertTrue,
+// 「这把尺子真的会拦人」就只能等 Task 5/9 把填空真接上时顺带证明。而本任务落地时注册表里
+// 一条 submissions 都没有,三条真数据断言全是空跑 —— 所以每条判据各配一组合成用例,
+// 让「尺子会咬」本身成为断言。靠全红蒙对不算数(2026-09-26 那批假断言换来的规矩)。
+
+const { SceneBuilders } = require(join(OUT, 'scenes/SceneBuilders.cjs'));
+
+/**
+ * 中文串里不许混半角标点。Ruling C 实测后把半角 `:` 与 `?` 也收了进来(结论写在下面
+ * 文案闸门那一节的注释里),全部学生可见文案与填空 label 共用这一个字符类。
+ */
+const HALF_WIDTH_PUNCT = /[一-龥][,;():?]|[,;():?][一-龥]/;
+
+/** 合成一条填空:走真实工厂,顺带钉住 (key, taskKey, label, unit, precision) 的参数顺序 */
+function fakeSubmission(key, taskKey, label, unit) {
+  return SceneBuilders.submission(key, taskKey, label, unit, 2);
+}
+
+/** 合成一条场景:只喂下面三条判据,绝不塞进注册表,不影响任何一条真数据断言 */
+function fakeScene(taskKeys, submissions) {
+  return { id: '负对照填空场景', tasks: taskKeys.map((key) => ({ key: key })), submissions: submissions };
+}
+
+/** 填空挂到本场景没声明的 taskKey 上 → 页面那一栏找不到归属,渲染成孤儿。返回孤儿清单 */
+function findOrphanSubmissions(all) {
+  const orphan = [];
+  for (const m of all) {
+    for (const s of m.submissions) {
+      if (!m.tasks.some((t) => t.key === s.taskKey)) {
+        orphan.push(`${m.id}/${s.key}→${s.taskKey}`);
+      }
+    }
+  }
+  return orphan;
+}
+
+/** 同场景两个填空撞 key → 下游按 key 存答案,后写的静默盖掉前写的。返回撞车清单 */
+function findDuplicateSubmissionKeys(all) {
+  const dup = [];
+  for (const m of all) {
+    const counted = new Map();
+    for (const s of m.submissions) counted.set(s.key, (counted.get(s.key) || 0) + 1);
+    for (const [key, n] of counted) {
+      if (n > 1) dup.push(`${m.id}/${key}×${n}`);
+    }
+  }
+  return dup;
+}
+
+/**
+ * 填空 label 的硬闸门。它是印在实验页上、让学生照着算的唯一一句话,漏写等于出题出到一半。
+ * 判据一:至少 4 个汉字。地板取自实测不拍脑袋 —— 全工程声明过的单位串里带汉字的最长是
+ * 「个周期」3 个字(其余是 m / V / mm / 个 / 组 / 段 / 档),所以「干脆没填」与「把 unit
+ * 串错填进 label」都会在这一条上红;Task 5/9 计划里四条问句最少的一条也有 10 个汉字。
+ * 判据二:不混半角标点,共用上面那个字符类。标点归这条硬闸门管,不是只靠文案闸门里那行
+ * push —— 那行哪天被后人删掉,填空的问句照样拦得住(见下面那条负对照)。
+ * 返回不合格清单。
+ */
+function findBadSubmissionLabels(all) {
+  const bad = [];
+  for (const m of all) {
+    for (const s of m.submissions) {
+      const label = (s.label === undefined || s.label === null) ? '' : s.label;
+      const cjk = label.match(/[一-龥]/g);
+      if (cjk === null || cjk.length < 4) {
+        bad.push(`${m.id}/${s.key} 的 label「${label}」只有 ${cjk === null ? 0 : cjk.length} 个汉字`);
+      } else if (HALF_WIDTH_PUNCT.test(label)) {
+        bad.push(`${m.id}/${s.key} 的 label「${label}」混了半角标点`);
+      }
+    }
+  }
+  return bad;
+}
+
 // ---- 屏幕上的词:内部术语不许进学生可见文案(④ 内部语言外译) ----------------
 {
   // 左边这一串全是我们讨论实现时用的词。学生不需要知道少了哪一层、字段叫什么、
@@ -695,6 +770,8 @@ function checkRel(label, actual, expected, relTolerance) {
 
   const visible = [];
   const push = (where, text) => {
+    // 空串与 undefined 会被下面这行静默丢掉。参数说明、细则名这些可空字段靠的正是这个行为,
+    // 所以不能改这里;填空 label 的「漏写」因此由 findBadSubmissionLabels 在清单之外硬拦。
     if (typeof text === 'string' && text.length > 0) visible.push([where, text]);
   };
 
@@ -746,13 +823,56 @@ function checkRel(label, actual, expected, relTolerance) {
   // 先确认清单真的收满了:否则两条断言会"零命中"假绿
   assertTrue('可见文案清单收满了场景与细则', visible.length > 80,
     `只收到 ${visible.length} 条`);
+  // 填空这一栏单独再核一次条数:带「填空」标签的条目要等于注册表声明的填空总数。
+  // 今天注册表还没有填空(0 == 0,这一条暂时空跑),Task 5 一接上就活:此后谁把上面
+  // 那行 push 删掉或把标签写歪,漏灌就不再只有靠填空硬闸门兜(变异 M15 实测今天测不到这行)。
+  const declaredSubmissions = ExperimentRegistry.all().reduce((n, m) => n + m.submissions.length, 0);
+  const collectedSubmissions = visible.filter(([where]) => where.endsWith(' 填空')).length;
+  check('填空一条不漏地进了可见文案清单', collectedSubmissions, declaredSubmissions, 0);
   const leaks = visible.filter(([, text]) => BLOCKED.some((w) => text.includes(w)));
   assertTrue('学生可见文案里没有内部术语',
     leaks.length === 0, `${leaks.length} 条命中:${leaks.slice(0, 6).map(([w, t]) => `${w}「${t}」`).join(' / ')}`);
   // 半角标点混在中文里是"AI 写的"最直观的痕迹之一,可见文案一律全角
-  const halfWidth = visible.filter(([, text]) => /[一-龥][,;()]|[,;()][一-龥]/.test(text));
+  // Ruling C 实测:把旧字符类临时扩到含半角 `:` 与 `?` 跑一遍 harness,新增红 0 处 ——
+  // 0 ≤ 5,所以走第 2 条分支:扩展类保留为**全局**,既有文案一处都不必就地改。
+  // 为什么非扩不可:填空 label 天生是问句(Task 5 计划里那句就带冒号),旧类对混进来的
+  // 半角 `:`/`?` 完全看不见。旧类是瞎的、新类咬得住,由下面三条负对照钉死。
+  // 字符类住在文件上面模块作用域,填空硬闸门 findBadSubmissionLabels 用的是同一个
+  const halfWidth = visible.filter(([, text]) => HALF_WIDTH_PUNCT.test(text));
   assertTrue('可见文案不混半角标点',
     halfWidth.length === 0, `${halfWidth.length} 条命中:${halfWidth.slice(0, 6).map(([w, t]) => `${w}「${t}」`).join(' / ')}`);
+
+  // 填空 label 的「漏写」不能指望上面那条闸门兜:push() 只收非空串,空串根本进不了清单,
+  // 于是最现实的接线缺陷(label 忘了填)全绿溜过去。所以「是不是句人话」必须在清单之外拦。
+  const blankLabels = findBadSubmissionLabels(ExperimentRegistry.all());
+  assertTrue('每个填空的 label 都是写全且标点干净的中文问句', blankLabels.length === 0,
+    blankLabels.join(' | '));
+
+  // 负对照:真注册表现在还没有填空(Task 5/9 才接上),上面那条是空跑,所以喂合成数据 ——
+  // 两种最现实的漏法各恰好抓 1 条,写全的那条不误伤
+  check('负对照:填空 label 漏写成空串会被抓到', findBadSubmissionLabels([fakeScene(['tape-a-by-difference'],
+    [fakeSubmission('tapeNumerator', 'tape-a-by-difference', '', 'mm')])]).length, 1, 0);
+  check('负对照:填空把单位串错填进 label 会被抓到', findBadSubmissionLabels([fakeScene(['tape-a-by-difference'],
+    [fakeSubmission('tapeNumerator', 'tape-a-by-difference', 'mm', '逐差法的分子：后三段之和 减 前三段之和')])]).length, 1, 0);
+  check('负对照:写全的填空问句不会被误伤', findBadSubmissionLabels([fakeScene(['tape-a-by-difference'],
+    [fakeSubmission('tapeNumerator', 'tape-a-by-difference', '逐差法的分子：后三段之和 减 前三段之和', 'mm')])]).length, 0, 0);
+  // 这条证明标点不只在文案闸门里管:把那行 push 删了,硬闸门仍然咬得住
+  check('负对照:填空 label 混半角冒号会被硬闸门认出', findBadSubmissionLabels([fakeScene(['tape-a-by-difference'],
+    [fakeSubmission('tapeNumerator', 'tape-a-by-difference', '逐差法的分子:后三段之和 减 前三段之和', 'mm')])]).length, 1, 0);
+
+  // 负对照:Ruling C 扩进来的两个字符得真的咬得住,旧类必须显式证明它是瞎的
+  check('负对照:填空问句里的半角冒号会被文案闸门认出',
+    HALF_WIDTH_PUNCT.test('逐差法的分子:后三段之和') ? 1 : 0, 1, 1e-12);
+  check('负对照:填空问句里的半角问号会被文案闸门认出',
+    HALF_WIDTH_PUNCT.test('周期是否改变?由此说明适用条件') ? 1 : 0, 1, 1e-12);
+  check('负对照:扩类之前的旧字符类对半角冒号是瞎的',
+    /[一-龥][,;()]|[,;()][一-龥]/.test('逐差法的分子:后三段之和') ? 1 : 0, 0, 1e-12);
+
+  // 负对照:push() 静默丢空串这条机制本身也钉住,免得后人以为漏写有文案闸门兜着
+  const visibleBeforeEmptyPush = visible.length;
+  push('负对照 填空', '');
+  assertTrue('负对照:空串灌不进可见清单(证明填空 label 必须有上面那条硬闸门)',
+    visible.length === visibleBeforeEmptyPush, `空串反倒多出 ${visible.length - visibleBeforeEmptyPush} 条`);
 }
 
 // ---- 调色板资源:浅色与深色两套都要过 AA(① 色阶令牌化) ------------------
@@ -5061,15 +5181,27 @@ function checkRel(label, actual, expected, relTolerance) {
   assertTrue('每条按注册表登记的 RUNNABLE 都指得到一个真注册了的场景', lostBasis.length === 0,
     lostBasis.join(' | '));
   // 填空必须挂在真存在的任务下:挂错了,页面上那一栏找不到归属,渲染成孤儿
-  const orphan = [];
-  for (const m of ExperimentRegistry.all()) {
-    for (const s of m.submissions) {
-      if (!m.tasks.some((t) => t.key === s.taskKey)) {
-        orphan.push(`${m.id}/${s.key}→${s.taskKey}`);
-      }
-    }
-  }
+  const orphan = findOrphanSubmissions(ExperimentRegistry.all());
   assertTrue('每个填空都挂在真声明了的任务下', orphan.length === 0, orphan.join(' | '));
+  // 同一场景里两个填空撞 key:下游按 key 存答案(runner.setAnswer),页面又按 meta.submissions
+  // 同序存输入文本 —— 撞了不报错,只是后一个静默盖掉前一个,学生交的数存进错的格子
+  const dupKeys = findDuplicateSubmissionKeys(ExperimentRegistry.all());
+  assertTrue('同场景内填空的 key 互不重复', dupKeys.length === 0, dupKeys.join(' | '));
+  // 负对照:上面两条此刻都还是空跑(没有场景声明填空),所以各喂一条坏数据 + 一条好数据:
+  // 坏数据必须恰好抓 1 条、好数据必须 0 条。Task 5 不必再顺带证明这把尺子有没有牙。
+  const fakeBadTaskKey = fakeScene(['pj-y-over-x2'],
+    [fakeSubmission('pjG', 'pj-y-over-x2-typo', '由你描的点反求的重力加速度 g', 'm/s²')]);
+  check('负对照:填空挂错 taskKey 会被抓到', findOrphanSubmissions([fakeBadTaskKey]).length, 1, 0);
+  const fakeDupKey = fakeScene(['pj-y-over-x2'],
+    [fakeSubmission('pjG', 'pj-y-over-x2', '由你描的点反求的重力加速度 g', 'm/s²'),
+      fakeSubmission('pjG', 'pj-y-over-x2', '竖直方向第二段位移 ÷ 第一段位移', '')]);
+  check('负对照:同场景内填空 key 撞车会被抓到', findDuplicateSubmissionKeys([fakeDupKey]).length, 1, 0);
+  const fakeHealthy = fakeScene(['pj-y-over-x2'],
+    [fakeSubmission('pjG', 'pj-y-over-x2', '由你描的点反求的重力加速度 g', 'm/s²'),
+      fakeSubmission('pjSegRatio', 'pj-y-over-x2', '竖直方向第二段位移 ÷ 第一段位移', '')]);
+  check('负对照:挂对又互不撞车的填空三条判据都不误伤',
+    findOrphanSubmissions([fakeHealthy]).length + findDuplicateSubmissionKeys([fakeHealthy]).length +
+      findBadSubmissionLabels([fakeHealthy]).length, 0, 0);
   check('注册表里的场景数', registered.length, 15, 0);
   assertTrue('生物学科现在一条可打开的都没有(与地图自己的判断一致)',
     CurriculumIndex.experimentsOf(MapSubject.BIOLOGY)
