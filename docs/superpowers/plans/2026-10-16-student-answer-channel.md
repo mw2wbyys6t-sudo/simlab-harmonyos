@@ -1008,12 +1008,15 @@ export class ProjectileGProcedure {
 ```ts
     // 两格填空都要求"定过原点":没定原点时那套坐标算出来的 g 不是这条问的 g,
     // 那种情形由 pj-origin-late 那条去扣,不在这里抢同一个错。
+    // 注意 v0 取的是**描下那个点时**的释放格(first.slot),不是当前滑槽位置 ——
+    // 学生描完点再去改释放高度是常事,拿新的 v0 去比旧的点会假扣分。
     if (this.originSet && this.points.length >= 1) {
       const first = this.points[0];
       const yMm = first.y * 1000;
       const xMm = first.x * 1000;
-      this.checkNumber(sheet, 'pjG', ProjectileGProcedure.gFromPoint(yMm, xMm, this.v0()),
-        ProjectileGProcedure.fingerprints(yMm, xMm, this.v0()), 3);
+      const v0 = ProjectileRunner.v0At(first.slot);
+      this.checkNumber(sheet, 'pjG', ProjectileGProcedure.gFromPoint(yMm, xMm, v0),
+        ProjectileGProcedure.fingerprints(yMm, xMm, v0), 3);
     }
     if (this.originSet && this.points.length >= 3) {
       const ys = this.sortedY().slice(0, 2).map((v: number): number => v * 1000);
@@ -1021,6 +1024,22 @@ export class ProjectileGProcedure {
         ProjectileGProcedure.ratioFingerprints(ys), 3);
     }
 ```
+
+`v0()` 改写成"按格数取"的静态口,并把原来的私有 `v0()` 转调它(答案的期望值与飞行中的画面都用它):
+
+```ts
+  /** 槽口速度只由释放格数决定:这就是"必须同一位置静止释放"的所以然 */
+  static v0At(slot: number): number {
+    return Math.sqrt(2 * G * slot * SLOT_STEP);
+  }
+
+  private v0(): number {
+    return ProjectileRunner.v0At(this.slot);
+  }
+```
+
+**并加一条断言钉住这件事**(而不是只在注释里说):描完四个点后把 `slot+` 按两下,`pjGTrue` 必须纹丝不动 ——
+这是 Ruling G 的落点:期望值绑在"数据被记下的那一刻",不绑在世界的当前状态。
 
 加取数口(紧跟 `sortedX()`):
 
