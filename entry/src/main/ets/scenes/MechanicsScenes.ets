@@ -400,6 +400,18 @@ export class MechanicsScenes {
       '用你描下的点算几个 y/x² 出来：它们相等吗？由此为什么能同时说出水平分运动匀速、竖直分运动是自由落体？只说「看着像抛物线」为什么不算检验。', Number.NaN, 0));
     meta.tasks.push(SceneBuilders.task('pj-same-release',
       '说明为什么每次必须从同一位置静止释放；再回答槽面是不是必须光滑、把摩擦考虑进去会不会改变结论。', Number.NaN, 0));
+    // 两格填空都挂在 y/x² 那条任务上:反求 g 要的是他描的点,段比要的也是同一批点。
+    // 应用内部怎么取数必须写进问句本身(sr-003 的先例:「末尾凑不满一对的那段舍掉」)——
+    // ① g 用**描下的第 1 个点**、v0 用**描它那一刻**的释放格(描完再去升档位不算),
+    //    下落取「从槽口算起」那一个,不是没挂线时标签上那个按板角量出来的 y;
+    // ② 段比的窗口是**离槽口最近**那两个点,按远近取而不按描点先后。
+    // 不写清,按另一种取法算的人会被判「算错了」且不命中任何错法。
+    meta.submissions.push(SceneBuilders.submission('pjG', 'pj-y-over-x2',
+      '由你描的第 1 个点反求的重力加速度 g（g = 2·(y/x²)·v0²；y 是这个点从槽口算起的下落，v0 按描它那一次用的释放格）',
+      'm/s²', 2));
+    meta.submissions.push(SceneBuilders.submission('pjSegRatio', 'pj-y-over-x2',
+      '竖直方向第二段位移 ÷ 第一段位移（第一段从槽口量到离槽口最近那个点，第二段是它到次近那个点；这两个点按远近取，不按描点先后）',
+      '', 2));
     meta.rubricId = 'projectile-frame-rubric';
     return meta;
   }

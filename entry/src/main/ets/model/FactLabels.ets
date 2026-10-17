@@ -116,6 +116,15 @@ export class FactLabels {
     table.set('pjSlotSpread', new FactLabel('释放位置最大差', ' 格'));
     table.set('pjXGapRatio', new FactLabel('水平间隔最大/最小', ''));
     table.set('pjRatioErr', new FactLabel('y/x² 的离散度', '%'));
+    // 平抛的填数通道:两格填空的结果码、你交的数、应有值与错法码(码那两格必须过 codes 表)
+    table.set('pjGOutcome', FactLabels.coded('反求 g 判定'));
+    table.set('pjSegRatioOutcome', FactLabels.coded('竖直段比判定'));
+    table.set('ans.pjG', new FactLabel('你交的重力加速度 g', ' m/s²'));
+    table.set('ans.pjSegRatio', new FactLabel('你交的竖直段比', ''));
+    table.set('pjGTrue', new FactLabel('反求 g 应有值', ' m/s²'));
+    table.set('pjSegRatioTrue', new FactLabel('竖直段比应有值', ''));
+    table.set('pjGWrongKind', new FactLabel('反求 g 的错法', ''));
+    table.set('pjSegRatioWrongKind', new FactLabel('竖直段比的错法', ''));
     return table;
   }
 

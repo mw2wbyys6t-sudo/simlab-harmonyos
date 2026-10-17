@@ -1,6 +1,7 @@
 import { ExperimentMeta } from '../model/ExperimentTypes';
 import { FactSheet } from '../model/FactSheet';
 import { Physics2DRunner } from './Physics2DRunner';
+import { Fingerprint } from './AnswerCheck';
 import { ProjectileGProcedure } from './ProjectileGProcedure';
 import {
   BoxShape, CircleShape, LabelShape, SegmentShape, WorldSnapshot
@@ -70,6 +71,16 @@ class TracedPoint {
  *
  * 场景**不画轨迹、不给自动图线**:抛物线的形状正是这条实验要学生自己检验出来的东西
  * (按 y 与 x² 成正比检验,而不是"看着像")。y/x² 的离散度只当读数摆在面板上。
+ *
+ * 两格填空(`pjG` / `pjSegRatio`)把数据处理那一层接进事实,应有值的算式全在
+ * `ProjectileGProcedure`,这里只负责"从哪批数取"。**作废与不作废这一对**是这条场景自己定的:
+ * ① 改斜槽档位(`slot+`/`slot-`)、挪卡片(`card+`/`card-`)、挂重垂线(`origin`)都不作废 ——
+ *    这三下只改世界的当前状态,不动已经描在纸上的点,而两格的应有值恰恰只由那些点带着的
+ *    `drop`/`card`/`slot` 决定(描完之后再去升档位,拿新的 v0 配旧的点会假扣分);
+ * ② 再描一个点(`release` 真的在纸上留下点时)作废两格 —— 段比那一问的窗口是"离槽口最近的
+ *    那两个点",新点可能比它们更靠近槽口,窗口一挪,上一次交的那个数就属于另一批数据了。
+ *    这与 sr-003 声明的"power/release 不作废"不一样,是这条实验自己的事实逼出来的:
+ *    那边纸带已经走完,再按键不改窗口;这边纸还在长。
  */
 export class ProjectileRunner extends Physics2DRunner {
   private points: TracedPoint[] = [];
@@ -153,7 +164,15 @@ export class ProjectileRunner extends Physics2DRunner {
     }
   }
 
-  /** 把此刻球的位置按当前原点设定记到纸上;真实下落另存一份(drop) */
+  /**
+   * 把此刻球的位置按当前原点设定记到纸上;真实下落另存一份(drop)。
+   *
+   * 落笔这一刻作废两格填空:段比那一问的窗口是"离槽口最近的那两个点",而这个新点完全可能
+   * 比它们更靠近槽口 —— 窗口一挪,应有值就换了一批数据,留着旧数只会被判"算错了"(假扣分,
+   * Controller Ruling D 的原话)。作废只在这一笔落笔发生:`release` 空放(球先落地、纸上什么
+   * 都没添)不进这里,也就不牵连作废 —— 触发点是"纸上多了一个点",不是那颗按钮。
+   * Task 7 的页面必须镜像清空(Ruling F),不能让学生盯着一框还在回显的数被判"没交"。
+   */
   private mark(): void {
     const d = this.cardDistance();
     const drop = 0.5 * G * (d / this.v0()) * (d / this.v0());
@@ -171,6 +190,7 @@ export class ProjectileRunner extends Physics2DRunner {
       point.y = EXIT_Y - drop - CORNER_Y;
     }
     this.points.push(point);
+    this.answers.clear();
   }
 
   readObservable(key: string): number {
@@ -203,20 +223,58 @@ export class ProjectileRunner extends Physics2DRunner {
   }
 
   /**
-   * 第 1 个描下的点上,按**真实下落**反求的 g —— 这一格的应有值。
+   * 第 1 个描下的点上,按**真实下落**反求的 g —— 也是 `pjG` 那一格的应有值。
    *
    * 它与原点无关:drop 是从槽口量下来的距离,水平距离就是 card · CARD_STEP,
    * 用的 v0 是**描下那个点时**的释放格(points[0].slot),不是当前滑槽位置。
-   * Task 9 接的就是这一条;这里先给读数口,是为了让"先描点后挂线"那种做法在离线
-   * 也能断言到 9.8 而不是 19.3(Ruling I 的验收)。
+   * 读数口 `pjGTrue` 与事实 `pjGTrue` 走的就是这一个方法(harness 有一条断言对着它,
+   * 两处各写各的会当场红)。
    */
   private gFromDrop(): number {
+    const a = this.firstPointArgs();
+    return ProjectileGProcedure.gFromPoint(a[0], a[1], a[2]);
+  }
+
+  /** `pjG` 那一格的错法表:与上面同一个点、同一组入参 */
+  private gPrintsFromDrop(): Fingerprint[] {
+    const a = this.firstPointArgs();
+    return ProjectileGProcedure.fingerprints(a[0], a[1], a[2]);
+  }
+
+  /**
+   * 第 1 个点那一格的三个入参:真实下落(毫米)、卡片格对应的水平距离(毫米)、
+   * **描它那一刻**的释放格给出的槽口速度。
+   *
+   * 三个数一律取自那个点自己带着的字段,不取自世界的当前状态 —— 这是 Ruling G 的落点:
+   * 期望值绑在"数据被记下的那一刻"。水平距离取 card · CARD_STEP 而不是 point.x:
+   * 没挂重垂线时描下的点,`x` 是板角基准下的横坐标,拿它配 drop 会拼出第三套基准。
+   */
+  private firstPointArgs(): number[] {
     if (this.points.length === 0) {
-      return Number.NaN;
+      return [Number.NaN, Number.NaN, Number.NaN];
     }
     const p = this.points[0];
-    return ProjectileGProcedure.gFromPoint(p.drop * 1000, p.card * CARD_STEP * 1000,
-      ProjectileRunner.v0At(p.slot));
+    return [p.drop * 1000, p.card * CARD_STEP * 1000, ProjectileRunner.v0At(p.slot)];
+  }
+
+  /**
+   * 段比那一格用的两个下落(毫米):离槽口**最近**的那两个点的真实下落,不是描点先后。
+   * 不足两个点给空数组,procedure 那边返回 NaN → 这道题不出。
+   */
+  private segRatioYmm(): number[] {
+    const drops = this.sortedDrop();
+    if (drops.length < 2) {
+      return [];
+    }
+    return [drops[0] * 1000, drops[1] * 1000];
+  }
+
+  private segRatio(): number {
+    return ProjectileGProcedure.segmentRatio(this.segRatioYmm());
+  }
+
+  private segRatioPrints(): Fingerprint[] {
+    return ProjectileGProcedure.ratioFingerprints(this.segRatioYmm());
   }
 
   /** 第 1 个描下的点上,按**他看到的那个 y**(没定原点时是板角基准)反求的 g */
@@ -240,6 +298,19 @@ export class ProjectileRunner extends Physics2DRunner {
     }
     if (Number.isFinite(scatter)) {
       sheet.set('pjRatioErr', scatter);
+    }
+    // 两格填空都要求"定过原点":没定原点时他手上那套坐标算出来的 g 不是这一格问的 g,
+    // 基准那件事由 pj-origin-late 去扣,不在这里抢同一个错(所以那种情形是"这道题没出"、
+    // 判据不响,不是判"没交")。应有值一律取 drop,不取标签上那个 y —— 见 ProjectileGProcedure
+    // 的入参契约(Controller Ruling I)。
+    // g 那一格只要一对 (x, y) 就出得来,描了一个点就问;段比按 spec §6 的边界要凑得出三个点
+    // 才问 —— 两个点上"等时间间隔相邻两段之比"还没谈得上检验,宁可不出这道题(不扣分),
+    // 也不要拿一个学生没处核对的数去判他。
+    if (this.originSet) {
+      this.checkNumber(sheet, 'pjG', this.gFromDrop(), this.gPrintsFromDrop(), 3);
+    }
+    if (this.originSet && this.points.length >= 3) {
+      this.checkNumber(sheet, 'pjSegRatio', this.segRatio(), this.segRatioPrints(), 3);
     }
     sheet.mark('traced', this.points.length > 0 ? 0 : -1);
   }
@@ -485,6 +556,27 @@ export class ProjectileRunner extends Physics2DRunner {
       xs.push(this.points[i].x);
     }
     return xs.sort((a: number, b: number): number => a - b);
+  }
+
+  /**
+   * 按离槽口的远近排好的**真实下落**序列(米)。
+   *
+   * 两件事都在这里定死:① 顺序按 x 排,不按描点先后(学生完全可能先把卡片摆到第 4 格);
+   * ② 取的是 `drop` 而不是 `y` —— ProjectileGProcedure 的入参契约要的是"从槽口算起的那套 y",
+   * 挂线之前描下的点存的是板角基准坐标,拿它当从槽口算起的下落,等于应用把错的基准供认成
+   * 应有值(Controller Ruling I 同一条理由,段比这一格也适用)。
+   */
+  private sortedDrop(): number[] {
+    const order: number[] = [];
+    for (let i = 0; i < this.points.length; i++) {
+      order.push(i);
+    }
+    order.sort((a: number, b: number): number => this.points[a].x - this.points[b].x);
+    const out: number[] = [];
+    for (let i = 0; i < order.length; i++) {
+      out.push(this.points[order[i]].drop);
+    }
+    return out;
   }
 
   /**
