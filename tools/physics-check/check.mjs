@@ -107,6 +107,7 @@ const MODULES = [
   'physics/circuit/OhmRunner',
   'physics/circuit/EmfRunner',
   'physics/TickerTape',
+  'physics/AnswerCheck',
   'physics/TapeCartRunner',
   'physics/TapeStrip',
   'physics/FreeFallRunner',
@@ -6994,6 +6995,35 @@ function checkRel(label, actual, expected, relTolerance) {
       .filter((g) => g.color === '#2E9E7A').length, 0, 1e-12);
     check('重置后卡片回到默认那格', after.runner.readObservable('pjCardDistance'), 3 * CARD_STEP, 1e-9);
   }
+}
+
+// ---- 学生填数通道 1:AnswerCheck 的三值码与匹配顺序 ------------------------------
+// 这套码是"没交"与"这题没出"两条路径的唯一落点,所以顺序与边界都要钉住。
+{
+  const { AnswerCheck, ANSWER_OK, ANSWER_WRONG, ANSWER_MISSING, Fingerprint } =
+    require(join(OUT, 'physics/AnswerCheck.cjs'));
+  const fp = (id, value) => { const f = new Fingerprint(); f.id = id; f.value = value; return f; };
+  const prints = [fp(1, 100), fp(2, 20), fp(3, 60)];
+  check('差 1% → 算对', AnswerCheck.match(181.8, 180, prints, 3).code, ANSWER_OK, 0);
+  check('偏差按有符号百分比报出', AnswerCheck.match(181.8, 180, prints, 3).relErr, 1, 0.01);
+  check('差 4% → 算错', AnswerCheck.match(172.8, 180, prints, 3).code, ANSWER_WRONG, 0);
+  check('没填(NaN)→ 没交', AnswerCheck.match(Number.NaN, 180, prints, 3).code, ANSWER_MISSING, 0);
+  assertTrue('没填时 relErr 不编数',
+    !Number.isFinite(AnswerCheck.match(Number.NaN, 180, prints, 3).relErr), 'x');
+  check('命中指纹 2 号(差 0.3%)', AnswerCheck.match(20.06, 180, prints, 3).wrongKind, 2, 0);
+  check('命中指纹也仍算错,不因为"像某种错法"就放过',
+    AnswerCheck.match(20.06, 180, prints, 3).code, ANSWER_WRONG, 0);
+  check('一个指纹都没命中时 wrongKind 为 0',
+    AnswerCheck.match(123, 180, prints, 3).wrongKind, 0, 0);
+  // 先比正确值:学生填出一个与正确值同数的指纹时,判"对"而不是判错法
+  check('匹配顺序:先正确值后指纹', AnswerCheck.match(100, 100, [fp(1, 100)], 3).code, ANSWER_OK, 0);
+  // 这题出不来由调用方决定:correct 非有限 → 不产出结果,而不是"算对"
+  assertTrue('correct 为 NaN 时返回 null(调用方据此一个事实都不写)',
+    AnswerCheck.match(90, Number.NaN, prints, 3) === null, 'x');
+  check('负的正确值也算得出相对偏差(分母取绝对值)',
+    AnswerCheck.match(-90, -100, prints, 3).relErr, 10, 0.01);
+  check('带宽 0.5% 之外就不算命中(0.6% → wrongKind 0)',
+    AnswerCheck.match(100.6, 180, [fp(1, 100)], 3).wrongKind, 0, 0);
 }
 
 if (failures.length > 0) {
