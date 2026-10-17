@@ -239,7 +239,7 @@ export class SubmissionDef {
 
 ### Task 3: runner 收下答案,并在重置时清掉
 
-**Files:** Modify `entry/src/main/ets/runner/IExperimentRunner.ets`、`entry/src/main/ets/physics/Physics2DRunner.ets`、以及 Step 1 数出来的其余实现者;Test `tools/physics-check/check.mjs`
+**Files:** Modify `entry/src/main/ets/runner/IExperimentRunner.ets`、`entry/src/main/ets/physics/Physics2DRunner.ets`、`entry/src/main/ets/bench/BenchWorld.ets`(预检 `grep -rln "implements IExperimentRunner"` 实测就这两个实现者);Test `tools/physics-check/check.mjs`
 
 **Interfaces:** Produces `setAnswer(key: string, value: number): void`、`answer(key: string): number`(未填为 NaN)
 
@@ -473,7 +473,7 @@ export class TapeChunkProcedure {
 
 ### Task 5: sr-003 接线 —— 事实、枚举标签、填空声明
 
-**Files:** Modify `entry/src/main/ets/physics/Physics2DRunner.ets`、`entry/src/main/ets/physics/TapeCartRunner.ets`、`entry/src/main/ets/model/FactLabels.ets`、`entry/src/main/ets/scenes/MechanicsScenes.ets`;Test `tools/physics-check/check.mjs`
+**Files:** Modify `entry/src/main/ets/physics/Physics2DRunner.ets`、`entry/src/main/ets/physics/TapeCartRunner.ets`、`entry/src/main/ets/model/FactLabels.ets`、`entry/src/main/ets/bench/Judgment.ets`、`entry/src/main/ets/scenes/MechanicsScenes.ets`;Test `tools/physics-check/check.mjs`
 
 **Interfaces:** Consumes `AnswerCheck.match`、`TapeChunkProcedure`、`this.tape.segmentsMm(start, every)`、`this.answer(key)`;Produces 事实键 `ans.tapeNumerator`、`tapeNumeratorTrue`、`tapeNumeratorOutcome`、`tapeNumeratorWrongKind`、`ans.tapeDenFactor`、`tapeDenFactorTrue`、`tapeDenFactorOutcome`、`tapeDenFactorWrongKind`
 
@@ -530,7 +530,30 @@ export class TapeChunkProcedure {
     entry.codes = codes;
     return entry;
   }
+
+  /** 只有带 codes 表的事实键才走这条路;其余事实照旧由 Judgment 按数字格式化 */
+  static codedText(key: string, value: number): string | null {
+    const hit = FactLabels.of(key);
+    if (hit === null || hit.codes === null) {
+      return null;
+    }
+    const text = hit.codes.get(value);
+    return text === undefined ? null : text;
+  }
 ```
+
+`bench/Judgment.ets` 的 `fill()` 里,把 `facts.numbers.forEach` 那个回调换成:
+
+```ts
+    facts.numbers.forEach((factValue: number, key: string) => {
+      const coded = FactLabels.codedText(key, factValue);
+      out = out.split('{' + key + '}').join(coded === null ? Judgment.text(factValue) : coded);
+    });
+```
+
+(顶部 import `FactLabels`。这一步不能省:`fill()` 原本只按数字格式化,不改的话细则模板里的
+`{tapeNumeratorOutcome}` 会印成裸 `2`,Task 6 那条"判词读得通"的断言也立不住。
+不给所有事实统一换成 `FactLabels.valueText` —— 那个会追加单位,会把全部既有细则的数字格式一起换掉。)
 
 `buildTable()` 里加八条:
 
