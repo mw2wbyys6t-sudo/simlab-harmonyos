@@ -27,7 +27,11 @@ function of(id: number, value: number): Fingerprint {
  * 纯函数:进一串段长(毫米),出正确流程的答案与几种典型错法的答案。放 runner 里
  * 就测不到这么细,放细则里就等于让判分模块懂物理 —— 两头都不合适。
  *
- * 取窗与 TickerTape.accelByChunking 一致:用前 2h 段,尾巴上凑不满一对的那段丢掉。
+ * 取窗:本模块只保证"舍死头 + 尾部截到 2h 整"。它**不再**与 TickerTape.accelByChunking
+ * 同窗 —— 那一条是从给定起点直接取前 2h 段,碰上带死头的纸带就会把死段当第一段用
+ * (实测同一条纸带两者反推的 a 是 0.8787 对 0.5503)。调用点须自己先把窗口夹到
+ * tape.movingStart()(sr-003 由 TapeCartRunner.chunkWindowMm 负责,板尾截断那一格
+ * 也由它按 runner 自己的信号条件性丢掉)。
  *
  * 入参契约(Controller Ruling H,重要):传进来的可以是 TickerTape.segmentsMm() 原样导出的
  * **全部**计数段,里面可能带着开头那段量不出来的死段。本模块**不假装死段存在** ——

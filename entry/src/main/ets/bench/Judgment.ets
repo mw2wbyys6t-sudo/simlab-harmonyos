@@ -1,4 +1,5 @@
 import { FactSheet } from '../model/FactSheet';
+import { FactLabels } from '../model/FactLabels';
 import { Criterion, CriterionKind, CriterionOp, Rubric, RubricValidator } from './Rubric';
 
 /** 一条扣分。evidence 必须可复算:学生/家长/老师看得懂数字从哪来。 */
@@ -133,6 +134,10 @@ export class Judgment {
    * 只允许报被判定那个数的话,学生看不出自己错在哪。
    *
    * 用 split/join 而不是正则:判定层的模板替换不该依赖正则引擎的行为差异。
+   *
+   * 唯一一处例外:带 codes 表的事实键(结果码那类)先问 FactLabels.codedText。
+   * 不查这张表的话,`{tapeNumeratorOutcome}` 会印成裸 `2` —— 判据本身仍不懂物理,
+   * 这里只是把码换回人话(Ruling 1 的窄口,不扩到全部事实:那会连带改掉每条既有判据的数字格式)。
    */
   private static fill(criterion: Criterion, facts: FactSheet, value: number,
     second: number): string {
@@ -141,7 +146,8 @@ export class Judgment {
     out = out.split('{threshold2}').join(Judgment.text(criterion.threshold2));
     out = out.split('{value2}').join(Judgment.text(second));
     facts.numbers.forEach((factValue: number, key: string) => {
-      out = out.split('{' + key + '}').join(Judgment.text(factValue));
+      const coded = FactLabels.codedText(key, factValue);
+      out = out.split('{' + key + '}').join(coded === null ? Judgment.text(factValue) : coded);
     });
     // 剩下的花括号只可能是「这条事实压根没被算出来」。留给学生看就是仪器在报告里漏模板,
     // 一律换成破折号 —— 与上面 text() 对 NaN 的处理同一种说法。

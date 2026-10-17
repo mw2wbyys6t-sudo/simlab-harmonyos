@@ -149,6 +149,13 @@ export class MechanicsScenes {
       '用逐差法把各计数段写成 a 的表达式再代入：说明它为什么比“相邻两段之差逐个平均”用上了更多数据。', Number.NaN, 0));
     meta.tasks.push(SceneBuilders.task('tape-a-from-slope',
       '由每段位移除以对应时间得到各计数点速度，作 v-t 图，从斜率取第二个 a 并与逐差法结果比对。', Number.NaN, 0));
+    // 两格填空都挂在逐差法那条任务上:分子要毫米刻度尺量出来的段长之和,倍数是个纯个数。
+    // 问句里不写"后三段/前三段"这种只属于样例表的字数 —— 学生手上那条纸带切得出几段,
+    // 由他选的间隔与这条板长共同决定,问句必须对任何段数都成立。
+    meta.submissions.push(SceneBuilders.submission('tapeNumerator', 'tape-a-by-difference',
+      '逐差法的分子：后一半计数段之和 减 前一半计数段之和', 'mm', 1));
+    meta.submissions.push(SceneBuilders.submission('tapeDenFactor', 'tape-a-by-difference',
+      '分母里 T² 的倍数（a = 分子 ÷（倍数 × T²））', '', 0));
     meta.rubricId = 'tape-cart-rubric';
     return meta;
   }

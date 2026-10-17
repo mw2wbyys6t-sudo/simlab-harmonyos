@@ -3,6 +3,7 @@ import { InclineRunner } from './InclineRunner';
 import { WorldSnapshot } from './World2D';
 import { TickerTape } from './TickerTape';
 import { TAPE_SCALE, TapeStrip } from './TapeStrip';
+import { TapeChunkProcedure } from './TapeChunkProcedure';
 
 /** 纸带画在世界顶部这一条上:斜面最长 5 m、60° 时顶点在 4.9 m 以下,互不遮挡 */
 const TAPE_Y = 4.9;
@@ -17,10 +18,19 @@ const TAPE_X = 0.8;
  */
 export class TapeCartRunner extends InclineRunner {
   protected tape: TickerTape = new TickerTape();
+  /**
+   * 撞上板尾那一格打下来的最后一个点号,没撞上则是 -1。
+   *
+   * 逐差法的窗口要它才能判断"最后一段是不是被板尾截短的":车到底端时 `s` 被夹在
+   * 板长上,那一格的位移比该走的间隔少一截,量出来就是最短的那一段。这个信号只能由
+   * runner 报(Controller Ruling L 修正),拿段长数组自己猜会把完好窗口也切掉一段。
+   */
+  private clipDot: number = -1;
 
   protected onSetup(): void {
     super.onSetup();
     this.tape.reset();
+    this.clipDot = -1;
   }
 
   step(dt: number): void {
@@ -30,9 +40,14 @@ export class TapeCartRunner extends InclineRunner {
       this.tape.tick(this.time, this.readObservable('distance'), 0, 0);
       return;
     }
+    const dotsBefore = this.tape.count();
     super.step(dt);
     this.tape.tick(this.time, this.readObservable('distance'),
       this.readObservable('velocity'), this.readObservable('acceleration'));
+    if (this.clipDot < 0 && this.finished()) {
+      // 只有这一格真的打下了一个点,截断才落到纸面上(时刻还没到就没打出来的点不受影响)
+      this.clipDot = this.tape.count() > dotsBefore ? this.tape.count() - 1 : -1;
+    }
   }
 
   protected onAction(key: string): void {
@@ -67,6 +82,12 @@ export class TapeCartRunner extends InclineRunner {
   protected onCollectFacts(sheet: FactSheet): void {
     const start = this.startDot();
     const every = this.everyGap();
+    const win = this.chunkWindowMm();
+    // 两问都读同一个窗口:应有值必须是学生手上那条纸带的应有值
+    this.checkNumber(sheet, 'tapeNumerator', TapeChunkProcedure.numerator(win),
+      TapeChunkProcedure.fingerprints(win), 3);
+    this.checkNumber(sheet, 'tapeDenFactor', TapeChunkProcedure.denFactor(win),
+      TapeChunkProcedure.denPrints(win), 0);
     sheet.set('tapeDotCount', this.tape.count());
     sheet.set('tapeLostHead', this.tape.lostHeadDots());
     sheet.set('tapeSegments', this.tape.segmentCount(start, every));
@@ -84,10 +105,49 @@ export class TapeCartRunner extends InclineRunner {
     return snap;
   }
 
-  /** 计数起点:从第几个点开始量。前面那段密得读不出来的,本来就该舍掉 */
+  /**
+   * 逐差法那两问用的段长窗口(Controller Ruling H / L)。
+   *
+   * 两道处理,顺序与理由都记在这里:
+   * ① 起点由 startDot() 夹到 movingStart() —— 通电而未放车那一段点全叠在原地,刻度尺
+   *    量出来是 0 mm,它压根不该进窗口(照做 summary 那句"舍开头密着的那一段"的人
+   *    不该被判"算错");
+   * ② 小车撞到板尾、且最后一段正好压在撞板尾那一格打出的点上时,丢掉那一段 —— 它是被
+   *    "s = 板长"夹短的。条件性丢:无条件丢尾巴会把 27% 本来完好的窗口也切掉一段,
+   *    还会破掉 spec §5 钉死的那张样例表;
+   * ③ 剩下的交给 procedure:它自己再过一次 liveFrom(舍死头、把尾部截到 2h 整),
+   *    这一步是幂等的,这里舍过的头不会被再舍一遍。
+   */
+  protected chunkWindowMm(): number[] {
+    const start = this.startDot();
+    const every = this.everyGap();
+    const seg = this.tape.segmentsMm(start, every);
+    if (!this.tailClipped(start, every, seg.length)) {
+      return seg;
+    }
+    const out: number[] = [];
+    for (let i = 0; i + 1 < seg.length; i++) {
+      out.push(seg[i]);
+    }
+    return out;
+  }
+
+  /** 最后一段的终点就是撞上板尾那一格打出的点 → 这一段被截短了,不该拿去逐差 */
+  private tailClipped(start: number, every: number, segments: number): boolean {
+    return this.clipDot >= 0 && segments > 0 && start + segments * every === this.clipDot;
+  }
+
+  /**
+   * 计数起点:学生选的起点与"头上那段重叠点"取更靠后的那个。
+   *
+   * 量不到的段不进量窗 —— 与 NewtonSecondRunner.startDot() 同一条先例(Ruling H 实测
+   * 过:不夹住的话,窗口前 7 段全是 0 mm,反推的 a 会从 0.879 掉到 0.705)。
+   */
   private startDot(): number {
     const raw = this.readParam('countStart');
-    return raw < 0 ? 0 : Math.floor(raw);
+    const from = raw < 0 ? 0 : Math.floor(raw);
+    const moving = this.tape.movingStart();
+    return from > moving ? from : moving;
   }
 
   /** 每几个点取一个计数点。参数是滑杆给的浮点,这里一律收成不小于 1 的整数 */

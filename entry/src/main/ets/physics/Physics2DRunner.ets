@@ -2,6 +2,7 @@ import { ExperimentMeta } from '../model/ExperimentTypes';
 import { IExperimentRunner } from '../runner/IExperimentRunner';
 import { FactSheet } from '../model/FactSheet';
 import { WorldSnapshot } from './World2D';
+import { AnswerCheck, Fingerprint } from './AnswerCheck';
 
 /**
  * 2D 仿真实验的公共基类:参数表、仿真时间、场景图取数口。
@@ -101,5 +102,27 @@ export abstract class Physics2DRunner implements IExperimentRunner {
 
   /** 子类把本次操作产生的事实写进来 */
   protected onCollectFacts(sheet: FactSheet): void {
+  }
+
+  /**
+   * 把一格填空的结果码写进事实。
+   *
+   * correct 非有限 = 这道题在这批数据上出不来 → 一个事实都不写,判据不响。
+   * 这是"没交扣分、没出题不扣"那条界线的唯一实现处(Controller Ruling A/B:
+   * 边界收在 AnswerCheck.match,由这里落成"不写",不要求各 runner 自己记得)。
+   *
+   * tol 是判分带宽(百分点),按那一格的数性给:毫米量出来的分子给 3,
+   * 个数这类整数倍数给 0 —— 差一个就是差一个,不该有容差。
+   */
+  protected checkNumber(sheet: FactSheet, key: string, correct: number,
+    prints: Fingerprint[], tol: number): void {
+    const outcome = AnswerCheck.match(this.answer(key), correct, prints, tol);
+    if (outcome === null) {
+      return;
+    }
+    sheet.set('ans.' + key, this.answer(key));
+    sheet.set(key + 'True', correct);
+    sheet.set(key + 'Outcome', outcome.code);
+    sheet.set(key + 'WrongKind', outcome.wrongKind);
   }
 }

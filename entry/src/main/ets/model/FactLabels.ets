@@ -4,6 +4,8 @@ export class FactLabel {
   unit: string = '';
   /** 0/1 类事实印成数字,学生读到「是否超过弹性限度 = 0」会以为缺数;给 true 就印是/否 */
   boolean: boolean = false;
+  /** 结果码这类事实印成裸 0/1/2 学生读不懂;给一张码→人话的表 */
+  codes: Map<number, string> | null = null;
 
   constructor(label: string, unit: string, isBoolean: boolean = false) {
     this.label = label;
@@ -77,6 +79,16 @@ export class FactLabels {
     table.set('tapeSegments', new FactLabel('切出的计数段数', ' 段'));
     table.set('tapeShortestMm', new FactLabel('最短计数段', ' mm'));
     table.set('tapeFirstGapMm', new FactLabel('第一对点的间距', ' mm'));
+    // 填数通道:判的是"学生自己交上来的数对不上哪一个典型错法"。
+    // outcome 这三格读的是结果码(0 算对 / 1 算错 / 2 没交),必须过 codes 表才印得成人话。
+    table.set('tapeNumeratorOutcome', FactLabels.coded('逐差法分子判定'));
+    table.set('tapeDenFactorOutcome', FactLabels.coded('逐差法分母判定'));
+    table.set('ans.tapeNumerator', new FactLabel('你交的逐差法分子', ' mm'));
+    table.set('ans.tapeDenFactor', new FactLabel('你交的分母倍数', ''));
+    table.set('tapeNumeratorTrue', new FactLabel('逐差法分子应有值', ' mm'));
+    table.set('tapeDenFactorTrue', new FactLabel('分母倍数应有值', ''));
+    table.set('tapeNumeratorWrongKind', new FactLabel('分子错法', ''));
+    table.set('tapeDenFactorWrongKind', new FactLabel('分母错法', ''));
     // 停表:判的是「按了几次、覆盖了几个不同区间、最长一段走得到多久」
     table.set('speedTrials', new FactLabel('按完的次数', ' 次'));
     table.set('speedSegments', new FactLabel('测到的不同区间', ' 段'));
@@ -101,6 +113,38 @@ export class FactLabels {
     table.set('pjXGapRatio', new FactLabel('水平间隔最大/最小', ''));
     table.set('pjRatioErr', new FactLabel('y/x² 的离散度', '%'));
     return table;
+  }
+
+  /**
+   * 结果码类事实:0 算对 / 1 算错 / 2 没交。
+   *
+   * 判据标题与证据模板仍在细则里,这里只管读数那一列 —— 判分模块不懂物理,
+   * 但它印出来的码必须是人话(裸 2 会被学生读成"量出来是 2")。
+   */
+  static coded(label: string): FactLabel {
+    const entry = new FactLabel(label, '');
+    const codes = new Map<number, string>();
+    codes.set(0, '算对了');
+    codes.set(1, '算错了');
+    codes.set(2, '没交');
+    entry.codes = codes;
+    return entry;
+  }
+
+  /**
+   * 只有带 codes 表的事实键才走这条路;其余事实照旧由 Judgment 按数字格式化。
+   *
+   * 为什么开这条窄口(Ruling 1):`fill()` 原本只调 `Judgment.text`,不查这张表,
+   * 细则模板里的 {tapeNumeratorOutcome} 会印成裸 2。改成"所有事实都经 FactLabels.valueText"
+   * 会连带给每条既有判据的数字追加单位、波及全部细则与设备探针断言,远超这条链路的需要。
+   */
+  static codedText(key: string, value: number): string | null {
+    const hit = FactLabels.of(key);
+    if (hit === null || hit.codes === null) {
+      return null;
+    }
+    const text = hit.codes.get(value);
+    return text === undefined ? null : text;
   }
 
   private static buildMoments(): Map<string, string> {
@@ -137,6 +181,12 @@ export class FactLabels {
       return '—';
     }
     const hit = FactLabels.of(key);
+    if (hit !== null && hit.codes !== null) {
+      const text = hit.codes.get(value);
+      if (text !== undefined) {
+        return text;
+      }
+    }
     if (hit !== null && hit.boolean) {
       return value >= 0.5 ? '是' : '否';
     }

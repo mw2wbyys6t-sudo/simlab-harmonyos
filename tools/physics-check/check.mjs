@@ -7459,13 +7459,24 @@ function findBadSubmissionLabels(all) {
   // 分子那一格要毫米、分母那一格要无量纲个数,数量级本来就互不相干,但 every=1..10 一滑,
   // 到 aT² ≈ 1 mm 的窗口上两者就会重合(实测 8 类、446 个参数点,最坏一条见 detail)。
   // 处置:删掉撞车的 F1/F2/F3 或 D2/D3 等于拆了这两张表(brief 的样例表钉着 100/20/60/36,
-  // Task 5 的断言还要点名 D2),而评审已把跨池混成一池判成范畴错误。这里把已核过参数点的
-  // 八类钉成上限:冒出第九类(或某一类换了形状)就红,红了看 detail 里的参数点。
+  // Task 5 的断言还要点名 D2),而评审已把跨池混成一池判成范畴错误。
+  // 这两条界线的**上下两头**都得钉死:原来只在红的时候把"8 类 / 446 点"打印出来,
+  // 于是"有人删薄了表"这一侧永远是绿的 —— 那同样是一次没被看见的口径变更。
   const KNOWN_CROSS = new Set(['F1←分母应有值', 'F2←分母应有值', 'F3←分母应有值',
     'F1↔D3', 'F2↔D2', 'F2↔D3', 'F3↔D2', 'F3↔D3']);
   const newKinds = [...crossKinds].filter((k) => !KNOWN_CROSS.has(k));
   assertTrue('跨池 0.5% 撞车只落在已列出并核过参数点的那几类里', newKinds.length === 0,
     `冒出没见过的类: ${newKinds.join(', ') || '无'};已扫出 ${crossKinds.size} 类 / ${crossPoints} 个参数点;最坏一条: ${crossWorst.at}`);
+  // 上界:冒出第九类、或某一类换了形状(它意味着新的张冠李戴)→ 红
+  assertTrue('跨池撞车类数上界 = 已核过的 8 类', crossKinds.size <= 8,
+    `实得 ${crossKinds.size} 类:${[...crossKinds].join(', ')};最坏一条: ${crossWorst.at}`);
+  // 下界:类数掉下去 = 有人动了这两张表却没回这里改口径 → 一样红(缩也要看得见)
+  assertTrue('跨池撞车类数下界 = 已核过的 8 类(表被删薄要显式改这里)', crossKinds.size >= 8,
+    `实得 ${crossKinds.size} 类:${[...crossKinds].join(', ') || '一条都不撞了'}`);
+  assertTrue('跨池撞车参数点上界 = 已核过的 446 个', crossPoints <= 446,
+    `实得 ${crossPoints} 个;最坏一条: ${crossWorst.at}`);
+  assertTrue('跨池撞车参数点下界 = 已核过的 446 个(扫描域变窄要显式改这里)', crossPoints >= 446,
+    `实得 ${crossPoints} 个,类数 ${crossKinds.size}`);
   // 池里含 0 的那些参数点(匀速纸带)走的是"显式跳过"这条分支,不能靠 Infinity ≥ 阈值蒙过去
   {
     const uniform = [40, 40, 40, 40];
@@ -7748,8 +7759,10 @@ function findBadSubmissionLabels(all) {
       gapPct(asTime, ProjectileGProcedure.gFromPoint(p.drop * 1000, p.card * 150, one.v0)) < GRADE_TOL,
       `实得 ${asTime.toFixed(4)} m/s²,差 ${gapPct(asTime, 9.8).toFixed(2)}%`);
   }
-  // 也不补 G3「板角基准的 g」(Ruling I 要的"没定原点的人会得到什么"这件事,改由标签说清
-  // + pj-origin-late 扣分,见下面 8 附)。扫描域里它有 2 个参数点同样落进 3% 带宽。
+  // 也不给"板角基准反求的 g"编一个号(曾被叫作 G3,与这张表里的 3 号「÷1000」撞名 ——
+  // 一名两义就是这次改掉的:它压根不在表里,不占编号,下面一律称「板角项」)。
+  // Ruling I 要的"没定原点的人会得到什么"这件事,改由标签说清 + pj-origin-late 扣分(见下面 8 附)。
+  // 扫描域里它有 2 个参数点同样落进 3% 带宽。
   {
     const colliding = [];
     for (let slot = 1; slot <= 4; slot++) {
@@ -7762,7 +7775,7 @@ function findBadSubmissionLabels(all) {
         if (gapPct(gSeen, gTrue) < GRADE_TOL) colliding.push(`slot=${slot}/card=${card}(反求 ${gSeen.toFixed(3)} vs 应有 ${gTrue.toFixed(3)})`);
       }
     }
-    check('先描点后挂线时,"按板角那套 y 反求的 g"撞进 3% 判分带宽的参数点数(G3 因此不进表)',
+    check('先描点后挂线时,"按板角那套 y 反求的 g"撞进 3% 判分带宽的参数点数(板角项因此不进表)',
       colliding.length, 2, 0);
     assertTrue('撞车的就是这两个参数点',
       colliding.join(' ').includes('slot=2/card=1') && colliding.join(' ').includes('slot=4/card=3'),
@@ -7851,12 +7864,296 @@ function findBadSubmissionLabels(all) {
       seenLabel.indexOf('按板角') < 0 && seenLabel.indexOf('y=') === 0, seenLabel);
     check('两套读数在同一点上相等(只有定过原点时才允许相等)',
       after.readObservable('pjGSeen'), after.readObservable('pjGTrue'), 1e-9);
-    assertTrue('两者差得判分出胜负(19.3 对 9.8 差到 3% 带宽之外,G3 若加回来必须过那道闸门)',
+    assertTrue('两者差得判分出胜负(19.3 对 9.8 差到 3% 带宽之外,板角项若加回来必须过那道闸门)',
       Math.abs(before.readObservable('pjGSeen') - before.readObservable('pjGTrue'))
         / before.readObservable('pjGTrue') * 100 > 3,
       `差 ${(Math.abs(before.readObservable('pjGSeen') - before.readObservable('pjGTrue'))
         / before.readObservable('pjGTrue') * 100).toFixed(2)}%`);
   }
+}
+
+// ---- 学生填数通道 5:sr-003 两条填空进事实,守住"没交"与"这题没出"两条路径 ----------
+// 接线之前先钉住五条界线(全部走真 runner、真纸带,不合成段长数组):
+// ① 一条没填 → 码 2,而且应有值照样量得出(没交 ≠ 没出题);
+// ② 这道题在这批数据上出不来 → 一个事实都不写、判据不响(不重复扣那条废纸带);
+// ③ 取窗必须"起点夹到 movingStart + 只在被板尾截住时丢尾"(Controller Ruling H/L);
+// ④ 结果码进判词必须印成人话(Ruling 1 那条窄口),不带 codes 表的事实照旧按数字格式化;
+// ⑤ a 一致性要在**整张参数格**上断言,不是只在默认那条纸带上 —— 默认那条是最干净的样本。
+{
+  const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
+  const { FactSheet } = require(join(OUT, 'model/FactSheet.cjs'));
+  const { FactLabels } = require(join(OUT, 'model/FactLabels.cjs'));
+  const { Judgment } = require(join(OUT, 'bench/Judgment.cjs'));
+  const { Rubric, CriterionBuilder, CriterionOp } = require(join(OUT, 'bench/Rubric.cjs'));
+  const { TapeChunkProcedure } = require(join(OUT, 'physics/TapeChunkProcedure.cjs'));
+  const meta = ExperimentRegistry.find('tape-cart').meta;
+  // 通电 1.5 s(打出满纸重叠点)→ 放车 → 走到撞板尾,与细则那一节同一走法
+  const RUN_TAPE = [['act', 'power'], ['run', 90], ['act', 'release'], ['run', 150]];
+
+  /** 走一遍操作脚本并出事实。答案必须排在所有 param 之后 —— setParam 会作废答案(Ruling D) */
+  function tapeRun(steps) {
+    const runner = ExperimentRegistry.createRunner('tape-cart');
+    runner.setup(meta);
+    for (const [k, v] of steps) {
+      if (k === 'act') { runner.doAction(v); }
+      else if (k === 'run') { for (let i = 0; i < v; i++) runner.step(1 / 60); }
+      else if (k === 'param') { runner.setParam(v[0], v[1]); }
+      else { runner.setAnswer(v[0], v[1]); }
+    }
+    const sheet = new FactSheet();
+    runner.collectFacts(sheet);
+    return { runner: runner, sheet: sheet };
+  }
+  /** Task 5 的取窗出口。还没接上时给空数组:让下面的断言红,而不是整份 harness 抛异常 */
+  const winOf = (runner) => (typeof runner.chunkWindowMm === 'function' ? runner.chunkWindowMm() : []);
+  const isBlank = (sheet, key) => !Number.isFinite(sheet.num(key));
+
+  // 默认那条纸带:起点被夹到第 76 个点(通电未放车那 75 个点全叠在原地),每 5 点一段
+  const blank = tapeRun(RUN_TAPE);
+  const win = winOf(blank.runner);
+  const numTrue = blank.sheet.num('tapeNumeratorTrue');
+  const denTrue = blank.sheet.num('tapeDenFactorTrue');
+  const mv = blank.runner.tape.movingStart();
+  check('这条纸带打出 158 个点', blank.runner.tape.count(), 158, 0);
+  check('movingStart 把起点夹到第 76 个点(Ruling H 的"舍开头密着那段"落到调用点)', mv, 76, 0);
+  check('默认每 5 点取一段 → 窗口 16 段', win.length, 16, 0);
+  check('窗口第一段量得出来(>0.1 mm 这条判据把它和被夹进窗的死段分开)',
+    win[0] > 0.1 ? 1 : 0, 1, 0);
+  check('窗口第一段 = 这条纸带头上那 6.88 mm(同一条 a 打出来的第一段,不是猜的数)',
+    win[0], 6.883, 0.01);
+  check('一条没填:分子算"没交"', blank.sheet.num('tapeNumeratorOutcome'), 2, 0);
+  check('一条没填:分母也算"没交"', blank.sheet.num('tapeDenFactorOutcome'), 2, 0);
+  assertTrue('没交时应有值仍然量得出', Number.isFinite(numTrue), String(numTrue));
+  check('分子应有值 = 这条纸带按逐差法的分子(舍头后的 562.35,不是含死头的 853.04)',
+    numTrue, 562.346, 0.01);
+  check('分母倍数应有值 = h² = 8×8', denTrue, 64, 0);
+  check('没交时说不出错法,错法码为 0', blank.sheet.num('tapeNumeratorWrongKind'), 0, 0);
+  check('分母那格同理', blank.sheet.num('tapeDenFactorWrongKind'), 0, 0);
+  assertTrue('没交也把这格写进事实(报告页要印得出「你交的分子 —」)',
+    Number.isNaN(blank.sheet.num('ans.tapeNumerator')), String(blank.sheet.num('ans.tapeNumerator')));
+  checkText('结果码 0 印成人话', FactLabels.valueText('tapeNumeratorOutcome', 0), '算对了');
+  checkText('结果码 1 印成人话', FactLabels.valueText('tapeNumeratorOutcome', 1), '算错了');
+  checkText('结果码 2 印成人话而不是裸 2', FactLabels.valueText('tapeNumeratorOutcome', 2), '没交');
+  checkText('分母那格的结果码走同一张表', FactLabels.valueText('tapeDenFactorOutcome', 2), '没交');
+  checkText('码表里没有的数退回数字格式化(窄口不许吞掉别的事实)',
+    FactLabels.valueText('tapeNumeratorOutcome', 7), '7');
+  checkText('没交这一格在报告里是破折号', FactLabels.valueText('ans.tapeNumerator', Number.NaN), '—');
+  checkText('分子的显示名', FactLabels.labelOf('ans.tapeNumerator'), '你交的逐差法分子');
+  checkText('分母倍数的应有值显示名', FactLabels.labelOf('tapeDenFactorTrue'), '分母倍数应有值');
+
+  // 喂进 procedure 的窗口 = 事实里那个应有值的窗口(否则"应有值"与学生量的不是一条纸带)
+  check('应有值就是喂进 procedure 那个窗口的分子', TapeChunkProcedure.numerator(win), numTrue, 1e-9);
+  check('倍数也是同一个窗口算出来的', TapeChunkProcedure.denFactor(win), denTrue, 0);
+  checkText('这条真纸带的分子表仍是 F1..F4(5 号「÷1000」已按 Ruling G 删除)',
+    TapeChunkProcedure.fingerprints(win).map((f) => f.id).join(','), '1,2,3,4');
+  checkText('分母表是 D1..D3', TapeChunkProcedure.denPrints(win).map((f) => f.id).join(','), '1,2,3');
+  // 每条 runner 写出来的事实都得配显示名,否则报告页退回 tapeNumeratorTrue 这种内部名
+  {
+    const unlabeled = [...blank.sheet.numbers.keys()].filter((k) => FactLabels.of(k) === null);
+    assertTrue('sr-003 写出的每条事实都配了显示名', unlabeled.length === 0, unlabeled.join(','));
+  }
+  // sr-003 声明的两条填空:挂在已存在的任务上、单位与精度按那一格的数性给
+  // (用空壳兜住未接线的状态:这一节要红在"哪一格没声明"上,而不是把整份 harness 抛掉)
+  const VOID_SUB = { key: '', taskKey: '', unit: '', precision: -1, label: '' };
+  const subNum = meta.submissions[0] || VOID_SUB;
+  const subDen = meta.submissions[1] || VOID_SUB;
+  check('sr-003 声明两条填空', meta.submissions.length, 2, 0);
+  checkText('第一条问分子', subNum.key, 'tapeNumerator');
+  checkText('第二条问分母倍数', subDen.key, 'tapeDenFactor');
+  checkText('分子挂在逐差法那条任务上', subNum.taskKey, 'tape-a-by-difference');
+  checkText('分母也挂在同一条任务上', subDen.taskKey, 'tape-a-by-difference');
+  checkText('分子的单位是毫米(与学生那把刻度尺同单位)', subNum.unit, 'mm');
+  checkText('倍数那一格没有单位', subDen.unit, '');
+  check('分子按 0.1 mm 报(毫米小数位没意义)', subNum.precision, 1, 0);
+  check('倍数是整数个数', subDen.precision, 0, 0);
+  check('负对照:两条填空的问句都写全且标点干净',
+    findBadSubmissionLabels([meta]).length, 0, 0);
+
+  // ---- 交上来的数:算对 / 点名成哪种错法 / 说不出错在哪 ------------------------
+  const fps = {};
+  for (const f of TapeChunkProcedure.fingerprints(win)) fps['F' + f.id] = f.value;
+  const dps = {};
+  for (const f of TapeChunkProcedure.denPrints(win)) dps['D' + f.id] = f.value;
+  const answered = (numAns, denAns) => tapeRun(RUN_TAPE
+    .concat([['ans', ['tapeNumerator', numAns]], ['ans', ['tapeDenFactor', denAns]]])).sheet;
+  const right = answered(numTrue, denTrue);
+  check('照应有值填 → 分子算对', right.num('tapeNumeratorOutcome'), 0, 0);
+  check('分母也判对', right.num('tapeDenFactorOutcome'), 0, 0);
+  check('判对时不点名,错法码为 0', right.num('tapeNumeratorWrongKind'), 0, 0);
+  check('你交的数原样进了事实', right.num('ans.tapeDenFactor'), denTrue, 0);
+  check('只吃首尾两段 → 算错', answered(fps.F1, denTrue).num('tapeNumeratorOutcome'), 1, 0);
+  check('点名 F1(只用首尾)', answered(fps.F1, denTrue).num('tapeNumeratorWrongKind'), 1, 0);
+  check('相邻两两相减 → 点名 F3', answered(fps.F3, denTrue).num('tapeNumeratorWrongKind'), 3, 0);
+  check('相邻逐段平均 → 点名 F2', answered(fps.F2, denTrue).num('tapeNumeratorWrongKind'), 2, 0);
+  check('毫米当成米(缩小一千倍方向的错)→ 点名 F4',
+    answered(fps.F4, denTrue).num('tapeNumeratorWrongKind'), 4, 0);
+  check('谁都不像的数只能说"算错了",不硬点名', answered(123.4, denTrue).num('tapeNumeratorWrongKind'), 0, 0);
+  check('分母漏乘平方 → 点名 D1', answered(numTrue, dps.D1).num('tapeDenFactorWrongKind'), 1, 0);
+  check('分母只乘 h → 点名 D2', answered(numTrue, dps.D2).num('tapeDenFactorWrongKind'), 2, 0);
+  check('分母拿总段数平方 → 点名 D3', answered(numTrue, dps.D3).num('tapeDenFactorWrongKind'), 3, 0);
+  check('被点名的那条不许同时被判对', answered(numTrue, dps.D2).num('tapeDenFactorOutcome'), 1, 0);
+  // 判分带宽按字面值走:分子 3%(相对),倍数这种整数个数 0%(差一个就是差一个)
+  check('分子差 2% 仍算对(带宽 3%)', answered(numTrue * 0.98, denTrue).num('tapeNumeratorOutcome'), 0, 0);
+  check('分子差 5% 就算错', answered(numTrue * 0.95, denTrue).num('tapeNumeratorOutcome'), 1, 0);
+  check('倍数多算一个就算错(这一格不给带宽)', answered(numTrue, denTrue + 1).num('tapeDenFactorOutcome'), 1, 0);
+
+  // ---- 条件丢尾:只有撞板尾那一格打出的点落在计数点上时才丢(Ruling L 修正)--------
+  const rawEvery5 = blank.runner.tape.segmentsMm(mv, 5);
+  check('每 5 点取一段:纸上最后那个点不是计数点 → 一段都不许多丢', rawEvery5.length, 16, 0);
+  check('窗口与段长出口一致(没触发丢尾)', win.length, rawEvery5.length, 0);
+  const every1 = tapeRun(RUN_TAPE.concat([['param', ['countEvery', 1]]]));
+  const rawEvery1 = every1.runner.tape.segmentsMm(mv, 1);
+  check('每 1 点取一段:最后一段正好压在撞板尾那个点上 → 出口给 81 段', rawEvery1.length, 81, 0);
+  check('这一条才丢尾:窗口 80 段', winOf(every1.runner).length, 80, 0);
+  check('丢掉被截短的那一段之后,分子仍是同一条纸带的那个 562.35',
+    every1.sheet.num('tapeNumeratorTrue'), 562.346, 0.01);
+  check('倍数随间隔变成 40²(段数变了,h 也变了)', every1.sheet.num('tapeDenFactorTrue'), 1600, 0);
+  check('每 2 点取一段时不落在板尾点上 → 不丢尾',
+    winOf(tapeRun(RUN_TAPE.concat([['param', ['countEvery', 2]]])).runner).length, 40, 0);
+  // 反面对照:无条件丢尾会把这条完好窗口也切掉一段(它同时会破掉 spec §5 钉死的样例表)
+  check('反面对照:无条件丢尾会把默认窗口切成 15 段(所以只能条件性丢)', rawEvery5.length - 1, 15, 0);
+
+  // ---- 这道题出不来 → 一个事实都不写、判据不响 --------------------------------
+  const short = tapeRun([['param', ['countEvery', 10]], ['act', 'power'], ['run', 40],
+    ['act', 'release'], ['run', 20], ['ans', ['tapeNumerator', 180]], ['ans', ['tapeDenFactor', 9]]]);
+  assertTrue('段数切不出两半 → 分子这题没出(不写码,不判"没交")',
+    isBlank(short.sheet, 'tapeNumeratorOutcome'), String(short.sheet.num('tapeNumeratorOutcome')));
+  assertTrue('分母这题跟着一起不写', isBlank(short.sheet, 'tapeDenFactorOutcome'),
+    String(short.sheet.num('tapeDenFactorOutcome')));
+  assertTrue('应有值也不写(写了就是拿一个量不出来的数去判人)',
+    isBlank(short.sheet, 'tapeNumeratorTrue'), String(short.sheet.num('tapeNumeratorTrue')));
+  assertTrue('学生交上来的数同样不进事实', isBlank(short.sheet, 'ans.tapeNumerator'),
+    String(short.sheet.num('ans.tapeNumerator')));
+  const noCar = tapeRun([['act', 'power'], ['run', 90], ['ans', ['tapeNumerator', 180]]]);
+  assertTrue('只通电不放车:整条纸带量不出位移 → 这题没出',
+    isBlank(noCar.sheet, 'tapeNumeratorOutcome'), String(noCar.sheet.num('tapeNumeratorOutcome')));
+  assertTrue('不放车时点数照样量得出(别的判据还在做事)', Number.isFinite(noCar.sheet.num('tapeDotCount')),
+    String(noCar.sheet.num('tapeDotCount')));
+
+  // ---- Ruling 1 的窄口:结果码进判词必须印成人话 ------------------------------
+  // Task 6 的细则还没接上,这里先合成一条只读结果码的细则,把"判据不懂物理、只读码"
+  // 这一层单独验掉:同一条判据要同时容纳 code=1 与 code=2 两种说法。
+  function codedProbe() {
+    const r = new Rubric();
+    r.id = '负对照 结果码判词';
+    r.label = '负对照';
+    r.source = '参考细则（非官方标准）：只为验结果码怎么印出来';
+    r.version = '负对照';
+    r.totalPoints = 100;
+    r.criteria.push(CriterionBuilder.numeric('neg-coded', '负对照：这一问没算对或没交',
+      CriterionOp.GT, 'tapeNumeratorOutcome', 0, 0, 100,
+      '你交的分子是 {ans.tapeNumerator} mm，这条纸带按逐差法应为 {tapeNumeratorTrue} mm，'
+        + '判定：{tapeNumeratorOutcome}。按当前间隔切出 {tapeSegments} 段'));
+    return r;
+  }
+  const probeRubric = codedProbe();
+  // 未接线时这两条判据压根不响,所以取证据要兜住:红了要看得见"没响",而不是抛异常
+  const evOf = (card, i) => (card.deductions.length > i ? card.deductions[i].evidence
+    : `判据没响(扣分清单:${card.deductions.map((d) => d.criterionId).join(',') || '空'} / 得分 ${card.awarded})`);
+  const blankCard = Judgment.score(probeRubric, blank.sheet);
+  check('没交 → 这条判据要响', blankCard.deductions.length, 1, 0);
+  assertTrue('判词里印的是"没交"而不是裸 2',
+    evOf(blankCard, 0).includes('判定：没交'), evOf(blankCard, 0));
+  assertTrue('判词里没有没被填掉的模板占位符',
+    !evOf(blankCard, 0).includes('{'), evOf(blankCard, 0));
+  assertTrue('没交那一格印成破折号而不是 0 或 NaN',
+    evOf(blankCard, 0).includes('你交的分子是 — mm'), evOf(blankCard, 0));
+  assertTrue('不带 codes 表的事实仍按数字格式化(窄口没扩到全部事实)',
+    evOf(blankCard, 0).includes('切出 16 段'), evOf(blankCard, 0));
+  const wrongCard = Judgment.score(probeRubric, answered(fps.F1, denTrue));
+  assertTrue('算错的那一种说法也印得通', evOf(wrongCard, 0).includes('判定：算错了'),
+    evOf(wrongCard, 0));
+  check('这题没出时判据不响(一个事实都没写,自然扣不着分)',
+    Judgment.score(probeRubric, short.sheet).deductions.length, 0, 0);
+  check('不放车那条也不响', Judgment.score(probeRubric, noCar.sheet).deductions.length, 0, 0);
+  check('照应有值填时判据不响', Judgment.score(probeRubric, right).deductions.length, 0, 0);
+
+  // ---- 哪个动作作废答案:sr-003 声明的这一对(Task 3 的硬要求)--------------------
+  // 这两个动作改的是"纸带本身",而应有值在交卷那一刻按当时那条纸带重新量出来,
+  // 所以不作废答案 —— 作废会把"明明交了"说成"没交"。会悄悄换窗口的滑杆才由 Ruling D 收。
+  const keep = tapeRun(RUN_TAPE.concat([['ans', ['tapeNumerator', numTrue]],
+    ['act', 'power'], ['act', 'release']]));
+  check('交完数再按电源/释放(纸带已经走完)→ 仍判"算对了"', keep.sheet.num('tapeNumeratorOutcome'), 0, 0);
+  const swap = tapeRun(RUN_TAPE.concat([['ans', ['tapeNumerator', numTrue]],
+    ['param', ['countEvery', 4]]]));
+  check('拖滑杆换了计数窗口 → 上一次交的数作废,读成"没交"而不是"算错"',
+    swap.sheet.num('tapeNumeratorOutcome'), 2, 0);
+
+  // ---- Ruling L:a 一致性必须在全参数格上成立 ----------------------------------
+  // 原来这条只断默认那条纸带,而默认那条恰好是最干净的样本:整个格上有 3044 个窗口
+  // 反推的 a 差过 2%(判分容差 3% 之外的一半还多)。现在一格一格数,并要求
+  // 丢尾是**条件性**的(截断信号来自 runner 记下的板尾那个点,不从段长数组里猜)。
+  const A_TOL = 2;
+  let aWindows = 0;
+  let aBad = 0;
+  let aDrops = 0;
+  let aPrefixBad = 0;
+  let aCfBad = 0;
+  let aWorst = { err: -1, at: '无' };
+  let aCfWorst = { err: -1, at: '无' };
+  for (let angle = 5; angle <= 60; angle++) {
+    const runner = ExperimentRegistry.createRunner('tape-cart');
+    runner.setup(meta);
+    runner.setParam('angle', angle);
+    runner.doAction('power');
+    for (let i = 0; i < 90; i++) runner.step(1 / 60);
+    runner.doAction('release');
+    for (let i = 0; i < 3; i++) runner.step(1 / 60);
+    const aScene = runner.readObservable('acceleration');
+    for (let i = 0; i < 147; i++) runner.step(1 / 60);
+    if (!(aScene > 0)) {
+      continue;
+    }
+    const moving = runner.tape.movingStart();
+    for (let every = 1; every <= 10; every++) {
+      for (let start = 0; start <= 80; start++) {
+        runner.setParam('countStart', start);
+        runner.setParam('countEvery', every);
+        const sheet = new FactSheet();
+        runner.collectFacts(sheet);
+        const raw = runner.tape.segmentsMm(start > moving ? start : moving, every);
+        const seg = winOf(runner);
+        // 取窗只可能从尾部少一段:不许从中间或头上少(夹起点由这段前缀关系一并验掉)
+        if (raw.slice(0, seg.length).join('|') !== seg.join('|')) aPrefixBad++;
+        if (seg.length !== raw.length) aDrops++;
+        const T = runner.readObservable('tapeEveryMs') / 1000;
+        const num = sheet.num('tapeNumeratorTrue');
+        const den = sheet.num('tapeDenFactorTrue');
+        const at = `angle=${angle} start=${start} every=${every}`;
+        if (Number.isFinite(num) && Number.isFinite(den) && den > 0 && T > 0) {
+          aWindows++;
+          const err = Math.abs(num / 1000 / (den * T * T) - aScene) / aScene * 100;
+          if (err > A_TOL) {
+            aBad++;
+            if (err > aWorst.err) {
+              aWorst = { err: err, at: `${at} 反推 ${(num / 1000 / (den * T * T)).toFixed(4)} vs 场景 ${aScene.toFixed(4)}` };
+            }
+          }
+        }
+        // 反事实:同一条纸带、同一个夹过的起点,但忽略板尾信号(不丢尾)会怎样
+        const cfNum = TapeChunkProcedure.numerator(raw);
+        const cfDen = TapeChunkProcedure.denFactor(raw);
+        if (Number.isFinite(cfNum) && cfNum !== 0 && Number.isFinite(cfDen) && cfDen > 0) {
+          const cerr = Math.abs(cfNum / 1000 / (cfDen * T * T) - aScene) / aScene * 100;
+          if (cerr > A_TOL && cerr > aCfWorst.err) {
+            aCfWorst = { err: cerr, at: `${at} 不丢尾反推 ${(cfNum / 1000 / (cfDen * T * T)).toFixed(4)} vs 场景 ${aScene.toFixed(4)}` };
+            aCfBad++;
+          } else if (cerr > A_TOL) {
+            aCfBad++;
+          }
+        }
+      }
+    }
+  }
+  assertTrue('取窗只从尾部少段,其余原样(Ruling L:截断信号只可能砍尾)', aPrefixBad === 0,
+    `${aPrefixBad} 个窗口的取窗不是段长出口的前缀`);
+  assertTrue('全参数格 a 一致性:应有值反推的 a 与场景自己的 a 读数处处 ≤2%', aBad === 0,
+    `${aBad}/${aWindows} 个窗口不一致;最坏一条 ${aWorst.err.toFixed(2)}% @ ${aWorst.at}`);
+  assertTrue('这张格上出得了题的窗口 ≥ 36000 个(上面那条不是空跑)', aWindows >= 36000,
+    `实得 ${aWindows} 个窗口`);
+  assertTrue('条件丢尾真的被走到(≥ 1000 个参数点丢了尾)', aDrops >= 1000, `实得 ${aDrops} 个点`);
+  assertTrue('反事实对照有牙:不丢尾时这张格会红 ≥ 1000 个窗口', aCfBad >= 1000,
+    `实得 ${aCfBad} 个;最坏一条 ${aCfWorst.err.toFixed(2)}% @ ${aCfWorst.at}`);
 }
 
 if (failures.length > 0) {
