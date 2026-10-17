@@ -2002,6 +2002,19 @@ function findBadSubmissionLabels(all) {
 
     // 负对照:如果 spilled 被写死成 0,上面两条守恒会立刻红
     assertTrue('负对照:洒出不是恒零', mLost > 0, '没对准的洒出仍被报成 0,说明口径没改对');
+
+    // 第二个实现者 BenchWorld 也得守同一条答案契约(评审变异 E:它的 answer 缺省改成 0 曾全绿)。
+    // 量取实验不进 ExperimentRegistry,这里直接 new;未填必须是真 NaN,不用 0 兜底。
+    const bw = new BenchWorld();
+    bw.setup({ id: 'measure', title: '量取' });
+    assertTrue('量取世界(6c):未填读 NaN,不用 0 兜底', Number.isNaN(bw.answer('goal')),
+      String(bw.answer('goal')));
+    bw.setAnswer('goal', 12);
+    check('量取世界(6c):填进去就读得到', bw.answer('goal'), 12, 1e-12);
+    bw.setAnswer('goal', 12);
+    bw.reset();
+    assertTrue('量取世界(6c):reset 后回到 NaN', Number.isNaN(bw.answer('goal')),
+      String(bw.answer('goal')));
   }
 
   // 6b. 量取判词的自洽性:一句话里不能同时说"正好"和"倒多了"(F5)
@@ -2138,6 +2151,17 @@ function findBadSubmissionLabels(all) {
     return `${d.actual.toFixed(9)}|${d.apparent.toFixed(9)}|${d.poured.toFixed(9)}|${d.spilled.toFixed(9)}`;
   }
   checkText('端到端重放完全一致', replaySignature(), replaySignature());
+
+  // 第二实现者 BenchWorld 的答案契约再钉一遍,并把 Ruling D(setParam 让答案作废)在量取这一路也验证。
+  const ansWorld = new BenchWorld();
+  ansWorld.setup(new ExperimentMeta());
+  assertTrue('量取世界(M4-lite):未填读 NaN,不用 0 兜底', Number.isNaN(ansWorld.answer('ml')),
+    String(ansWorld.answer('ml')));
+  ansWorld.setAnswer('ml', 7);
+  check('量取世界(M4-lite):填进去就读得到', ansWorld.answer('ml'), 7, 1e-12);
+  ansWorld.setParam('tilt', 20);
+  assertTrue('量取世界(M4-lite):改参数 setParam 让答案作废(Ruling D)',
+    Number.isNaN(ansWorld.answer('ml')), String(ansWorld.answer('ml')));
 }
 
 // ---- M2 空间关系与溢流几何推导 --------------------------------------------
@@ -5424,13 +5448,20 @@ function findBadSubmissionLabels(all) {
   assertTrue('注册表里至少有三条实验可查', metas.length >= 3, `实得 ${metas.length}`);
   let noAction = 0;
   let noFacts = 0;
+  // 填数通道(Task 3)又给接口加了 setAnswer/answer,这里一并扫到:每条注册 runner 都得有这两格。
+  let noSetAnswer = 0;
+  let noAnswer = 0;
   for (const m of metas) {
     const r = ExperimentRegistry.createRunner(m.id);
     if (typeof r.doAction !== 'function') { noAction++; }
     if (typeof r.collectFacts !== 'function') { noFacts++; }
+    if (typeof r.setAnswer !== 'function') { noSetAnswer++; }
+    if (typeof r.answer !== 'function') { noAnswer++; }
   }
   check('每条注册 runner 都有 doAction', noAction, 0, 0);
   check('每条注册 runner 都有 collectFacts', noFacts, 0, 0);
+  check('每条注册 runner 都有 setAnswer', noSetAnswer, 0, 0);
+  check('每条注册 runner 都有 answer', noAnswer, 0, 0);
 
   const G = 9.8;
   const K = 20;
@@ -7221,22 +7252,59 @@ function findBadSubmissionLabels(all) {
     AnswerCheck.match(20.06, 180, [fp(0, 20), fp(2, 20)], 3).wrongKind, 2, 0);
 }
 
-// ---- 学生填数通道 2:答案进 runner,重置要清干净 --------------------------------
+// ---- 学生填数通道 3:答案进 runner,三条清空路径都要有牙 ------------------------
 // 交卷时读的是 runner 里的答案,"换一条纸带还留着上一次填的数"会直接判错人。
+// 清空路径有三条:reset()、setup()(换场景)、以及 Ruling D 新加的 setParam()(改数据窗口)。
 {
   const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
+  const tapeMeta = ExperimentRegistry.find('tape-cart').meta;
   const runner = ExperimentRegistry.createRunner('tape-cart');
-  runner.setup(ExperimentRegistry.find('tape-cart').meta);
+  runner.setup(tapeMeta);
+  // 缺省钉成真 NaN:变异把 return 改成 this.answers.get(key)(返回 undefined)时,
+  // !Number.isFinite(undefined) 仍为真,只有 Number.isNaN 才咬得住(评审变异 B)。
   assertTrue('没填时读到 NaN 而不是 0(0 是合法的数,不能当缺省)',
-    !Number.isFinite(runner.answer('tapeNumerator')), String(runner.answer('tapeNumerator')));
+    Number.isNaN(runner.answer('tapeNumerator')), String(runner.answer('tapeNumerator')));
   runner.setAnswer('tapeNumerator', 180);
   check('填进去就读得到', runner.answer('tapeNumerator'), 180, 1e-12);
   runner.setAnswer('tapeNumerator', Number.NaN);
-  assertTrue('清空回到没填', !Number.isFinite(runner.answer('tapeNumerator')), 'x');
+  assertTrue('清空回到没填', Number.isNaN(runner.answer('tapeNumerator')),
+    String(runner.answer('tapeNumerator')));
+  // 清空路径之一:reset()
   runner.setAnswer('tapeNumerator', 180);
   runner.reset();
-  assertTrue('重置把答案一起清掉', !Number.isFinite(runner.answer('tapeNumerator')),
+  assertTrue('重置把答案一起清掉', Number.isNaN(runner.answer('tapeNumerator')),
     String(runner.answer('tapeNumerator')));
+  // 清空路径之二:setup() —— 换一条纸带等同重开(评审变异 A 删掉 setup 里那行会红)
+  runner.setAnswer('tapeNumerator', 180);
+  runner.setup(tapeMeta);
+  assertTrue('重新 setup 把答案一起清掉', Number.isNaN(runner.answer('tapeNumerator')),
+    String(runner.answer('tapeNumerator')));
+  // 清空路径之三:setParam()(Controller Ruling D) —— 拖滑杆改了应有值的数据窗口,旧结论作废
+  runner.setAnswer('tapeNumerator', 180);
+  runner.setParam('countEvery', 4);
+  assertTrue('改参数 setParam 让答案作废(Ruling D)', Number.isNaN(runner.answer('tapeNumerator')),
+    String(runner.answer('tapeNumerator')));
+}
+
+// ---- 学生填数通道 3 附:给 Task 5 留闸门 —— 每条场景声明的填空 key 必须能原样回读 --
+// 今天没有场景声明 submissions,这节空跑;Task 5 一旦把 key 写错(或 runner 没接住),它立刻指名是哪条实验。
+{
+  const { MechanicsScenes } = require(join(OUT, 'scenes/MechanicsScenes.cjs'));
+  const { ElectricalScenes } = require(join(OUT, 'scenes/ElectricalScenes.cjs'));
+  MechanicsScenes.registerAll();
+  ElectricalScenes.registerAll();
+  const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
+  const offenders = [];
+  for (const m of ExperimentRegistry.all()) {
+    for (const s of (m.submissions || [])) {
+      const r = ExperimentRegistry.createRunner(m.id);
+      r.setup(m);
+      r.setAnswer(s.key, 1);
+      if (r.answer(s.key) !== 1) { offenders.push(`${m.id}/${s.key}`); }
+    }
+  }
+  assertTrue('每条场景声明的 submission key 都能原样 round-trip 过真 runner', offenders.length === 0,
+    `回读不到的有: ${offenders.join(', ') || '无'}`);
 }
 
 if (failures.length > 0) {

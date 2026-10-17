@@ -45,7 +45,10 @@ export class BenchWorld implements IExperimentRunner {
   /** 世界参数表由外壳通过 setParam 驱动,这里只存放与判据有关的量 */
   private params: Map<string, number> = new Map();
 
-  /** 学生交上来的处理结果。量取训练今天不出填空题,这张表正常是空的,但格子得存得住 */
+  /**
+   * 学生交上来的处理结果。量取训练今天不出填空题,这张表正常是空的,但格子得存得住。
+   * dispose() 刻意不清它:答案随 runner 实例走,量取页每次打开都是新实例(Controller Ruling E)。
+   */
   private answers: Map<string, number> = new Map();
 
   private readParam(key: string): number {
@@ -79,6 +82,8 @@ export class BenchWorld implements IExperimentRunner {
 
   setParam(key: string, value: number): void {
     this.params.set(key, value);
+    // Controller Ruling D:改了数据窗口就作废上一次的答案,与 Physics2DRunner 保持一致。
+    this.answers.clear();
   }
 
   getParam(key: string): number {

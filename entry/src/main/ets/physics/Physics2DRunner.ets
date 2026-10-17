@@ -11,6 +11,11 @@ export abstract class Physics2DRunner implements IExperimentRunner {
   protected params: Map<string, number> = new Map();
   protected meta: ExperimentMeta = new ExperimentMeta();
   protected time: number = 0;
+  /**
+   * 学生填过的答案;没填一律 NaN。dispose() 刻意不清这张表:答案随 runner 实例走,
+   * 而 ExperimentPage 每次打开都新建 runner、退出即丢弃 —— 页面每次都是全新实例。
+   * Task 7 若改成复用 runner,先回到这一行再决定要不要在 dispose() 里补一次 clear(Controller Ruling E)。
+   */
   protected answers: Map<string, number> = new Map();
 
   setup(meta: ExperimentMeta): void {
@@ -32,6 +37,9 @@ export abstract class Physics2DRunner implements IExperimentRunner {
 
   setParam(key: string, value: number): void {
     this.params.set(key, value);
+    // Controller Ruling D:改了施给世界的条件(计数起点/间隔这类滑杆决定应有值从哪几段算出),
+    // 上一次交上来的结论就属于另一批数据,一并作废。不扩到 doAction —— 那由各场景在 Task 5/9 自行声明。
+    this.answers.clear();
     this.onParamChanged(key, value);
   }
 
