@@ -773,11 +773,154 @@ const QUIET_INK = ['Theme.TEXT_PRIMARY', 'Theme.TEXT_SECONDARY'];
 const CELL_WIRING = ['Text(def.label)', 'def.taskKey === task.key', 'this.answerTexts[index]'];
 
 /**
+ * 格内控件的**闭集**(Ruling T)。填空那一格里只许出现这四种构造;要加第五种,
+ * 得显式回来扩这张名单。开口白名单(轮 1 的做法)被复评从缝里走过去四次:
+ * Progress、Button、判定词 placeholder、嵌套自定义组件、条件 .borderWidth 全都绿。
+ * 「过宽」的担忧不成立——Ruling Q 管的是作用域(格内 vs 页面上别处),不是格内的封闭程度;
+ * 页面其余部分这条一律不管,负对照逐条钉住这一点。
+ */
+const IN_CELL_WIDGETS = ['Column', 'Row', 'Text', 'TextInput'];
+
+/** 交卷之前不许出现在输入通道上的判定词(placeholder 是学生在输入时唯一看得见的串) */
+const VERDICT_WORDS = ['应有值', '判定', '算对', '算错', '没交'];
+
+/**
+ * 把字符串字面量与注释的内容-mask 成空格,**保持长度不变** —— 下标与原源码逐一对应。
+ * 换行原样保留(块注释里的换行也是),这样带 g 的逐行正则照常工作。
+ * 配套的两样东西都靠它:scanBalanced 配平之前先 mask,作用域就不可能被字符串里的花括号牵着走;
+ * 闭集那把尺子也在 mask 后的文本上认构造,注释里写一句 `Progress(` 不会假冒控件。
+ * 边界(如实记录的代价):模板字面量按「整段是串」跳过,`${}` 里的真代码与串里套串看不见;
+ * 正则字面量里的 `{n}` 量词会被当花括号、正则里的引号会被当串起点 —— 本工程的页面与 runner
+ * 源码今天既没有跨行单引号串也没有正则字面量,这两条前提由负对照块的「前提检查」断言守着,
+ * 哪天成立不住了它会先红,再有人来扩这台状态机。
+ */
+function maskQuoted(src) {
+  const chars = src.split('');
+  const blank = (from, to) => {
+    for (let k = from; k < to && k < chars.length; k++) {
+      if (chars[k] !== '\n' && chars[k] !== '\r') {
+        chars[k] = ' ';
+      }
+    }
+  };
+  let i = 0;
+  const n = src.length;
+  while (i < n) {
+    const c = src[i];
+    if (c === "'" || c === '"' || c === '`') {
+      let j = i + 1;
+      while (j < n) {
+        if (src[j] === '\\') {
+          j += 2;
+          continue;
+        }
+        if (src[j] === c) {
+          break;
+        }
+        if (src[j] === '\n' && c !== '`') {
+          break; // 行内没闭合的引号:多半是 prose 里的撇号,只当它污染这一行
+        }
+        j++;
+      }
+      blank(i, Math.min(j + 1, n));
+      i = j < n ? j + 1 : n;
+      continue;
+    }
+    if (c === '/' && src[i + 1] === '/') {
+      let j = i;
+      while (j < n && src[j] !== '\n') {
+        chars[j] = ' ';
+        j++;
+      }
+      i = j;
+      continue;
+    }
+    if (c === '/' && src[i + 1] === '*') {
+      const end = src.indexOf('*/', i + 2);
+      const stop = end < 0 ? n : end + 2;
+      blank(i, stop);
+      i = stop;
+      continue;
+    }
+    i++;
+  }
+  return chars.join('');
+}
+
+/** 在 mask 过的文本上从 openIdx 那个开界符起配对,返回对应闭界符下标;找不到 -1。 */
+function scanBalanced(masked, openIdx, openCh, closeCh) {
+  if (openIdx < 0 || masked[openIdx] !== openCh) {
+    return -1;
+  }
+  let depth = 0;
+  for (let i = openIdx; i < masked.length; i++) {
+    if (masked[i] === openCh) {
+      depth++;
+    } else if (masked[i] === closeCh) {
+      depth--;
+      if (depth === 0) {
+        return i;
+      }
+    }
+  }
+  return -1;
+}
+
+/**
+ * body 里每一个 if 语句:条件原文(带引号)、mask 后的条件、then 分支的区间。
+ * Ruling R 要看的是「罩住 next[i] = '' 的那个 if 的条件长什么样」,
+ * 嵌套括号 + 字符串里的括号都得活着走到条件的尽头,所以这里用配平而不是正则。
+ */
+function findIfGuards(body) {
+  const masked = maskQuoted(body);
+  const out = [];
+  for (const m of masked.matchAll(/\bif\s*\(/g)) {
+    const openIdx = masked.indexOf('(', m.index);
+    const closeIdx = scanBalanced(masked, openIdx, '(', ')');
+    if (closeIdx < 0) {
+      continue;
+    }
+    let j = closeIdx + 1;
+    while (j < masked.length && /\s/.test(masked[j])) {
+      j++;
+    }
+    if (masked[j] === '{') {
+      const endIdx = scanBalanced(masked, j, '{', '}');
+      if (endIdx < 0) {
+        continue;
+      }
+      out.push({ cond: body.slice(openIdx + 1, closeIdx), condMasked: masked.slice(openIdx + 1, closeIdx), start: j + 1, end: endIdx });
+    } else {
+      const semi = masked.indexOf(';', j);
+      out.push({ cond: body.slice(openIdx + 1, closeIdx), condMasked: masked.slice(openIdx + 1, closeIdx), start: j, end: semi < 0 ? masked.length : semi + 1 });
+    }
+  }
+  return out;
+}
+
+/**
+ * 一行代码(块注释之外的部分)里未转义单引号是不是奇数 —— maskQuoted 的逐行前提:
+ * 引号成对 = 串不跨行。行注释之后的散文不算。给负对照块的「前提检查」断言用。
+ */
+function oddQuote(line) {
+  const cut = line.indexOf('//');
+  const code = cut < 0 ? line : line.slice(0, cut);
+  return (code.match(/(?<!\\)'/g) || []).length % 2 === 1;
+}
+
+/**
  * 从 anchor 之后第一个 `{` 起配平截出那一段函数体 / Builder 体(不含大括号本身)。
  *
  * 为什么要它:这几把尺子要管的作用域是「填空那一格里」,不是整页。拿正则去猜体内体外,
  * 迟早把读数行、开始/暂停按钮那些本来就该随状态变色的地方一起钉死 —— 那不叫守住纪律,
- * 叫这页从此没人改得动。ArkUI 的 Builder 体里花括号成对(串里没有单边的 `{`),配平就够用。
+ * 叫这页从此没人改得动。
+ *
+ * 配平是**带引号状态**的(修复轮 2 的 F2)。这一条以前只在 docstring 里「声称」串里没有
+ * 单边花括号,复评实测:往填空格的 placeholder 串里塞 `{` / `}` / `}}`,切片分别悄悄
+ * +49 / −21 / −133 字节,三种情况下锚点断言全绿 —— 覆盖范围无声丢失,塞进串里的那一个
+ * 花括号就把整把尺子的射程挪开了。现在字符串与注释里的花括号一律不参与计数,
+ * 并由「切片稳定性断言」(负对照块里,把串里的花括号换掉后字节差只许等于把戏本身)守着
+ * 这条不许退回去。
  */
 function sliceBody(src, anchor, from) {
   const at = src.indexOf(anchor, from === undefined ? 0 : from);
@@ -788,18 +931,11 @@ function sliceBody(src, anchor, from) {
   if (open < 0) {
     return null;
   }
-  let depth = 0;
-  for (let i = open; i < src.length; i++) {
-    if (src[i] === '{') {
-      depth++;
-    } else if (src[i] === '}') {
-      depth--;
-      if (depth === 0) {
-        return src.slice(open + 1, i);
-      }
-    }
+  const close = scanBalanced(maskQuoted(src), open, '{', '}');
+  if (close < 0) {
+    return null;
   }
-  return null;
+  return src.slice(open + 1, close);
 }
 
 /**
@@ -817,14 +953,23 @@ const WHOLE_FRAME_CLEAR = [
 ];
 
 /**
+ * 「清了一格」在 mask 过引号/注释的文本上的形状:`next[i] = '';` 里的两个引号
+ * 被 mask 成空格,右边只剩空白顶着分号。注意 this.answerTexts = [] 这种**整框重赋**
+ * 不在其形之内 —— 它由 WHOLE_FRAME_CLEAR 与第 5 条盯着(那里是引号,mask 不掉)。
+ * Ruling R 的罩子检查逐条扫这个形状,而不是扫全文里有没有 next[i] = ''。
+ */
+const CLEAR_MASKED_SOURCE = "next\\[[^\\]]*\\]\\s*=\\s*;";
+
+/**
  * 填数通道的页面侧源码守卫(Task 7):answerTexts 与 meta.submissions 同序同长,镜像清空按 key。
  *
  * 为什么是源码守卫而不是运行时断言:ExperimentPage import 了 ArkUI(@Component、TextInput),
  * 离线工程根本实例化不了它 —— 能判的只剩接线的三个来源:文本数组的长度从哪个数组取、
  * 存回 runner 时下标按哪个数组再解释一遍、清空是不是逐格。这三处断在任何一处,事故都是
  * 静默的:学生往「分子」那格打的数存进「倍数」那格,或者被作废的格子留着旧数字到交卷。
- * 返回隐患清单;配套负对照逐条证明这十三把尺子各自真的会咬。四种静默事故 —— 第 i 格的问句
- * 与第 i 格的 key 分家、输入时拿颜色或文字回显、换个写法整框清空、开局就把格子替学生填好 ——
+ * 返回隐患清单;配套负对照逐条证明这十七把尺子各自真的会咬。六种静默事故 —— 第 i 格的问句
+ * 与第 i 格的 key 分家、输入时拿颜色或文字回显、换个写法整框清空、把清空搬进 helper 或
+ * 把「清哪一格」的判定条件放宽、开局就把格子替学生填好、字符串里的花括号把尺子的射程挪开 ——
  * 各有一把按「写法形状」判的尺子盯着;作用域只到填空那一格,别处的同样写法不该管也不许管。
  */
 function findAnswerChannelHazards(src) {
@@ -860,9 +1005,11 @@ function findAnswerChannelHazards(src) {
   if (/\.type\(InputType\.Number\)/.test(src)) {
     bad.push('填空 TextInput 用了 InputType.Number:它会吞掉小数点,该用 NUMBER_DECIMAL');
   }
-  // ---- 8~11 管的都是「填空那一格里」:先把那一格截出来 --------------------------------
-  // 定位不到就整段跳过、不再另报一条 —— 第 3 条已经报了「遍历的不是 meta submissions」。
-  // 一把尺子只咬一件事,负对照才能做到「一次变异只染红一根」。
+  // ---- 8~11、14~16 管的都是「填空那一格里」:先把那一格截出来 -------------------------
+  // 定位不到就整段跳过、不再另报一条 —— 第 3 条已经报了「遍历的不是 meta submissions」,
+  // 而锚点本身丢没丢由作用域锚点断言(负对照块)喊。
+  // 一把尺子只咬一件事,合成的负对照才能各数各的隐患条数;真树上的红一次会连带一片,
+  // 连带范围按复评实测记录在修复轮报告里,「一次变异只红一根」这种话不许再写(F6)。
   const cell = sliceBody(src, 'ForEach(this.meta.submissions, (def: SubmissionDef, index: number) =>');
   if (cell !== null) {
     // 8. 回显纪律之①(颜色)。这一格的字色只许是两种静态令牌,别的一律算隐患 ——
@@ -906,6 +1053,37 @@ function findAnswerChannelHazards(src) {
         bad.push(`填空那一格不再写出 ${need}:同序与配对就只剩注释在承诺`);
       }
     }
+    // 14. 格内控件闭集(Ruling T,推翻轮 1 的开口清单)。第 9 条那五只控件名数得完,数不完的是
+    //     「下一只」:Progress、Button、嵌套的自定义组件,复评全试绿。这一格从此只许
+    //     Column / Row / Text / TextInput 四种构造;真要进第五种,得显式回来扩这张名单 ——
+    //     对一条「不许回显对错」的约束,这种摩擦正是想要的。页面别处一律不管(负对照钉住)。
+    //     在 mask 过的文本上认构造:注释里写一句 `Progress(` 不算,串里的词也不算。
+    const maskedCell = maskQuoted(cell);
+    for (const w of maskedCell.matchAll(/(^|[^A-Za-z0-9_.$])([A-Z][A-Za-z0-9_]*)\s*\(/g)) {
+      if (IN_CELL_WIDGETS.indexOf(w[2]) < 0) {
+        bad.push(`填空那一格里出现了闭集之外的 ${w[2]}():格内只许 ${IN_CELL_WIDGETS.join(' / ')} 四种构造,要加新控件得显式扩这张名单`);
+      }
+    }
+    // 15. placeholder 是输入通道上的字,交卷之前不许带判定词。第 10 条看的是 Text( 印出来的,
+    //     可「应有值约 9.80」换写进 placeholder 就绕过去了(复评实测绿)—— 同一个答案换了个
+    //     字段名就不是答案了?这一条把输入框自己的文案也管起来。
+    for (const ph of cell.matchAll(/placeholder\s*:\s*(["'])([^"']*)\1/g)) {
+      const hit = VERDICT_WORDS.filter((word) => ph[2].indexOf(word) >= 0);
+      if (hit.length > 0) {
+        bad.push(`填空那一格的 placeholder「${ph[2]}」写着判定词(${hit.join('、')}):交卷之前这一格的文案不许有答案或判定的影子`);
+      }
+    }
+    // 16. 条件化的 .borderWidth/.borderColor。轮 1 把格内 .borderColor 直接禁了,
+    //     .borderWidth 整个漏空(复评实测 `.borderWidth(… ? 2 : 0)` 绿):边框粗细随值变,
+    //     就是不动字色的第三种回显。静态一条线允许,带三元的不允许。
+    for (const bw of maskedCell.matchAll(/\.(borderWidth|borderColor)\s*\(/g)) {
+      const openIdx = maskedCell.indexOf('(', bw.index);
+      const closeIdx = scanBalanced(maskedCell, openIdx, '(', ')');
+      const arg = maskedCell.slice(openIdx + 1, closeIdx < 0 ? maskedCell.length : closeIdx);
+      if (arg.indexOf('?') >= 0) {
+        bad.push(`填空那一格的 .${bw[1]} 带条件(三元):边框的粗细与颜色随值变就是回显,这一格只许静态或不写`);
+      }
+    }
   }
   // 12. 初始化那三行只许造空串。往那一格里塞 key 名、塞应有值,学生看到的就是一道已经替他
   //     答好的题,「与 submissions 同序」也不再成立(长度对了又如何,每格都预填着答案)
@@ -934,6 +1112,37 @@ function findAnswerChannelHazards(src) {
       if (!/^this\.answerTexts\s*=\s*next$/.test(w[0].trim())) {
         bad.push(`syncAnswers 把 answerTexts 重赋成「${w[0].trim()}」:回写的只能是清完那几格之后的 next`);
       }
+    }
+    // 13b(Ruling R 之一、之二)。上面那些只管「怎么写」,这一条管「凭什么清」:
+    //     清哪一格,只由 runner.answer(那一格的 key) 说了算。复评实测两次整框清空仍然绿 ——
+    //     罩清空的 if 条件放宽成 `|| next.length >= 0`(骨架没动,可每一格每一拍都在清,
+    //     正是 Task 9 修掉的「假没交」),以及把清空整个搬进 this.<helper>()(下一条)。
+    //     条件里的 || 只会扩大被清集合,禁;&& 是收窄,许。非字符串的 || 才算数。
+    const guards = findIfGuards(syncBody);
+    for (const site of maskQuoted(syncBody).matchAll(new RegExp(CLEAR_MASKED_SOURCE, 'g'))) {
+      const covering = guards.filter((g) => site.index >= g.start && site.index < g.end);
+      if (covering.length === 0) {
+        bad.push('syncAnswers 里出现没被任何 if 条件罩住的清空:哪一格被清必须只在 runner.answer(那一格的 key) 判出脱钩时发生,无条件清就是整框清换了位置');
+        continue;
+      }
+      for (const g of covering) {
+        if (!/this\.runner\.answer\(/.test(g.cond)) {
+          bad.push(`syncAnswers 里罩住清空的 if 条件「${g.cond.trim()}」不读 this.runner.answer(那一格的 key):被清的格子就此不再由 runner 的作废说了算`);
+        }
+        if (g.condMasked.indexOf('||') >= 0) {
+          bad.push(`syncAnswers 里罩住清空的 if 条件「${g.cond.trim()}」出现 ||:析取只会扩大被清集合 —— 每一拍多清几格就是整框清空换了件衣服,要收窄用 &&`);
+        }
+      }
+    }
+    // 13c(Ruling R 之三)。体内不许出现对自身方法的调用:清空搬进 this.<helper>() 之后,
+    //     尺子只看得见调用、看不见它清了哪几格(复评实测这种搬法整框清仍然绿)。
+    //     合法形状本来就不撞这条正则 —— this.runner.answer( 的调用对象是 this.runner,
+    //     this.answerTexts.slice() 是数组方法 —— 显式放行它们不需要开后门。
+    //     代价如实记录:被调方法里干的「别的事」仍然看不见,但格内与逐格镜像不许再有任何
+    //     this.<方法>() 调用,「把清空搬走」这条路就此封死。
+    const maskedSync = maskQuoted(syncBody);
+    for (const call of maskedSync.matchAll(/this\.[A-Za-z_][A-Za-z0-9_]*\s*\(/g)) {
+      bad.push(`syncAnswers 里出现了 this 自身的方法调用 ${call[0].trim()}():逐格镜像必须写在体内,搬进 helper 尺子就只看得见调用、看不见清了哪几格`);
     }
   }
   return bad;
@@ -1001,8 +1210,10 @@ function fakeRubric(metrics, id) {
  * 计数起点那句 label 的诚实性。TapeCartRunner / NewtonSecondRunner 的 startDot() 会把滑杆
  * 给的起点夹到 movingStart() 之后 —— 滑杆写着 40、应用从第 76 个点量起。那句问话正压在一格
  * 填空上面,学生照着滑杆上那个数去对段,交上来的分子分母就对不上应有值。
- * 尺子按 runner 源码的写法形状认该不该说这句话:自由落体那条同一个 key 的滑杆不夹
- * ("这条实验要的就是从第一个点开始比"),它就**不许**被要求带上那句括注 —— 那是别人的事故。
+ * 尺子按 runner 源码的写法形状认该不该说这句话,两个方向都咬(F4):夹住的场景少了括注是撒谎,
+ * 不夹的场景写了括注同样是撒谎 ——「开头密着的点会自动舍掉」承诺的是这条实验根本不做的事。
+ * 自由落体那条同一个 key 的滑杆不夹("这条实验要的就是从第一个点开始比"),
+ * 它既**不许**被要求带上括注,也**不许**自己带上。
  */
 function findDishonestStartLabels(metas, clampedRunners) {
   const bad = [];
@@ -1012,11 +1223,19 @@ function findDishonestStartLabels(metas, clampedRunners) {
         continue;
       }
       const r = ExperimentRegistry.createRunner(m.id);
-      if (r === null || !clampedRunners.has(r.constructor.name)) {
+      if (r === null) {
         continue;
       }
-      if (!/（[^（）]*舍[^（）]*）/.test(p.label)) {
-        bad.push(`${m.id} 的 runner 会把计数起点夹到第一个移动点之后,label「${p.label}」却没告诉学生开头密着的点会被舍掉`);
+      const hasPromise = /（[^（）]*舍[^（）]*）/.test(p.label);
+      if (clampedRunners.has(r.constructor.name)) {
+        if (!hasPromise) {
+          bad.push(`${m.id} 的 runner 会把计数起点夹到第一个移动点之后,label「${p.label}」却没告诉学生开头密着的点会被舍掉`);
+        }
+      } else if (hasPromise) {
+        // 反方向(F4):不夹起点的场景许不起这个承诺。轮 1 的闸门只咬一个方向,
+        // 给落体那条也加上「舍掉开头密着的点」当时全绿 —— 文案就此可以承诺一件
+        // 这条实验根本不会发生的事,而滑杆就压在一格填空上面。
+        bad.push(`${m.id} 的 runner 不夹计数起点(从第几个点量起就真的从第几个点量起),label「${p.label}」却承诺会舍掉开头密着的点:这句括注在这条实验里是假的`);
       }
     }
   }
@@ -5548,9 +5767,11 @@ function findClampedStartRunners() {
 
   // ---- 页面接线:answerTexts 与 meta.submissions 同序、镜像清空按 key(Task 7) ------
   // ExperimentPage import ArkUI,离线实例化不了 —— 同序这件事只能以源码守卫的方式钉死。
-  // 每条负对照各破坏一根尺子的输入、要求恰好命中 1 条:证明十三把尺子都真的咬得住,
-  // 而不是「页面没扫到/正则在空跑」的假绿。新加的五把还各配一次「同样写法写在格外」的对照,
-  // 要求命中 0 条 —— 只证前一半,过宽的尺子要等下一个人改页面才暴露。
+  // 每条负对照各破坏一根尺子的输入、要求恰好命中它该命中的条数:证明这些尺子都真的咬得住,
+  // 而不是「页面没扫到/正则在空跑」的假红假绿。新加的每条还各配一次「同样写法写在格外」
+  // 的对照,要求命中 0 条 —— 只证前一半,过宽的尺子要等下一个人改页面才暴露。
+  // 修复轮 2 起有的变异被两把尺子同时咬(图标清单×格内闭集、骨架×判定来源),期望条数
+  // 如实上调,这是加严不是放宽;一次真树变异连带染红一片断言的范围见 fix2 报告(F6)。
   {
     const pageSrc = readFileSync(join(SRC, 'pages', 'ExperimentPage.ets'), 'utf8');
     assertTrue('实验页源码确实被扫到了(不是空串)', pageSrc.length > 3000, `只读到 ${pageSrc.length} 字符`);
@@ -5569,8 +5790,11 @@ function findClampedStartRunners() {
       findAnswerChannelHazards(pageSrc.replace('this.onAnswerChange(index, value)', 'this.onAnswerChange(0, value)')).length, 1, 0);
     check('负对照:answerTexts 整框清空会被认出(Ruling F)',
       findAnswerChannelHazards(pageSrc + '\nthis.answerTexts = [];\n').length, 1, 0);
+    // 修复轮 2 之后这个变异被两把尺子各报一次:第 6 条(骨架里没了两格衔接)与 13b
+    // (罩住清空的 if 条件不再读 runner.answer)。条数 1→2 是加严不是放宽 —— 两半都在咬,
+    // 少任何一个都算这条负对照失败。
     check('负对照:镜像清空不按第 i 格的 key 回读 runner 会被认出',
-      findAnswerChannelHazards(pageSrc.replace('this.runner.answer(this.meta.submissions[i].key)', 'Number.NaN')).length, 1, 0);
+      findAnswerChannelHazards(pageSrc.replace('this.runner.answer(this.meta.submissions[i].key)', 'Number.NaN')).length, 2, 0);
     check('负对照:填空框退回 InputType.Number(会吞小数点)会被认出',
       findAnswerChannelHazards(pageSrc.replace('InputType.NUMBER_DECIMAL', 'InputType.Number')).length, 1, 0);
     // ---- 修复轮 1 的四把新尺子:回显纪律(颜色/文字)、label↔key 配对、逐格清空的写法、开局空格 ----
@@ -5582,9 +5806,9 @@ function findClampedStartRunners() {
       const at = pageSrc.indexOf(from, pageSrc.indexOf('ForEach(this.meta.submissions'));
       return at < 0 ? pageSrc : pageSrc.slice(0, at) + to + pageSrc.slice(at + from.length);
     };
-    // 三把按作用域判的尺子(8~11 那一格、12 那个初始化循环、13 那个逐格镜像函数)定位不到时
-    // 是**安静跳过**的 —— 安静跳过必须有人喊,否则把 `private syncAnswers()` 改个名就能让
-    // 尺子无声失效。第 3 条只兜得住渲染循环那一个锚点,另外两个由这条兜。
+    // 三处按作用域判的锚点(8~11 与 14~16 那一格、12 那个初始化循环、13 那个逐格镜像函数)
+    // 定位不到时是**安静跳过**的 —— 安静跳过必须有人喊,否则把 `private syncAnswers()` 改个名
+    // 就能让尺子无声失效。第 3 条只兜得住渲染循环那一个锚点,另外两个由这条兜。
     const initAt2 = pageSrc.indexOf('const answers: string[] = [];');
     const SCOPES = [
       sliceBody(pageSrc, 'ForEach(this.meta.submissions, (def: SubmissionDef, index: number) =>'),
@@ -5613,10 +5837,12 @@ function findClampedStartRunners() {
       outsideText.includes("Text('应有值约 9.80')") ? '已改' : '空跑', '已改');
     check('负对照:同样一句「应有值」写在实时读数那一行(不是填空那一格)不许报',
       findAnswerChannelHazards(outsideText).length, 0, 0);
-    // 漏颜色看得见、漏图标看不见(评审原话),所以图标与进度控件单独一条:这一格里不许出现
+    // 漏颜色看得见、漏图标看不见(评审原话),所以图标与进度控件单独一条:这一格里不许出现。
+    // 修复轮 2 起这个变异同时被第 9 条(图标清单)与第 14 条(格内闭集)各报一次 —— 两把尺子
+    // 本来就都该咬,条数 1→2 是闭集覆盖图标族的自然结果,不是把哪根放宽了。
     check('负对照:填空那一格挂一只对勾图标会被认出',
       findAnswerChannelHazards(replaceInCell('Text(def.unit)',
-        "Symbol($r('sys.symbol.checkmark_circle_fill'))\n                          Text(def.unit)")).length, 1, 0);
+        "Symbol($r('sys.symbol.checkmark_circle_fill'))\n                          Text(def.unit)")).length, 2, 0);
     const outsideIcon = pageSrc.replace('                .layoutWeight(1)',
       "Symbol($r('sys.symbol.checkmark_circle_fill')).layoutWeight(1)");
     checkText('负对照脚手架:那只对勾确实加在读数那一行(替换不是空跑)',
@@ -5654,6 +5880,162 @@ function findClampedStartRunners() {
       outsideInit.includes('list.push(this.meta.observables[i].key)') ? '已改' : '空跑', '已改');
     check('负对照:同样的 push 写法在刷新读数那个循环里(不是填空初始化)不许报',
       findAnswerChannelHazards(outsideInit).length, 0, 0);
+    // ---- 修复轮 2:F1 逐格清空不变式(Ruling R)、F2 花括号作用域(Ruling S)、F3 格内闭集(Ruling T) ----
+    // 依旧每条双向:它管的那种漏法必须染红;同一种写法写在尺子不该管的范围必须仍然绿,
+    // 而且绿向的替换必须是当场验证过没空跑的(脚手架断言)。
+    const cellAnchor = 'ForEach(this.meta.submissions, (def: SubmissionDef, index: number) =>';
+    const readoutAnchor = 'ForEach(this.meta.observables, (def: ObservableDef, index: number) =>';
+    // inScope:把 from 的第一处出现换成 to,但限定在某个作用域锚点之后 —— 没有这层限定,
+    // 变异会改到页面上别的同名写法,红向变绿向,双向对照就此失真。
+    const inScope = (base, scopeAnchor, from, to, where) => {
+      const at = base.indexOf(from, base.indexOf(scopeAnchor));
+      assertTrue(`负对照脚手架:${where}的锚点「${from.slice(0, 28)}…」定位得到(替换不是空跑)`, at >= 0,
+        `在「${scopeAnchor.slice(0, 40)}…」之后没找到锚点`);
+      return at < 0 ? base : base.slice(0, at) + to + base.slice(at + from.length);
+    };
+    const PH_ANCHOR = "placeholder: '把你算出的数填进来'";
+    const UNIT_ANCHOR = 'Text(def.unit)';
+    const LABEL_ANCHOR = 'Text(def.label)';
+    const WEIGHT_ANCHOR = '.layoutWeight(1)';
+    // F1(复评实测的两次绿漏):整框清空搬进 this.<helper>()、罩清空的判定条件放宽成 ||。
+    check("负对照:syncAnswers 把清空搬进 this.clearFrameAll(next) 会被认出(Ruling R 之三)",
+      findAnswerChannelHazards(pageSrc.replace("next[i] = '';", "this.clearFrameAll(next); next[i] = '';")).length, 1, 0);
+    check('负对照:syncAnswers 罩清空的 if 条件加一条 || <永真> 会被认出(Ruling R 之二)',
+      findAnswerChannelHazards(pageSrc.replace(
+        'if (!Number.isFinite(this.runner.answer(this.meta.submissions[i].key))) {',
+        'if (!Number.isFinite(this.runner.answer(this.meta.submissions[i].key)) || next.length >= 0) {')).length, 1, 0);
+    // 条件整个不再读 runner.answer:第 6 条(骨架)与 13b(判定来源)同时咬,2 条都是这条事故的账
+    check('负对照:syncAnswers 罩清空的 if 条件不再读 runner.answer(那一格的 key) 会被认出(Ruling R 之一)',
+      findAnswerChannelHazards(pageSrc.replace(
+        'if (!Number.isFinite(this.runner.answer(this.meta.submissions[i].key))) {',
+        'if (next.length > i) {')).length, 2, 0);
+    // 绿向(Ruling Q,findings 点名):同一种 this.<helper>() 调用写在 syncAnswers 外面不许红。
+    // onParamChange 里那句 this.syncAnswers() 今天就在树上且全绿,这条把它也钉进负对照。
+    const helperOutside = pageSrc.replace('this.running = this.controller.running;',
+      'this.running = this.controller.running;\n    this.syncAnswers();');
+    checkText('负对照脚手架:this.syncAnswers() 确实加在 refreshReadouts(不是逐格镜像那一头)',
+      helperOutside !== pageSrc ? '已改' : '空跑', '已改');
+    check('负对照:refreshReadouts/onParamChange 里调 this.<helper>() 不许报(作用域在 syncAnswers 外)',
+      findAnswerChannelHazards(helperOutside).length, 0, 0);
+    const orSkipGuard = pageSrc.replace('if (trimmed.length === 0 || !Number.isFinite(Number(trimmed))) {',
+      'if (trimmed.length === 0 || true) {');
+    checkText('负对照脚手架:continue 罩子的 || 放宽确实改在 syncAnswers 里',
+      orSkipGuard !== pageSrc ? '已改' : '空跑', '已改');
+    check('负对照:syncAnswers 里罩 continue 的 if 带 || 不许报(析取禁令只盯罩住清空的那一个 if)',
+      findAnswerChannelHazards(orSkipGuard).length, 0, 0);
+    // F2(复评实测):字符串里的花括号牵着朴素配平走,切片悄悄 +49/−21/−133 字节而锚点全绿。
+    // Ruling S 的验收是切片稳定性断言:把花括号塞进格内字符串或注释之后,切片的字节差
+    // 只许等于塞进去的那几个字节本身 —— 边界被字符串内容牵走就是红。
+    const cellOf = (s) => sliceBody(s, cellAnchor);
+    const baseSliced = cellOf(pageSrc);
+    // 锚点哪天丢了:上面「三处作用域锚点」断言先红;这里给 NaN 让稳定性断言也红,而不是抛异常弄死整个 harness
+    const cellBytes = baseSliced === null ? NaN : Buffer.byteLength(baseSliced, 'utf8');
+    for (const trick of ['{', '}', '}}']) {
+      const braced = inScope(pageSrc, cellAnchor, PH_ANCHOR,
+        "placeholder: '把你算出的数填进来" + trick + "'", '塞花括号进 placeholder');
+      checkText(`负对照脚手架:花括号把戏「${trick}」确实落在填空格的串里`,
+        braced !== pageSrc ? '已改' : '空跑', '已改');
+      const sliced = cellOf(braced);
+      check(`切片稳定性:格内字符串里的「${trick}」不许挪作用域边界(字节差只许是把戏本身的 ${Buffer.byteLength(trick, 'utf8')} 字节)`,
+        sliced === null ? -1 : Math.abs(Buffer.byteLength(sliced, 'utf8') - cellBytes - Buffer.byteLength(trick, 'utf8')), 0, 0);
+    }
+    const commentBraced = inScope(pageSrc, cellAnchor, '// 全工程第一个 TextInput',
+      '// 全工程第一个 TextInput }}', '塞花括号进格内注释');
+    const commentSliced = cellOf(commentBraced);
+    // 注入的是「空格 + }}」共 3 字节,允许的字节差就是这 3 字节本身
+    check('切片稳定性:格内注释里的 }} 同样不许挪边界',
+      commentSliced === null ? -1 : Math.abs(Buffer.byteLength(commentSliced, 'utf8') - cellBytes - 3), 0, 0);
+    // 决定性证据(复评原案):}} 把戏 + 在该格 Column 上挂 .backgroundColor —— 轮 1 的射程
+    // 被把戏挪开后它全绿;现在切片不动,第 8 条当场咬住。期望恰好 1(只有回显纪律那一把)。
+    const trickSrc = inScope(pageSrc, cellAnchor, PH_ANCHOR, "placeholder: '把你算出的数填进来 }}'", '决定性证据的把戏');
+    const decisiveSrc = inScope(trickSrc, cellAnchor, WEIGHT_ANCHOR,
+      '.layoutWeight(1)\n                          .backgroundColor(Theme.DIVIDER)', '决定性证据的边框色');
+    check('负对照:花括号把戏掩护下的 .backgroundColor 藏不住了(轮 1 那次是绿的)',
+      findAnswerChannelHazards(decisiveSrc).length, 1, 0);
+    // 配平状态机的地基,两条都得有人钉着(不钉的话,哪天前提变了就又是「声称防住了」):
+    // ① 自检:串里的 `}` 与注释里的 `}` 都不许挪边界 —— 拿一段合成源码当场验收切片器本身;
+    // ② 前提:被扫描的页面与 runner 源码里单引号逐行成对(跨行单引号串会把 mask 状态机牵错),
+    //    并且根本没有正则字面量混在里面(引号启发式看不见 /.../;今天成立,成立就得是断言)。
+    const probeSrc = sliceBody("probe(): void {\n  if (x) {\n    y('}');\n  } // 收尾 }\n}\nAfter();", 'probe(): void');
+    checkText('配平状态机自检:串里的 } 与注释里的 } 都不许挪边界',
+      probeSrc === null ? '丢框' : (probeSrc.includes("y('}')") && probeSrc.includes('// 收尾 }') && !probeSrc.includes('After()') ? '守住了' : '越界'),
+      '守住了');
+    const scanSources = [pageSrc].concat(readdirSync(join(SRC, 'physics'))
+      .filter((f) => f.endsWith('.ets'))
+      .map((f) => readFileSync(join(SRC, 'physics', f), 'utf8')));
+    let oddQuoteLines = 0;
+    for (const s of scanSources) {
+      // 只看块注释之外的代码:文档注释里的导数撇号(e'、x'')是散文,maskQuoted 本来就不会
+      // 把它们当串起点(块注释整段跳过),把它们算进这条前提反而是这条断言自己过宽。
+      let inBlock = false;
+      for (const rawLine of s.split('\n')) {
+        const line = rawLine.replace(/\r$/, '');
+        if (inBlock) {
+          const end = line.indexOf('*/');
+          if (end < 0) {
+            continue;
+          }
+          inBlock = false;
+          if (oddQuote(line.slice(end + 2))) {
+            oddQuoteLines++;
+          }
+          continue;
+        }
+        const start = line.indexOf('/*');
+        if (start >= 0) {
+          if (oddQuote(line.slice(0, start))) {
+            oddQuoteLines++;
+          }
+          const end = line.indexOf('*/', start + 2);
+          if (end < 0) {
+            inBlock = true;
+          } else {
+            if (oddQuote(line.slice(end + 2))) {
+              oddQuoteLines++;
+            }
+          }
+          continue;
+        }
+        if (oddQuote(line)) {
+          oddQuoteLines++;
+        }
+      }
+    }
+    check('前提检查:被扫描源码的单引号逐行成对、且没有正则字面量(引号启发式的边界)',
+      oddQuoteLines + ([pageSrc].some((s) => /(?:^|[(=,:[!&|?{;]\s*)\/[^/*\s]/.test(s)) ? 1 : 0), 0, 0);
+    // F3(Ruling T):格内闭集。复评走通的五种漏法逐条染红;同一种写法写在读数行必须仍然绿。
+    check('负对照:Progress 混进填空那一格会被认出(开口清单数得完,下一只数不完)',
+      findAnswerChannelHazards(inScope(pageSrc, cellAnchor, LABEL_ANCHOR,
+        'Progress({ value: 1, total: 6 })\n                      Text(def.label)', '格内 Progress')).length, 1, 0);
+    check('负对照:Button 混进填空那一格会被认出',
+      findAnswerChannelHazards(inScope(pageSrc, cellAnchor, UNIT_ANCHOR,
+        "Button('应有值约 9.80')\n                          Text(def.unit)", '格内 Button')).length, 1, 0);
+    check('负对照:嵌套自定义组件 VerdictHint 混进填空那一格会被认出',
+      findAnswerChannelHazards(inScope(pageSrc, cellAnchor, UNIT_ANCHOR,
+        'VerdictHint({ cell: index })\n                          Text(def.unit)', '格内自定义组件')).length, 1, 0);
+    check('负对照:判定词写进 placeholder 会被认出(第 10 条看 Text,看不见这个字段)',
+      findAnswerChannelHazards(inScope(pageSrc, cellAnchor, PH_ANCHOR,
+        "placeholder: '应有值约 9.80'", '判定词 placeholder')).length, 1, 0);
+    check('负对照:条件 .borderWidth 混进填空那一格会被认出(轮 1 整条漏空)',
+      findAnswerChannelHazards(inScope(pageSrc, cellAnchor, WEIGHT_ANCHOR,
+        '.layoutWeight(1)\n                          .borderWidth(this.answerTexts.length > index ? 2 : 0)', '格内条件边框')).length, 1, 0);
+    // 闭集只管格内:同一批构造写在实时读数那一行,页面上本来就该随状态变脸的地方,一条都不许报。
+    const readoutProgress = inScope(pageSrc, readoutAnchor, 'Text(def.label)',
+      'Progress({ value: 1, total: 6 })\n              Text(def.label)', '读数行 Progress');
+    check('负对照:Progress 写在实时读数那一行(不是填空那一格)不许报',
+      findAnswerChannelHazards(readoutProgress).length, 0, 0);
+    const readoutButton = inScope(pageSrc, readoutAnchor, 'Text((this.readouts.length > index',
+      "Button('应有值约 9.80') Text((this.readouts.length > index", '读数行 Button');
+    check('负对照:Button 与判定词写在读数那一行(交卷之前那也是别处的字)不许报',
+      findAnswerChannelHazards(readoutButton).length, 0, 0);
+    const readoutHint = inScope(pageSrc, readoutAnchor, 'Text((this.readouts.length > index',
+      'VerdictHint({ cell: index }) Text((this.readouts.length > index', '读数行自定义组件');
+    check('负对照:嵌套自定义组件写在读数那一行不许报',
+      findAnswerChannelHazards(readoutHint).length, 0, 0);
+    const readoutBorder = inScope(pageSrc, readoutAnchor, WEIGHT_ANCHOR,
+      '.layoutWeight(1)\n                .borderWidth(this.running ? 2 : 0)', '读数行条件边框');
+    check('负对照:条件 .borderWidth 写在读数那一行不许报(它本来就该随状态变脸)',
+      findAnswerChannelHazards(readoutBorder).length, 0, 0);
   }
 
   // ---- 声明了的填空必须真被判得到;夹住的起点必须说在问句里(修复轮 1 的 I5 与 I7)------
@@ -5696,6 +6078,16 @@ function findClampedStartRunners() {
     check('负对照:夹起点的场景少了那句括注会被认出',
       findDishonestStartLabels([{ id: 'tape-cart', params: [{ key: 'countStart', label: '计数起点：从第几个点量起' }] }],
         clamped).length, 1, 0);
+    // F4 的反方向(轮 1 只咬了一个方向):不夹起点的场景**写了**括注同样是不撒谎不行 ——
+    // 给落体那条也承诺「开头密着的点会自动舍掉」,那条实验根本不舍点,这句话就是假的
+    const CLAUSE = '（开头密着的点会自动舍掉）';
+    check('负对照:不夹起点的场景写了舍点括注会被认出(反方向)',
+      findDishonestStartLabels([{ id: 'free-fall', params: [{ key: 'countStart', label: `比较起点：从第几个点量起${CLAUSE}` }] }],
+        clamped).length, 1, 0);
+    // 同一句括注写在真夹起点的场景上,反方向这条必须不咬 —— 它本来就是那句话的合法主人
+    check('负对照:夹起点的场景带着舍点括注,反方向也不报',
+      findDishonestStartLabels([{ id: 'tape-cart', params: [{ key: 'countStart', label: `计数起点：从第几个点量起${CLAUSE}` }] }],
+        clamped).length, 0, 0);
   }
   check('注册表里的场景数', registered.length, 15, 0);
   assertTrue('生物学科现在一条可打开的都没有(与地图自己的判断一致)',
