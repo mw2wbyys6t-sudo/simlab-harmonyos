@@ -130,7 +130,7 @@ export class MechanicsScenes {
     meta.params.push(SceneBuilders.param('length', '木板长度', 'm', 1, 5, 0.1, 1.2, '装置'));
     meta.params.push(SceneBuilders.param('mass', '小车质量', 'kg', 0.2, 5, 0.1, 0.2, '小车'));
     meta.params.push(SceneBuilders.param('friction', '动摩擦因数 μ', '', 0, 0.8, 0.01, 0.05, '小车'));
-    meta.params.push(SceneBuilders.param('countStart', '计数起点：从第几个点量起', '个', 0, 80, 1, 40, '纸带'));
+    meta.params.push(SceneBuilders.param('countStart', '计数起点：从第几个点量起（开头密着的点会自动舍掉）', '个', 0, 80, 1, 40, '纸带'));
     meta.params.push(SceneBuilders.param('countEvery', '每几个点取一个计数点', '个', 1, 10, 1, 5, '纸带'));
     meta.actions.push(SceneBuilders.action('power', '接通／断开电源', '计时器'));
     meta.actions.push(SceneBuilders.action('release', '释放小车', '计时器'));
@@ -279,7 +279,7 @@ export class MechanicsScenes {
     meta.durationMinutes = 45;
     meta.worldWidth = 9;
     meta.worldHeight = 5.4;
-    meta.params.push(SceneBuilders.param('countStart', '计数起点：从第几个点量起', '个', 0, 80, 1, 10, '纸带'));
+    meta.params.push(SceneBuilders.param('countStart', '计数起点：从第几个点量起（开头密着的点会自动舍掉）', '个', 0, 80, 1, 10, '纸带'));
     meta.params.push(SceneBuilders.param('countEvery', '每几个点取一个计数点', '个', 1, 10, 1, 5, '纸带'));
     meta.actions.push(SceneBuilders.action('wedge+', '加一层垫块', '垫块'));
     meta.actions.push(SceneBuilders.action('wedge-', '取一层垫块', '垫块'));
