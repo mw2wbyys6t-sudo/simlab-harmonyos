@@ -763,6 +763,51 @@ function findBadSubmissionLabels(all) {
   return bad;
 }
 
+/**
+ * 填数通道的页面侧源码守卫(Task 7):answerTexts 与 meta.submissions 同序同长,镜像清空按 key。
+ *
+ * 为什么是源码守卫而不是运行时断言:ExperimentPage import 了 ArkUI(@Component、TextInput),
+ * 离线工程根本实例化不了它 —— 能判的只剩接线的三个来源:文本数组的长度从哪个数组取、
+ * 存回 runner 时下标按哪个数组再解释一遍、清空是不是逐格。这三处断在任何一处,事故都是
+ * 静默的:学生往「分子」那格打的数存进「倍数」那格,或者被作废的格子留着旧数字到交卷。
+ * 返回隐患清单;配套负对照逐条证明七把尺子各自真的会咬。
+ */
+function findAnswerChannelHazards(src) {
+  const bad = [];
+  // 1. 同序的前提是同长,而长度只能取自 meta.submissions:按 tasks 取会少格,
+  //    按 observables 取会把读数行数当成填空数 —— 两种都是第 i 格与第 i 个 key 错开一格
+  if (!/const answers: string\[\] = \[\];[\s\S]{0,160}?for \(let i = 0; i < this\.meta\.submissions\.length; i\+\+\)[\s\S]{0,160}?this\.answerTexts = answers;/.test(src)) {
+    bad.push('answerTexts 的初始化没有按 meta.submissions 同序取长度');
+  }
+  // 2. UI 传回的下标必须按 submissions 再解释:这里错一格,key 就存错一格
+  if (!/private onAnswerChange\(index: number, text: string\)[\s\S]{0,240}?const def = this\.meta\.submissions\[index\];/.test(src)) {
+    bad.push('onAnswerChange 没有按 meta.submissions[index] 解释下标');
+  }
+  // 3. 渲染循环必须按 (def, index) 遍历 submissions —— 第 3 条与第 4 条合起来钉住「同序」:
+  //    显示问句 def.label 的那一格,与 onChange 带回来的 index、第 2 条存 key 用的 index,是同一个
+  if (!/ForEach\(this\.meta\.submissions, \(def: SubmissionDef, index: number\)/.test(src)) {
+    bad.push('填空渲染循环遍历的不是 meta.submissions(或未带 index)');
+  }
+  if (!/this\.onAnswerChange\(index, value\)/.test(src)) {
+    bad.push('TextInput 的 onChange 没有把渲染下标原样交给 onAnswerChange');
+  }
+  // 5. 镜像清空按 key(Ruling F):页面上出现 answerTexts 整框清 [] 就是回退到
+  //    「交早了 g、继续描点的人被判没交」——Task 9 刚修掉的事故,源头就在这条
+  if (/this\.answerTexts\s*=\s*\[\s*\]/.test(src)) {
+    bad.push('answerTexts 出现了整框清空(this.answerTexts = []):镜像清空必须按 key 逐格');
+  }
+  // 6. 逐格镜像的骨架:slice 回写 + runner.answer(第 i 格的 key) 判脱钩,只清脱钩那一格
+  if (!/const next: string\[\] = this\.answerTexts\.slice\(\);[\s\S]{0,700}?this\.runner\.answer\(this\.meta\.submissions\[i\]\.key\)[\s\S]{0,160}?next\[i\] = '';/.test(src)) {
+    bad.push('没找到按 key 的镜像清空(slice → runner.answer(submissions[i].key) 判脱钩 → next[i] 只清那一格)');
+  }
+  // 7. 填空框的类型:模拟器实测 InputType.Number 把「9.80」吞成「980」(小数点整个被滤掉),
+  //    而这条通道交的就是小数 —— 必须用 NUMBER_DECIMAL(Task 7 设备探针发现)
+  if (/\.type\(InputType\.Number\)/.test(src)) {
+    bad.push('填空 TextInput 用了 InputType.Number:它会吞掉小数点,该用 NUMBER_DECIMAL');
+  }
+  return bad;
+}
+
 // ---- 屏幕上的词:内部术语不许进学生可见文案(④ 内部语言外译) ----------------
 {
   // 左边这一串全是我们讨论实现时用的词。学生不需要知道少了哪一层、字段叫什么、
@@ -5266,6 +5311,34 @@ function findBadSubmissionLabels(all) {
   check('负对照:挂对又互不撞车的填空三条判据都不误伤',
     findOrphanSubmissions([fakeHealthy]).length + findDuplicateSubmissionKeys([fakeHealthy]).length +
       findBadSubmissionLabels([fakeHealthy]).length, 0, 0);
+
+  // ---- 页面接线:answerTexts 与 meta.submissions 同序、镜像清空按 key(Task 7) ------
+  // ExperimentPage import ArkUI,离线实例化不了 —— 同序这件事只能以源码守卫的方式钉死。
+  // 每条负对照各破坏一根尺子的输入、要求恰好命中 1 条:证明六把尺子都真的咬得住,
+  // 而不是「页面没扫到/正则在空跑」的假绿。
+  {
+    const pageSrc = readFileSync(join(SRC, 'pages', 'ExperimentPage.ets'), 'utf8');
+    assertTrue('实验页源码确实被扫到了(不是空串)', pageSrc.length > 3000, `只读到 ${pageSrc.length} 字符`);
+    check('实验页已含全工程第一个 TextInput', pageSrc.includes('TextInput(') ? 1 : 0, 1, 0);
+    check('实验页按 meta.tasks 渲染任务正文', pageSrc.includes('ForEach(this.meta.tasks') ? 1 : 0, 1, 0);
+    checkText('填数通道页面接线:零隐患', findAnswerChannelHazards(pageSrc).join(' | '), '');
+    // 每根尺子各喂一个只破坏它自己的变异
+    check('负对照:初始化长度换成 tasks 会被认出',
+      findAnswerChannelHazards(pageSrc.replace('const answers: string[] = [];', 'const answers: number[] = [];')).length, 1, 0);
+    check('负对照:onAnswerChange 改按 tasks 解释下标会被认出',
+      findAnswerChannelHazards(pageSrc.replace('const def = this.meta.submissions[index];', 'const def = this.meta.tasks[index];')).length, 1, 0);
+    check('负对照:渲染循环换成 observables 会被认出',
+      findAnswerChannelHazards(pageSrc.replace('ForEach(this.meta.submissions, (def: SubmissionDef, index: number)',
+        'ForEach(this.meta.observables, (def: ObservableDef, index: number)')).length, 1, 0);
+    check('负对照:onChange 把下标写死会被认出',
+      findAnswerChannelHazards(pageSrc.replace('this.onAnswerChange(index, value)', 'this.onAnswerChange(0, value)')).length, 1, 0);
+    check('负对照:answerTexts 整框清空会被认出(Ruling F)',
+      findAnswerChannelHazards(pageSrc + '\nthis.answerTexts = [];\n').length, 1, 0);
+    check('负对照:镜像清空不按第 i 格的 key 回读 runner 会被认出',
+      findAnswerChannelHazards(pageSrc.replace('this.runner.answer(this.meta.submissions[i].key)', 'Number.NaN')).length, 1, 0);
+    check('负对照:填空框退回 InputType.Number(会吞小数点)会被认出',
+      findAnswerChannelHazards(pageSrc.replace('InputType.NUMBER_DECIMAL', 'InputType.Number')).length, 1, 0);
+  }
   check('注册表里的场景数', registered.length, 15, 0);
   assertTrue('生物学科现在一条可打开的都没有(与地图自己的判断一致)',
     CurriculumIndex.experimentsOf(MapSubject.BIOLOGY)

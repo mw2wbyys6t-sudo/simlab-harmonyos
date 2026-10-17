@@ -1,6 +1,6 @@
 import { DeviceClass, Layout } from '../common/Layout';
 import { Theme } from '../common/Theme';
-import { ActionDef, ChartDef, ExperimentMeta, ObservableDef, ParamControl, ParamDef } from '../model/ExperimentTypes';
+import { ActionDef, ChartDef, ExperimentMeta, ObservableDef, ParamControl, ParamDef, SubmissionDef, TaskDef } from '../model/ExperimentTypes';
 import { fact, SessionRecord } from '../model/SessionRecord';
 import { FactSheet } from '../model/FactSheet';
 import { Rubric } from '../bench/Rubric';
@@ -34,6 +34,8 @@ export struct ExperimentPage {
   @State chartsVisible: boolean = true;
   /** 交卷后的判定结果,含每条扣分的证据 */
   @State verdict: string = '';
+  /** 与 meta.submissions 同序;空串表示这一格没填 */
+  @State answerTexts: string[] = [];
   /** 这条实验有没有细则(meta.rubricId 且 Rubrics 认得);没有就不给「交卷」按钮 */
   @State scorable: boolean = false;
 
@@ -63,6 +65,13 @@ export struct ExperimentPage {
       values.push(this.meta.params[i].defaultValue);
     }
     this.paramValues = values;
+    // 填空文本与 meta.submissions 同序初始化(源码守卫盯的就是这个循环):
+    // 按别的数组取长度,第 i 格显示的问句与存进去的 key 就会错开一格
+    const answers: string[] = [];
+    for (let i = 0; i < this.meta.submissions.length; i++) {
+      answers.push('');
+    }
+    this.answerTexts = answers;
     this.scorable = this.meta.rubricId.length > 0 && Rubrics.byId(this.meta.rubricId) !== null;
     this.refreshReadouts();
     // 手机竖屏纵向空间紧张,图线默认收起;平板与大屏直接展开
@@ -70,6 +79,8 @@ export struct ExperimentPage {
     // 读数按 10Hz 刷新:Canvas 自己每帧重绘,不必让整棵状态树跟着 60Hz 重建
     this.ticker = setInterval(() => {
       this.refreshReadouts();
+      // runner 可能在 step 里自己作废一格(sr-007 落笔),同一节奏按 key 把文本框收回
+      this.syncAnswers();
       this.chartTick = this.chartTick + 1;
     }, 100);
   }
@@ -120,6 +131,28 @@ export struct ExperimentPage {
     const next = this.paramValues.slice();
     next[index] = value;
     this.paramValues = next;
+    // 改滑杆会把 runner 里整框答案作废(Ruling D):按 key 镜像收回文本框,见 syncAnswers
+    this.syncAnswers();
+  }
+
+  /**
+   * 学生改了一格填空。
+   *
+   * 这里刻意什么都不判:即时回显对错会把「算」变成「猜」—— 二分几次就能逼近到满分,
+   * 那时判的就不再是会不会处理数据。判定只在交卷那一次发生。所以这一格在输入时
+   * 不许有任何颜色、判定文字或「应有值」出现(Task 10 的设备探针会当场断言这一点)。
+   */
+  private onAnswerChange(index: number, text: string): void {
+    if (this.runner === null || index >= this.meta.submissions.length) {
+      return;
+    }
+    const def = this.meta.submissions[index];
+    const trimmed = text.trim();
+    const value = trimmed.length > 0 ? Number(trimmed) : Number.NaN;
+    this.runner.setAnswer(def.key, Number.isNaN(value) ? Number.NaN : value);
+    const next = this.answerTexts.slice();
+    next[index] = text;
+    this.answerTexts = next;
   }
 
   /** 学生按下一个动作按钮。动作改变世界,读数与图线当场跟着变 —— 这是「他做的」唯一可见的证据 */
@@ -161,6 +194,44 @@ export struct ExperimentPage {
     }
     if (changed) {
       this.paramValues = next;
+    }
+  }
+
+  /**
+   * 把填空文本框按 key 对回 runner 里真实持有的答案。
+   *
+   * 与 syncParams 同源、同病:runner 会**自己**作废一格 —— ProjectileRunner.mark()
+   * 落笔时 dropAnswer('pjSegRatio')(窗口挪了,那个数已不属于这批数据)。屏幕上若还
+   * 留着那格数字,就是面板又一次撒谎:学生盯着一个应用早已丢掉的数,交卷时被判「没交」,
+   * 还无从知道为什么 —— 这正是 syncParams 注释里说的那种事故,Controller Ruling F。
+   *
+   * 必须按 key 清,不许整框清:sr-007 的 g 那一格设计上就不随继续描点作废(见
+   * ProjectileRunner.mark 的注释),整框清会把「早交了 g、还在描点」的人判成没交 ——
+   * 那是 Task 9 刚修掉的最大错法。setParam 的整框作废(Ruling D)在这里自然表现为
+   * 每一格都被检出脱钩,逐格收回,而不是页面主动清全框。
+   *
+   * 只认一种脱钩:框里是可解析的数、runner 里却已经不是有限值。学生打到一半
+   * (框里有字符但页面本来就存着 NaN)是他自己的输入,不是作废,不动。
+   */
+  private syncAnswers(): void {
+    if (this.runner === null) {
+      return;
+    }
+    let changed = false;
+    const next: string[] = this.answerTexts.slice();
+    for (let i = 0; i < this.meta.submissions.length; i++) {
+      const text = i < next.length ? next[i] : '';
+      const trimmed = text.trim();
+      if (trimmed.length === 0 || !Number.isFinite(Number(trimmed))) {
+        continue;
+      }
+      if (!Number.isFinite(this.runner.answer(this.meta.submissions[i].key))) {
+        next[i] = '';
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.answerTexts = next;
     }
   }
 
@@ -505,6 +576,62 @@ export struct ExperimentPage {
           }, (def: ObservableDef) => def.key)
         }
         .width('100%')
+
+        if (this.meta.tasks.length > 0) {
+          Divider().color(Theme.DIVIDER)
+
+          Text('要交的结论')
+            .fontSize(Layout.sectionSize(this.cls()))
+            .fontWeight(FontWeight.Bold)
+            .fontColor(Theme.TEXT_PRIMARY)
+
+          Column({ space: 12 }) {
+            ForEach(this.meta.tasks, (task: TaskDef) => {
+              Column({ space: 8 }) {
+                Text(task.prompt)
+                  .fontSize(Layout.bodySize(this.cls()))
+                  .fontColor(Theme.TEXT_PRIMARY)
+                ForEach(this.meta.submissions, (def: SubmissionDef, index: number) => {
+                  if (def.taskKey === task.key) {
+                    Column({ space: 4 }) {
+                      Text(def.label)
+                        .fontSize(Layout.labelSize(this.cls()))
+                        .fontColor(Theme.TEXT_SECONDARY)
+                      Row({ space: 8 }) {
+                        // 全工程第一个 TextInput:底色不写死,沿用组件默认令牌档
+                        // (源码守卫管这一类);输入时不回显任何颜色或判定 —— 见 onAnswerChange。
+                        // 类型用 NUMBER_DECIMAL 而不是 Number:模拟器实测 InputType.Number 会把
+                        // 「9.80」吞成「980」(小数点整个被滤掉),而这条通道交的就是小数。
+                        TextInput({
+                          text: this.answerTexts.length > index ? this.answerTexts[index] : '',
+                          placeholder: '把你算出的数填进来'
+                        })
+                          .type(InputType.NUMBER_DECIMAL)
+                          .fontSize(Layout.readoutSize(this.cls()))
+                          .fontColor(Theme.TEXT_PRIMARY)
+                          .layoutWeight(1)
+                          .onChange((value: string) => {
+                            this.onAnswerChange(index, value);
+                          })
+                        if (def.unit.length > 0) {
+                          Text(def.unit)
+                            .fontSize(Layout.labelSize(this.cls()))
+                            .fontColor(Theme.TEXT_SECONDARY)
+                        }
+                      }
+                      .width('100%')
+                    }
+                    .width('100%')
+                    .alignItems(HorizontalAlign.Start)
+                  }
+                }, (def: SubmissionDef) => def.key)
+              }
+              .width('100%')
+              .alignItems(HorizontalAlign.Start)
+            }, (task: TaskDef) => task.key)
+          }
+          .width('100%')
+        }
       }
       .alignItems(HorizontalAlign.Start)
       .width('100%')
