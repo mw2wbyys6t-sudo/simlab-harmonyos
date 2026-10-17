@@ -15,8 +15,9 @@ import { CriterionBuilder, CriterionOp, Rubric } from './Rubric';
  * 与 `Physics2DRunner.checkNumber`(不写事实 → 判定层按缺失放过),细则不重复实现。
  * v-t 图斜率取第二个 a 那一问(`tape-a-from-slope`)仍不判:它要的数还没开填空。
  *
- * 分值做成**能被满足的**:8° 斜面、通电后释放、每 5 个点取一个计数点、起点放在第 20 个点,
- * 再把两格按应有值交上来,一分不扣(harness 里那条走的是真 runner)。
+ * 分值做成**能被满足的**:8° 斜面、通电后释放、每 5 个点取一个计数点、起点滑杆放在第 40 个点
+ * (应用会把它夹到有效起点,判词与读数都会报出真正用的那个),再把两格按应有值交上来,
+ * 一分不扣(harness 里那条走的是真 runner)。
  */
 export class RubricTape {
   /** 这份细则配哪个场景注册表 id,由细则自己声明 —— 加实验时不用回来改一张总表的两处 */
@@ -40,9 +41,11 @@ export class RubricTape {
     const lostHead = CriterionBuilder.numeric('tape-lost-head', '先释放小车才接通电源，头一段运动没记下来',
       CriterionOp.GT, 'tapeLostHead', 0, 0, 15,
       '释放与接通之间漏打 {tapeLostHead} 个点：初速度为零那一段最该量，却正好是纸带上空着的那一段');
-    const crowded = CriterionBuilder.numeric('tape-crowded-start', '计数起点太靠前，最短那段用刻度尺读不出来',
+    // Ruling N 之后,头上密着的重叠点由应用自动舍掉(计数起点夹到第一个移动点),这条不再是
+    // "起点太靠前";今天真正触发它的是计数间隔太细、或起点就贴着释放那一下 —— 文案跟着改因与补救。
+    const crowded = CriterionBuilder.numeric('tape-crowded-start', '计数间隔太细，最短那段用刻度尺读不出来',
       CriterionOp.LT, 'tapeShortestMm', 2, 0, 15,
-      '所选计数段里最短的一段只有 {tapeShortestMm} mm：毫米刻度尺在这一步的读数误差就有 ±0.5 mm，这么短的一段量了等于没量，开头密着的点应当舍掉');
+      '所选计数段里最短的一段只有 {tapeShortestMm} mm：毫米刻度尺在这一步的读数误差就有 ±0.5 mm，这么短的一段量了等于没量；每几个点取一个计数点的间隔调大一些，或让有效计数起点离释放那一下远一点');
     const fewSegments = CriterionBuilder.numeric('tape-few-segments', '计数段太少，逐差法用不起来',
       CriterionOp.LT, 'tapeSegments', 4, 0, 15,
       '按当前间隔只切出 {tapeSegments} 段：逐差法要用上全部数据，至少得四段，两三组只能两两相减再平均');
@@ -50,14 +53,16 @@ export class RubricTape {
     // 数据处理这两条读的是结果码:0 算对、1 算错、2 没交 —— 判据本身不懂物理。
     // 标题写"没算对或没交"而不是"算错了":同一条判据要同时容纳 1 与 2 两种码,
     // 学生明明没填却看到"算错了",会以为应用吞了他的输入。
+    // Ruling N:两条判词都报出应用实际用的取窗口径(有效起点与参与逐差的段数 2h),
+    // 并写明"末尾凑不满一对的那段舍掉" —— 奇数段窗口不许让学生猜怎么分半。
     const numerator = CriterionBuilder.numeric('tape-numerator-value',
       '逐差法这一问没算对或没交',
       CriterionOp.GT, 'tapeNumeratorOutcome', 0, 0, 20,
-      '你交的分子是 {ans.tapeNumerator} mm，这条纸带按逐差法应为 {tapeNumeratorTrue} mm，判定：{tapeNumeratorOutcome}。分子要把后一半段与前一半段一一对齐相减（这条纸带按当前间隔切出 {tapeSegments} 段）：只用首尾两段会把中间量出来的数全丢掉，相邻两两相减又退化成逐段平均');
+      '你交的分子是 {ans.tapeNumerator} mm，这条纸带按逐差法应为 {tapeNumeratorTrue} mm，判定：{tapeNumeratorOutcome}。分子是后一半各段之和 减 前一半各段之和，这条纸带从第 {tapeChunkStart} 个点量起、参与逐差的共 {tapeChunkSegments} 段（末尾凑不满一对的那段舍掉）：只用首尾两段会把中间量出来的数全丢掉，相邻两两相减又退化成逐段平均');
     const denFactor = CriterionBuilder.numeric('tape-den-factor-value',
       '逐差法分母这一问没算对或没交',
       CriterionOp.GT, 'tapeDenFactorOutcome', 0, 0, 20,
-      '你交的分母倍数是 {ans.tapeDenFactor}，判定：{tapeDenFactorOutcome}，这条纸带该是 {tapeDenFactorTrue}：漏乘段数平方会把加速度放大几十倍，只乘一个段数照样放大，拿总段数的平方去除又会把它缩小到四分之一');
+      '你交的分母倍数是 {ans.tapeDenFactor}，判定：{tapeDenFactorOutcome}，这条纸带该是 {tapeDenFactorTrue}：它是参与逐差段数的一半再自乘，这条纸带参与逐差的共 {tapeChunkSegments} 段；漏乘段数平方会把加速度放大一大截、段数越多放大得越厉害，只乘一个段数照样放大，拿总段数的平方去除又会把它缩小到四分之一');
     rubric.criteria.push(noDots);
     rubric.criteria.push(lostHead);
     rubric.criteria.push(crowded);

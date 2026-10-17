@@ -79,6 +79,10 @@ export class FactLabels {
     table.set('tapeSegments', new FactLabel('切出的计数段数', ' 段'));
     table.set('tapeShortestMm', new FactLabel('最短计数段', ' mm'));
     table.set('tapeFirstGapMm', new FactLabel('第一对点的间距', ' mm'));
+    // Ruling N:应用口径的两个数(有效起点是被夹住之后的、参与段数是截到 2h 整的),
+    // 与滑杆位置/总段数可以不同 —— 差在哪必须让学生看见,不然逐差法的"后一半"只能猜。
+    table.set('tapeChunkStart', new FactLabel('有效计数起点', ' 个'));
+    table.set('tapeChunkSegments', new FactLabel('参与逐差法的段数', ' 段'));
     // 填数通道:判的是"学生自己交上来的数对不上哪一个典型错法"。
     // outcome 这三格读的是结果码(0 算对 / 1 算错 / 2 没交),必须过 codes 表才印得成人话。
     table.set('tapeNumeratorOutcome', FactLabels.coded('逐差法分子判定'));

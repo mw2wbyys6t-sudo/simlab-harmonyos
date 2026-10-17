@@ -142,6 +142,10 @@ export class MechanicsScenes {
     meta.observables.push(SceneBuilders.observable('tapeShortestMm', '最短计数段', 'mm', 1, false));
     meta.observables.push(SceneBuilders.observable('tapeEveryMs', '相邻计数点时间间隔', 'ms', 0, false));
     meta.observables.push(SceneBuilders.observable('tapeLostHead', '头一段漏打的点数', '个', 0, false));
+    // Ruling N:这两格把"应用凭什么这么算"露出来 —— 滑杆起点会被夹到第一个移动点,
+    // 奇数段窗口的尾段不进逐差。不给学生看,逐差法的"后一半"就只能靠猜口径。
+    meta.observables.push(SceneBuilders.observable('tapeChunkStart', '有效计数起点', '个', 0, false));
+    meta.observables.push(SceneBuilders.observable('tapeChunkSegments', '参与逐差法的段数', '段', 0, false));
     meta.charts.push(SceneBuilders.timeChart('速度-时间 v-t（斜率即 a）', 'v', 'm/s', [
       SceneBuilders.trace('velocity', 'v', SceneBuilders.palette(0))
     ]));
@@ -152,8 +156,10 @@ export class MechanicsScenes {
     // 两格填空都挂在逐差法那条任务上:分子要毫米刻度尺量出来的段长之和,倍数是个纯个数。
     // 问句里不写"后三段/前三段"这种只属于样例表的字数 —— 学生手上那条纸带切得出几段,
     // 由他选的间隔与这条板长共同决定,问句必须对任何段数都成立。
+    // Ruling N:真窗口约一半段数是奇数,"后一半 减 前一半"必须有唯一分法 ——
+    // 配对约定(末尾凑不满一对的那段舍掉)直接写进句子,学生照句子量就和应有值同口径。
     meta.submissions.push(SceneBuilders.submission('tapeNumerator', 'tape-a-by-difference',
-      '逐差法的分子：后一半计数段之和 减 前一半计数段之和', 'mm', 1));
+      '逐差法的分子：后一半各段之和 减 前一半各段之和（末尾凑不满一对的那段舍掉）', 'mm', 1));
     meta.submissions.push(SceneBuilders.submission('tapeDenFactor', 'tape-a-by-difference',
       '分母里 T² 的倍数（a = 分子 ÷（倍数 × T²））', '', 0));
     meta.rubricId = 'tape-cart-rubric';

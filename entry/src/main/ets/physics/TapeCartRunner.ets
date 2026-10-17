@@ -68,6 +68,13 @@ export class TapeCartRunner extends InclineRunner {
         return this.tape.lostHeadDots();
       case 'tapeSegments':
         return this.tape.segmentCount(this.startDot(), this.everyGap());
+      case 'tapeChunkStart':
+        // Ruling N:滑杆写的是一个数,应用量的是另一个 —— 把夹住后的有效起点露出来,
+        // 学生才知道"应有值"凭什么从第 76 个点起,而不是照滑杆上的 40 去对段。
+        return this.startDot();
+      case 'tapeChunkSegments':
+        // 奇数段窗口的尾段不进运算(截到 2h 整)。这个数不给,填空里的"后一半"就只能靠猜。
+        return this.chunkUsedCount();
       case 'tapeShortestMm':
         return this.tape.shortestSegment(this.startDot(), this.everyGap()) * 1000;
       case 'tapeSpanMm':
@@ -91,6 +98,9 @@ export class TapeCartRunner extends InclineRunner {
     sheet.set('tapeDotCount', this.tape.count());
     sheet.set('tapeLostHead', this.tape.lostHeadDots());
     sheet.set('tapeSegments', this.tape.segmentCount(start, every));
+    // 应用口径两格:应有值是从哪个点量起、有几段真的进了逐差 —— 判据要在判词里报给学生
+    sheet.set('tapeChunkStart', start);
+    sheet.set('tapeChunkSegments', this.chunkUsedCount());
     const shortest = this.tape.shortestSegment(start, every);
     if (Number.isFinite(shortest)) {
       sheet.set('tapeShortestMm', shortest * 1000);
@@ -135,6 +145,17 @@ export class TapeCartRunner extends InclineRunner {
   /** 最后一段的终点就是撞上板尾那一格打出的点 → 这一段被截短了,不该拿去逐差 */
   private tailClipped(start: number, every: number, segments: number): boolean {
     return this.clipDot >= 0 && segments > 0 && start + segments * every === this.clipDot;
+  }
+
+  /**
+   * 参与逐差法的段数(= 2h,Controller Ruling N)。
+   *
+   * 窗口再过一遍 liveFrom:奇数段时末尾凑不满一对的那段不进运算。这个数与
+   * `tapeSegments` 可以不同 —— 差在哪、应用凭什么这么算,必须作为读数给学生,
+   * 否则"后一半 减 前一半"在 13 段这种窗口上只能靠猜,按另一种口径算的人会被判错。
+   */
+  private chunkUsedCount(): number {
+    return TapeChunkProcedure.liveFrom(this.chunkWindowMm()).length;
   }
 
   /**

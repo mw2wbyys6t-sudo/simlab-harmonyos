@@ -6178,7 +6178,8 @@ function findBadSubmissionLabels(all) {
     ['tape-few-dots', [['act', 'power'], ['act', 'release'], ['run', 4]]],
     // 先放车、半秒后才想起通电
     ['tape-lost-head', [['act', 'release'], ['run', 30], ['act', 'power'], ['run', 100]]],
-    // 一个点都没舍:第一段还是小车静止时打出来的重叠点
+    // 起点已被应用夹到释放之后(头上重叠点压根不进窗口):今天真正触发这一条的
+    // 是"每 1 个点取一段"——刚释放那几段还短过量尺的 2 mm
     ['tape-crowded-start', [['act', 'power'], ['run', 6], ['act', 'release'], ['run', 130],
       ['countStart', 0], ['countEvery', 1]]],
     // 每 10 个点才取一个,80 个点只够切 8 段 —— 改成起点放到 45 之后只剩 3 段
@@ -7980,6 +7981,10 @@ function findBadSubmissionLabels(all) {
   check('倍数是整数个数', subDen.precision, 0, 0);
   check('负对照:两条填空的问句都写全且标点干净',
     findBadSubmissionLabels([meta]).length, 0, 0);
+  // Ruling N:13 段这种奇数窗口,"后一半 减 前一半"学生只能猜怎么分半。配对约定必须写进
+  // 句子本身 —— "应用其实会把凑不满一对的尾段舍掉"是我们内部的事实,不是学生看得见的口径。
+  assertTrue('分子问句把配对约定写进句子本身(末尾凑不满一对的那段舍掉)',
+    subNum.label.includes('末尾凑不满一对的那段舍掉'), subNum.label);
 
   // ---- 交上来的数:算对 / 点名成哪种错法 / 说不出错在哪 ------------------------
   const fps = {};
@@ -8024,6 +8029,42 @@ function findBadSubmissionLabels(all) {
     winOf(tapeRun(RUN_TAPE.concat([['param', ['countEvery', 2]]])).runner).length, 40, 0);
   // 反面对照:无条件丢尾会把这条完好窗口也切掉一段(它同时会破掉 spec §5 钉死的样例表)
   check('反面对照:无条件丢尾会把默认窗口切成 15 段(所以只能条件性丢)', rawEvery5.length - 1, 15, 0);
+
+  // ---- Ruling N:应用用哪些数算的"应有值",必须作为读数给学生 ----------------------
+  // 两处口径学生肉眼看不见:①滑杆写 40,应用实际从夹住后的第 76 个点量起;
+  // ②真跑起来的窗口约一半段数是奇数(本格扫描 15476/36589),末尾凑不满一对的那段不进运算。
+  // 不把这两个数露出来,按另一种口径算的学生会被判"算错了"且不命中任何指纹 —— 这是本项目
+  // 最不能有的"把做对的人判错"。读数、事实、判词三处都得有,缺一个这里就红。
+  check('有效计数起点读数:呈报的是应用真用的那个,不是滑杆位置',
+    blank.runner.readObservable('tapeChunkStart'), 76, 0);
+  check('参与逐差法的段数读数:截到 2h 整之后真的进运算的段数',
+    blank.runner.readObservable('tapeChunkSegments'), 16, 0);
+  check('两格读数同样进了事实(细则要在判词里报给学生)', blank.sheet.num('tapeChunkStart'), 76, 0);
+  check('段数也是', blank.sheet.num('tapeChunkSegments'), 16, 0);
+  checkText('两格读数的显示名(报告页不许退回内部键名)',
+    FactLabels.labelOf('tapeChunkStart') + ' / ' + FactLabels.labelOf('tapeChunkSegments'),
+    '有效计数起点 / 参与逐差法的段数');
+  check('每 1 点一段:窗口被条件丢尾切成 80 段,这个读数跟着窗口走',
+    every1.sheet.num('tapeChunkSegments'), 80, 0);
+
+  // 案发起因的具体情形:默认倾角、每 6 点取一段,出口就是 13 段(奇数)。
+  // 按应用约定分半要把尾段舍掉(h=6、参与 12 段);把尾段算进"后一半"的另一种口径与应有值差 35%。
+  // 这个情形必须钉成断言,不是注释 —— 谁再把口径改回去,这里先红。
+  const oddDry = tapeRun(RUN_TAPE.concat([['param', ['countEvery', 6]]]));
+  const oddWin = winOf(oddDry.runner);
+  check('13 段窗口确认可复现(默认那条只改计数间隔)', oddWin.length, 13, 0);
+  check('13 段窗口下"参与逐差法的段数"给出截到 2h 整的 12 段',
+    oddDry.runner.readObservable('tapeChunkSegments'), 12, 0);
+  const oddNum = oddDry.sheet.num('tapeNumeratorTrue');
+  const oddDen = oddDry.sheet.num('tapeDenFactorTrue');
+  check('奇数窗口的倍数应有值 = h² = 6×6', oddDen, 36, 0);
+  const oddRight = tapeRun(RUN_TAPE.concat([['param', ['countEvery', 6]],
+    ['ans', ['tapeNumerator', oddNum]], ['ans', ['tapeDenFactor', oddDen]]]));
+  check('奇数段(13 段)窗口:按应用约定(舍掉末尾凑不满那一段)交分子 → 判"算对了"',
+    oddRight.sheet.num('tapeNumeratorOutcome'), 0, 0);
+  check('分母同一口径也判对', oddRight.sheet.num('tapeDenFactorOutcome'), 0, 0);
+  check('两种分半口径在这条窗口上就差 35%(口径不写进句子就是埋雷)',
+    oddWin[12] / oddNum * 100 >= 30 ? 1 : 0, 1, 0);
 
   // ---- 这道题出不来 → 一个事实都不写、判据不响 --------------------------------
   const short = tapeRun([['param', ['countEvery', 10]], ['act', 'power'], ['run', 40],
@@ -8213,8 +8254,11 @@ function findBadSubmissionLabels(all) {
     const orphans = tokens.filter((k) => FactLabels.of(k) === null);
     assertTrue('两条新判据引用的每个数都配了显示名', orphans.length === 0,
       `没配标签的:${orphans.join(',')} / 全部引用:${tokens.join(',')}`);
-    checkText('分子那条同时报出"你交的"与"应有的"', tokens.slice(0, 4).join(','),
-      'ans.tapeNumerator,tapeNumeratorTrue,tapeNumeratorOutcome,tapeSegments');
+    checkText('分子那条同时报出"你交的""应有的"与应用实际用的取窗口径(起点与 2h)',
+      tokens.slice(0, 5).join(','),
+      'ans.tapeNumerator,tapeNumeratorTrue,tapeNumeratorOutcome,tapeChunkStart,tapeChunkSegments');
+    assertTrue('判词把配对约定也说全(学生能从判词对回自己用的是哪几段)',
+      NUM_EVID.includes('凑不满一对') && NUM_EVID.includes('tapeChunkSegments'), NUM_EVID);
   }
   // 已经不在表里的错法不许再被承诺:sr-003 的 5 号「÷1000」与 sr-007 的 G2「把 x 当时间」都删了,
   // 板角基准那条(曾拟叫 G3)压根没进表 —— 点名一个表里都没有的错法 = 判词里写一句兑现不了的话。
@@ -8235,6 +8279,10 @@ function findBadSubmissionLabels(all) {
   sheet.set('tapeLostHead', 0);
   sheet.set('tapeShortestMm', 18);
   sheet.set('tapeSegments', 6);
+  // 合成清单也要带上应用口径那两格:6 段、从第 20 个点量起 —— 判词模板引用了它们,
+  // 不给就只会印成破折号,"判词读得通"那两条会退化成看不见口径
+  sheet.set('tapeChunkStart', 20);
+  sheet.set('tapeChunkSegments', 6);
   sheet.set('tapeNumeratorOutcome', 2);
   sheet.set('tapeDenFactorOutcome', 2);
   const missing = Judgment.score(rubric, sheet);
@@ -8251,6 +8299,16 @@ function findBadSubmissionLabels(all) {
   checkText('扣的就是新加的那条', hit.deductions.length > 0 ? hit.deductions[0].criterionId : '判据没响',
     'tape-numerator-value');
   checkText('扣 20 分', hit.deductions.length > 0 ? String(hit.deductions[0].points) : '判据没响', '20');
+  // 对称的那一条:分母单独错也必须只扣分母这一条、同样 20 分(原来这里只钉了分子侧)
+  sheet.set('tapeNumeratorOutcome', 0);
+  sheet.set('tapeNumeratorWrongKind', 0);
+  sheet.set('tapeDenFactorOutcome', 1);
+  sheet.set('tapeDenFactorWrongKind', 2);
+  const hitDen = Judgment.score(rubric, sheet);
+  check('分母算错 → 也只扣这一条', hitDen.deductions.length, 1, 0);
+  checkText('扣的是分母那条', hitDen.deductions.length > 0 ? hitDen.deductions[0].criterionId : '判据没响',
+    'tape-den-factor-value');
+  checkText('同样扣 20 分', hitDen.deductions.length > 0 ? String(hitDen.deductions[0].points) : '判据没响', '20');
   // 判词读得通:两种说法都出现过,而且都经 codes 表印成人话(细则自己不该管这件事)
   assertTrue('判词读得通:没交那一种印成「没交」而不是裸 2',
     (missing.deductions.length > 0 ? missing.deductions[0].evidence : '判据没响').includes('判定：没交'),
