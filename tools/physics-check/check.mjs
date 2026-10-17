@@ -7004,26 +7004,77 @@ function checkRel(label, actual, expected, relTolerance) {
     require(join(OUT, 'physics/AnswerCheck.cjs'));
   const fp = (id, value) => { const f = new Fingerprint(); f.id = id; f.value = value; return f; };
   const prints = [fp(1, 100), fp(2, 20), fp(3, 60)];
-  check('差 1% → 算对', AnswerCheck.match(181.8, 180, prints, 3).code, ANSWER_OK, 0);
-  check('偏差按有符号百分比报出', AnswerCheck.match(181.8, 180, prints, 3).relErr, 1, 0.01);
-  check('差 4% → 算错', AnswerCheck.match(172.8, 180, prints, 3).code, ANSWER_WRONG, 0);
-  check('没填(NaN)→ 没交', AnswerCheck.match(Number.NaN, 180, prints, 3).code, ANSWER_MISSING, 0);
-  assertTrue('没填时 relErr 不编数',
-    !Number.isFinite(AnswerCheck.match(Number.NaN, 180, prints, 3).relErr), 'x');
-  check('命中指纹 2 号(差 0.3%)', AnswerCheck.match(20.06, 180, prints, 3).wrongKind, 2, 0);
-  check('命中指纹也仍算错,不因为"像某种错法"就放过',
-    AnswerCheck.match(20.06, 180, prints, 3).code, ANSWER_WRONG, 0);
+  // assertTrue 的 detail 只在红的时候打印,所以给它观察值,不许再传 'x'
+  const got = (o) => String(o === null ? 'null'
+    : 'code=' + o.code + ' relErr=' + o.relErr + ' wrongKind=' + o.wrongKind);
+  const isNull = (label, o) => assertTrue(label, o === null, got(o));
+
+  // 三条码与带宽的字面值:Task 5 的枚举标签表、Task 6 的「GT 0」都按字面值走。
+  // 让常量自己比自己证明不了任何事,这里逐个钉成 0/1/2/0.5。
+  check('ANSWER_OK 钉死为字面 0', ANSWER_OK, 0, 0);
+  check('ANSWER_WRONG 钉死为字面 1', ANSWER_WRONG, 1, 0);
+  check('ANSWER_MISSING 钉死为字面 2', ANSWER_MISSING, 2, 0);
+  check('MATCH_TOL 钉死为字面 0.5', AnswerCheck.MATCH_TOL, 0.5, 0);
+
+  const ok = AnswerCheck.match(181.8, 180, prints, 3);
+  check('差 1% → 算对', ok.code, ANSWER_OK, 0);
+  check('偏差按有符号百分比报出', ok.relErr, 1, 0.01);
+
+  const low = AnswerCheck.match(172.8, 180, prints, 3);
+  check('差 4% → 算错', low.code, ANSWER_WRONG, 0);
+  check('少填 4% 报的是负偏差', low.relErr, -4, 0.01);
+
+  const blank = AnswerCheck.match(Number.NaN, 180, prints, 3);
+  check('没填(NaN)→ 没交', blank.code, ANSWER_MISSING, 0);
+  assertTrue('没填时 relErr 不编数', !Number.isFinite(blank.relErr), got(blank));
+
+  // 交 0 是交了:0 是一个答案,不是空格子,不许落进"没交"那条码
+  const zero = AnswerCheck.match(0, 180, prints, 3);
+  check('填 0 → 算错而不是没交', zero.code, ANSWER_WRONG, 0);
+  check('填 0 也报得出偏差(说明它被当成"交了")', zero.relErr, -100, 0.01);
+
+  const kind = AnswerCheck.match(20.06, 180, prints, 3);
+  check('命中指纹 2 号(差 0.3%)', kind.wrongKind, 2, 0);
+  check('命中指纹也仍算错,不因为"像某种错法"就放过', kind.code, ANSWER_WRONG, 0);
   check('一个指纹都没命中时 wrongKind 为 0',
     AnswerCheck.match(123, 180, prints, 3).wrongKind, 0, 0);
+
   // 先比正确值:学生填出一个与正确值同数的指纹时,判"对"而不是判错法
-  check('匹配顺序:先正确值后指纹', AnswerCheck.match(100, 100, [fp(1, 100)], 3).code, ANSWER_OK, 0);
-  // 这题出不来由调用方决定:correct 非有限 → 不产出结果,而不是"算对"
-  assertTrue('correct 为 NaN 时返回 null(调用方据此一个事实都不写)',
-    AnswerCheck.match(90, Number.NaN, prints, 3) === null, 'x');
+  const order = AnswerCheck.match(100, 100, [fp(1, 100)], 3);
+  check('匹配顺序:先正确值后指纹', order.code, ANSWER_OK, 0);
+  check('判对时不点名,wrongKind 保持 0', order.wrongKind, 0, 0);
+
+  // 这题出不来 → 不产出任何码,调用方据此一个事实都不写
+  isNull('correct 为 NaN 时返回 null(不产出任何码)', AnswerCheck.match(90, Number.NaN, prints, 3));
+  // Controller Ruling A:correct 为 0 同样是"这题没出"(小车被摩擦按住、整条纸带 0 mm 段),
+  // 不是"没交"。细则里 tape-crowded-start 已经为这条废纸带扣过分,数据判据不再重复罚。
+  isNull('correct 为 0 时返回 null(学生交了 90 也不写事实)',
+    AnswerCheck.match(90, 0, prints, 3));
+  // 短路排在"没交"判断之前:题没出时填没填都只有 null,"没交"这条码不许被借用
+  isNull('correct 为 0 且没填时仍是 null(不是 MISSING)',
+    AnswerCheck.match(Number.NaN, 0, prints, 3));
+
   check('负的正确值也算得出相对偏差(分母取绝对值)',
     AnswerCheck.match(-90, -100, prints, 3).relErr, 10, 0.01);
+
+  // 带宽两侧各钉一次:MATCH_TOL 挪出 0.5、或把 <= 写成 <,都会红一条。
+  // 100.5 对 100 的偏差按浮点算恰好就是 0.5,边界落在等号内侧。
   check('带宽 0.5% 之外就不算命中(0.6% → wrongKind 0)',
     AnswerCheck.match(100.6, 180, [fp(1, 100)], 3).wrongKind, 0, 0);
+  check('恰好 0.5% 算命中(实现用的是 <=,含边界)',
+    AnswerCheck.match(100.5, 180, [fp(1, 100)], 3).wrongKind, 1, 0);
+
+  // 无效指纹的静默行为钉住:值为 0 或 NaN 都只当"没命中",绝不把那个 id 报给学生
+  check('值为 0 的指纹永不点名(哪怕学生填的正是 0)',
+    AnswerCheck.match(0, 180, [fp(4, 0)], 3).wrongKind, 0, 0);
+  check('值为 NaN 的指纹永不点名',
+    AnswerCheck.match(20.06, 180, [fp(4, Number.NaN)], 3).wrongKind, 0, 0);
+  // 跳过是 continue 不是 break:前面那条废指纹不许拦掉后面能点名的那条
+  check('废指纹不拦路,后面的有效指纹照样点名',
+    AnswerCheck.match(20.06, 180, [fp(4, 0), fp(9, Number.NaN), fp(2, 20)], 3).wrongKind, 2, 0);
+  // id 0 保留给"没命中":即使数值对上也得跳过去,否则"点名 0 号"与"没命中"分不开
+  check('id 为 0 的指纹被跳过,点名落到后面那条',
+    AnswerCheck.match(20.06, 180, [fp(0, 20), fp(2, 20)], 3).wrongKind, 2, 0);
 }
 
 if (failures.length > 0) {
