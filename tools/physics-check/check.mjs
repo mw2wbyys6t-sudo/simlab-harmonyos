@@ -6128,7 +6128,7 @@ function findBadSubmissionLabels(all) {
       Number.isNaN(tape.accelByChunking(0, 5, 40)), String(tape.accelByChunking(0, 5, 40)));
   }
 
-  /** 跑一遍操作脚本:act 按按钮,step 走多少帧,其余当参数拖 */
+  /** 跑一遍操作脚本:act 按按钮,step 走多少帧,ans 交一格数,其余当参数拖 */
   function run(steps) {
     const runner = ExperimentRegistry.createRunner('tape-cart');
     runner.setup(meta);
@@ -6138,6 +6138,8 @@ function findBadSubmissionLabels(all) {
         runner.doAction(value);
       } else if (key === 'run') {
         for (let i = 0; i < value; i++) runner.step(1 / 60);
+      } else if (key === 'ans') {
+        runner.setAnswer(value[0], value[1]);
       } else {
         runner.setParam(key, value);
       }
@@ -6149,12 +6151,22 @@ function findBadSubmissionLabels(all) {
   }
 
   // 1. 认真做:先通电待稳定,再释放;舍开头 20 个点,每 5 点取一个计数点
-  const good = run([['act', 'power'], ['run', 6], ['act', 'release'], ['run', 130]]);
-  check('纸带上的点够多', good.sheet.num('tapeDotCount') > 70 ? 1 : 0, 1, 1e-12);
-  check('切得出四段以上', good.sheet.num('tapeSegments') >= 4 ? 1 : 0, 1, 1e-12);
-  check('最短一段读得出来', good.sheet.num('tapeShortestMm') >= 2 ? 1 : 0, 1, 1e-12);
-  check('头一段没漏', good.sheet.num('tapeLostHead'), 0, 1e-12);
-  check('认真做一分不扣', good.card.awarded, 100, 1e-9);
+  const GOOD_STEPS = [['act', 'power'], ['run', 6], ['act', 'release'], ['run', 130]];
+  // 手上功夫做足、两格空着:数据处理那 40 分拿不到(没交要扣,而这题明明出得来)
+  const dry = run(GOOD_STEPS);
+  check('纸带上的点够多', dry.sheet.num('tapeDotCount') > 70 ? 1 : 0, 1, 1e-12);
+  check('切得出四段以上', dry.sheet.num('tapeSegments') >= 4 ? 1 : 0, 1, 1e-12);
+  check('最短一段读得出来', dry.sheet.num('tapeShortestMm') >= 2 ? 1 : 0, 1, 1e-12);
+  check('头一段没漏', dry.sheet.num('tapeLostHead'), 0, 1e-12);
+  check('这条纸带出得了那两问(应有值量得出来)',
+    Number.isFinite(dry.sheet.num('tapeNumeratorTrue')) ? 1 : 0, 1, 0);
+  check('两格都没交 → 只剩手上功夫那 60 分', dry.card.awarded, 60, 1e-9);
+  checkText('没交扣两条', dry.card.deductions.map((d) => d.criterionId).sort().join(','),
+    'tape-den-factor-value,tape-numerator-value');
+  // 把两格按应有值交上来 → 细则能被满足,一分不扣(这条走的是真 runner、真纸带)
+  const good = run(GOOD_STEPS.concat([['ans', ['tapeNumerator', dry.sheet.num('tapeNumeratorTrue')]],
+    ['ans', ['tapeDenFactor', dry.sheet.num('tapeDenFactorTrue')]]]));
+  check('认真做 + 按应有值交 → 一分不扣', good.card.awarded, 100, 1e-9);
   check('扣分条数为 0', good.card.deductions.length, 0, 1e-12);
   // 小车走满 1.2 m 的坡:纸带长度应当与位移同量级(不是被放大后的画图坐标)
   const span = good.runner.readObservable('tapeSpanMm');
@@ -8154,6 +8166,108 @@ function findBadSubmissionLabels(all) {
   assertTrue('条件丢尾真的被走到(≥ 1000 个参数点丢了尾)', aDrops >= 1000, `实得 ${aDrops} 个点`);
   assertTrue('反事实对照有牙:不丢尾时这张格会红 ≥ 1000 个窗口', aCfBad >= 1000,
     `实得 ${aCfBad} 个;最坏一条 ${aCfWorst.err.toFixed(2)}% @ ${aCfWorst.at}`);
+}
+
+// ---- 学生填数通道 6:sr-003 细则加两条数据处理判据、分值重排、版本升级 ----------
+// 细则本身仍然不懂物理:它读的是 runner 写好的结果码(0 算对 / 1 算错 / 2 没交)。
+// 这一节要证明的是三件事:重排后的分值**能被满足**、同一条判据同时接住"没交"与"算错"、
+// 判词印出来是给学生读的话(不点一条已经不存在的错法)。
+{
+  const { RubricTape } = require(join(OUT, 'bench/RubricTape.cjs'));
+  const { RubricValidator } = require(join(OUT, 'bench/Rubric.cjs'));
+  const { Judgment } = require(join(OUT, 'bench/Judgment.cjs'));
+  const { FactSheet } = require(join(OUT, 'model/FactSheet.cjs'));
+  const { FactLabels } = require(join(OUT, 'model/FactLabels.cjs'));
+  const rubric = RubricTape.create();
+  check('细则六条', rubric.criteria.length, 6, 0);
+  check('细则过得了自检(分值不守恒当场就红)', RubricValidator.validate(rubric).length, 0, 0);
+  if (RubricValidator.validate(rubric).length) { console.log('  细则问题:', RubricValidator.validate(rubric)); }
+  let sum = 0;
+  for (const c of rubric.criteria) sum += c.points;
+  check('总分仍是 100', sum, 100, 0);
+  checkText('版本随判据变更升过', rubric.version, '2026.10.1');
+  // 分值重排成"能被满足"的样子:手上功夫四条各 15(共 60)+ 数据处理两条各 20(共 40)
+  checkText('读纸带本身那四条各 15 分', rubric.criteria.slice(0, 4).map((c) => c.points).join(','), '15,15,15,15');
+  checkText('新加的两条各 20 分', rubric.criteria.slice(4).map((c) => c.points).join(','), '20,20');
+  checkText('两条新判据读的就是那两个结果码',
+    rubric.criteria.slice(4).map((c) => c.metric).join(','), 'tapeNumeratorOutcome,tapeDenFactorOutcome');
+  checkText('同一条判据要同时接住 code=1 与 code=2,所以用 GT 0',
+    rubric.criteria.slice(4).map((c) => `${c.op}:${c.threshold}`).join(','), 'gt:0,gt:0');
+  checkText('标题不写"算错了"那种单边说法',
+    rubric.criteria.slice(4).map((c) => c.title).join('|'), '逐差法这一问没算对或没交|逐差法分母这一问没算对或没交');
+
+  const EVID = new Map(rubric.criteria.map((c) => [c.id, c.evidence]));
+  const NUM_EVID = EVID.get('tape-numerator-value') || '（这条判据不存在）';
+  const DEN_EVID = EVID.get('tape-den-factor-value') || '（这条判据不存在）';
+  // 证据里每个 {占位符} 都必须是一个配了显示名的真实事实键 —— 写歪一个,报告里就是一片破折号
+  {
+    const tokens = [];
+    for (const text of [NUM_EVID, DEN_EVID]) {
+      const re = /\{([A-Za-z0-9.]+)\}/g;
+      let m = re.exec(text);
+      while (m !== null) {
+        tokens.push(m[1]);
+        m = re.exec(text);
+      }
+    }
+    const orphans = tokens.filter((k) => FactLabels.of(k) === null);
+    assertTrue('两条新判据引用的每个数都配了显示名', orphans.length === 0,
+      `没配标签的:${orphans.join(',')} / 全部引用:${tokens.join(',')}`);
+    checkText('分子那条同时报出"你交的"与"应有的"', tokens.slice(0, 4).join(','),
+      'ans.tapeNumerator,tapeNumeratorTrue,tapeNumeratorOutcome,tapeSegments');
+  }
+  // 已经不在表里的错法不许再被承诺:sr-003 的 5 号「÷1000」与 sr-007 的 G2「把 x 当时间」都删了,
+  // 板角基准那条(曾拟叫 G3)压根没进表 —— 点名一个表里都没有的错法 = 判词里写一句兑现不了的话。
+  {
+    const DEAD = ['缩小一千倍', '除以一千', '把 x 当时间', '横坐标当成时间', '板角'];
+    const both = NUM_EVID + DEN_EVID;
+    const named = DEAD.filter((w) => both.includes(w));
+    assertTrue('证据不点名一条已经不存在的错法', named.length === 0, `${named.join(',')} / ${both}`);
+    // 反过来:还在表里的那几族得真的被说出来(否则这两条判据扣了分却不告诉学生错在哪一步)
+    assertTrue('分子那条说出"只用首尾"和"相邻相减"两族(F1 与 F2/F3)',
+      NUM_EVID.includes('首尾') && NUM_EVID.includes('相邻'), NUM_EVID);
+    assertTrue('分母那条说出漏乘平方与拿总段数平方两种(D1 与 D3)',
+      DEN_EVID.includes('漏乘') && DEN_EVID.includes('总段数'), DEN_EVID);
+  }
+
+  const sheet = new FactSheet();
+  sheet.set('tapeDotCount', 120);
+  sheet.set('tapeLostHead', 0);
+  sheet.set('tapeShortestMm', 18);
+  sheet.set('tapeSegments', 6);
+  sheet.set('tapeNumeratorOutcome', 2);
+  sheet.set('tapeDenFactorOutcome', 2);
+  const missing = Judgment.score(rubric, sheet);
+  check('手上功夫做足、两格都没交 → 只剩 60 分', missing.awarded, 60, 1e-9);
+  check('没交扣两条', missing.deductions.length, 2, 0);
+  sheet.set('tapeNumeratorOutcome', 0);
+  sheet.set('tapeDenFactorOutcome', 0);
+  check('都填对 → 满分', Judgment.score(rubric, sheet).awarded, 100, 1e-9);
+  check('都填对 → 零扣分', Judgment.score(rubric, sheet).deductions.length, 0, 0);
+  sheet.set('tapeNumeratorOutcome', 1);
+  sheet.set('tapeNumeratorWrongKind', 1);
+  const hit = Judgment.score(rubric, sheet);
+  check('分子算错 → 只扣这一条', hit.deductions.length, 1, 0);
+  checkText('扣的就是新加的那条', hit.deductions.length > 0 ? hit.deductions[0].criterionId : '判据没响',
+    'tape-numerator-value');
+  checkText('扣 20 分', hit.deductions.length > 0 ? String(hit.deductions[0].points) : '判据没响', '20');
+  // 判词读得通:两种说法都出现过,而且都经 codes 表印成人话(细则自己不该管这件事)
+  assertTrue('判词读得通:没交那一种印成「没交」而不是裸 2',
+    (missing.deductions.length > 0 ? missing.deductions[0].evidence : '判据没响').includes('判定：没交'),
+    missing.deductions.length > 0 ? missing.deductions[0].evidence : '判据没响');
+  assertTrue('判词读得通:算错那一种印成「算错了」',
+    (hit.deductions.length > 0 ? hit.deductions[0].evidence : '判据没响').includes('判定：算错了'),
+    hit.deductions.length > 0 ? hit.deductions[0].evidence : '判据没响');
+  check('判词里没有没被填掉的模板占位符',
+    [...missing.deductions, ...hit.deductions].filter((d) => d.evidence.includes('{')).length, 0, 0);
+  // 没交与没出题是两条路:码为 2 要扣分,事实压根没写则一律放过(宁漏不误)
+  const none = new FactSheet();
+  none.set('tapeDotCount', 120);
+  none.set('tapeLostHead', 0);
+  none.set('tapeShortestMm', 18);
+  none.set('tapeSegments', 6);
+  check('这题没出(两个码都没写)→ 一分不扣', Judgment.score(rubric, none).awarded, 100, 1e-9);
+  check('这题没出 → 也不留扣分', Judgment.score(rubric, none).deductions.length, 0, 0);
 }
 
 if (failures.length > 0) {
