@@ -773,16 +773,44 @@ const QUIET_INK = ['Theme.TEXT_PRIMARY', 'Theme.TEXT_SECONDARY'];
 const CELL_WIRING = ['Text(def.label)', 'def.taskKey === task.key', 'this.answerTexts[index]'];
 
 /**
- * 格内控件的**闭集**(Ruling T)。填空那一格里只许出现这四种构造;要加第五种,
- * 得显式回来扩这张名单。开口白名单(轮 1 的做法)被复评从缝里走过去四次:
- * Progress、Button、判定词 placeholder、嵌套自定义组件、条件 .borderWidth 全都绿。
+ * 格内控件的**闭集**(Ruling T)。它实测咬得住的形状只有一种:**写在填空那一格切片里的、
+ * 大写字母开头的 `Name(` 构造**。轮 2 在真树上逐条看它咬红了 Progress、Button、嵌套自定义组件
+ * 三种(复评点名的另外两种由第 15、16 把各自接住:判定词 placeholder、条件 .borderWidth),
+ * 条数记在 fix2 报告里;要加第五种构造得显式回来扩这张名单。开口白名单(轮 1 的做法)被复评走过去四次。
  * 「过宽」的担忧不成立——Ruling Q 管的是作用域(格内 vs 页面上别处),不是格内的封闭程度;
  * 页面其余部分这条一律不管,负对照逐条钉住这一点。
+ *
+ * 这把尺子**看不见**的(修复轮 3 按 Ruling U 如实记录,不再声称封死):builder 定义在格外、
+ * 格内只写一句小写调用 —— 复评实测 `this.verdictBadge()`(体里渲染 Symbol 对勾与
+ * 「应有值约 9.80」)**绿**,因为小写起头的调用不撞 `Name(`。那条路现在由第 17 把
+ * (格内 this 调用闭口)接住,轮 3 在真树上看着它咬红同一条变异(B1/B2);两把合起来仍然拦不住
+ * 「模块级裸函数」和 `this.controller.…` 这两种绕法 —— 轮 3 实测这两种写法在这把尺子上**仍然绿**
+ * (D3/D4)。那是存心绕,不是顺手写歪,不靠再加正则去追(Ruling U)。
+ * 兜底是 **Task 10** 在屏幕上量的那一条:这一格不许有颜色、图标、文字任何一种回显。
+ * 至于「能绕但编译不过」的:修复轮 3 在真树上把 placeholder 写成模板串、里面塞
+ * `${Progress({ value: 1, total: 6 })}`(mask 之后这种写法两处尺子都看不见),跑 hvigor 当场
+ * `Execution failed for task 'default@CompileArkTS'` —— 这一类交给构建,不写进正则(Ruling U)。
  */
 const IN_CELL_WIDGETS = ['Column', 'Row', 'Text', 'TextInput'];
 
 /** 交卷之前不许出现在输入通道上的判定词(placeholder 是学生在输入时唯一看得见的串) */
 const VERDICT_WORDS = ['应有值', '判定', '算对', '算错', '没交'];
+
+/**
+ * 格内允许存在的 `this…(` 形状 —— **逐字**名单(第 17 把用;I2 甲)。
+ * 名单里为什么是这两串:`this.answerTexts[index]` 与 `this.answerTexts.length` 那两处合法形状
+ * 不带括号,本来就不撞 `this.<名字>(` 这条正则,不需要放行;而填空那一格今天(ExperimentPage.ets)
+ * 确实还在两处**带括号**的 this 调用上 —— onChange 回调里那句 `this.onAnswerChange(index, value)`
+ * (第 4 把按原文钉着它)和取字号的 `Layout.labelSize(this.cls())`。名单清空会让基线当场报 **4 处**
+ * (本轮实测:3 处 this.cls( 加 1 处 this.onAnswerChange(,见 fix3 报告)。所以放行按**整串逐字**匹配:
+ * 写成 `this.onAnswerChange(i, v)` 或 `this.cls(1)` 这种变体一样报隐患(本轮真树实测 `this.cls(index)`
+ * 当场红,B4),要新增合法形状得显式回来加。
+ * 这把尺子**看不见**的(如实记录,不加机制去追;本轮真树实测这两种**仍然绿**):
+ * 不带 `this.` 的模块级裸函数、`this.controller.xxx()`(调用对象不是 this)—— Ruling V 把这两条
+ * 与「builder 定义在格外」一起移交 **Task 10** 的设备断言(屏幕上作废一个 key 之后只许那一格空,
+ * 另一格留着数字;屏幕上这一格不许有回显)。
+ */
+const CELL_SELF_CALLS = ['this.onAnswerChange(index, value)', 'this.cls()'];
 
 /**
  * 把字符串字面量与注释的内容-mask 成空格,**保持长度不变** —— 下标与原源码逐一对应。
@@ -967,10 +995,15 @@ const CLEAR_MASKED_SOURCE = "next\\[[^\\]]*\\]\\s*=\\s*;";
  * 离线工程根本实例化不了它 —— 能判的只剩接线的三个来源:文本数组的长度从哪个数组取、
  * 存回 runner 时下标按哪个数组再解释一遍、清空是不是逐格。这三处断在任何一处,事故都是
  * 静默的:学生往「分子」那格打的数存进「倍数」那格,或者被作废的格子留着旧数字到交卷。
- * 返回隐患清单;配套负对照逐条证明这十七把尺子各自真的会咬。六种静默事故 —— 第 i 格的问句
- * 与第 i 格的 key 分家、输入时拿颜色或文字回显、换个写法整框清空、把清空搬进 helper 或
- * 把「清哪一格」的判定条件放宽、开局就把格子替学生填好、字符串里的花括号把尺子的射程挪开 ——
+ * 返回隐患清单;下面每一条尺子(编号 1~17,其中 13 拆成写法、判定来源、搬走三把)都配了合成负对照,
+ * 要求命中它该命中的条数 —— 有的变异今天被两把尺子各报一次(图标×闭集、骨架×判定来源、
+ * 下标写死×格内 this 调用),期望条数按实测记,逐条证明尺子真的会咬,不是「页面没扫到/正则在空跑」。
+ * 七种静默事故 —— 第 i 格的问句与第 i 格的 key 分家、输入时拿颜色/图标/文字回显(含从格外
+ * builder 里带进来的那种)、换个写法整框清空、把清空搬进 helper 或把「清哪一格」的判定条件放宽、
+ * 开局就把格子替学生填好、字符串里的花括号把尺子的射程挪开、判定词换一种引号写进 placeholder ——
  * 各有一把按「写法形状」判的尺子盯着;作用域只到填空那一格,别处的同样写法不该管也不许管。
+ * 这些话只描述**实测咬得住**的形状。存心绕过去的写法(模块级裸函数、`this.controller.…`)
+ * 不在这套尺子的射程里,由 Task 10 的屏幕断言兜;编译不过的写法由 hvigor 构建兜(Ruling U)。
  */
 function findAnswerChannelHazards(src) {
   const bad = [];
@@ -1067,7 +1100,15 @@ function findAnswerChannelHazards(src) {
     // 15. placeholder 是输入通道上的字,交卷之前不许带判定词。第 10 条看的是 Text( 印出来的,
     //     可「应有值约 9.80」换写进 placeholder 就绕过去了(复评实测绿)—— 同一个答案换了个
     //     字段名就不是答案了?这一条把输入框自己的文案也管起来。
-    for (const ph of cell.matchAll(/placeholder\s*:\s*(["'])([^"']*)\1/g)) {
+    //     引号类三种都得认(I1):轮 2 只认单引号与双引号两种 placeholder,反引号写出来当场绿 ——
+    //     复评实测 placeholder: 反引号「应有值约 9.80」 零隐患,同内容写成双引号才红。一个引号字符的差。
+    //     仍然绕得过去的(照 Ruling U 如实记录,不追;本轮真树实测**仍然绿**):改用
+    //     `.placeholder('应有值约 9.80')` 那个方法形状写 —— 这把尺子只认对象字面量里的 placeholder: 字段,
+    //     而第 10/14/17 条管的是构造与 Text( 印出来的字,属性字符串它们不看,拦不住它;
+    //     换一个不在词表里的说法也一样(词表是枚举,本轮真树实测 placeholder: '标准答案在此' 仍绿,E4)。
+    //     这两种的兜底都是 **Task 10** 在屏幕上读那一格的
+    //     占位文字 —— 占位串是空格里印出来的字,屏上看得到。本轮只补引号类,不再加形状。
+    for (const ph of cell.matchAll(/placeholder\s*:\s*(["'`])([^"'`]*)\1/g)) {
       const hit = VERDICT_WORDS.filter((word) => ph[2].indexOf(word) >= 0);
       if (hit.length > 0) {
         bad.push(`填空那一格的 placeholder「${ph[2]}」写着判定词(${hit.join('、')}):交卷之前这一格的文案不许有答案或判定的影子`);
@@ -1083,6 +1124,24 @@ function findAnswerChannelHazards(src) {
       if (arg.indexOf('?') >= 0) {
         bad.push(`填空那一格的 .${bw[1]} 带条件(三元):边框的粗细与颜色随值变就是回显,这一格只许静态或不写`);
       }
+    }
+    // 17. 格内 this 调用闭口(I2 甲)。第 14 把认的是**大写**起头的构造,小写起头的 builder 调用
+    //     (复评原案 this.verdictBadge():builder 定义在格外、体里渲染 Symbol 对勾与「应有值约 9.80」)
+    //     不撞那张名单 —— 整条「输入时不回显对错」从这条路重新打开,复评实测绿。这一把把格内
+    //     每一个 this.<名字>( 都算隐患,只**逐字**放行 CELL_SELF_CALLS 那两串(来历、名单清空时
+    //     基线报几处、以及它照样拦不住的裸函数与 this.controller. 两种绕法,全写在那张名单的注释里)。
+    //     在 mask 过的文本上认:串里(三种引号都 mask)与注释里的 this.foo( 字样不算。
+    const allowedSpans = [];
+    for (const lit of CELL_SELF_CALLS) {
+      for (let at = maskedCell.indexOf(lit); at >= 0; at = maskedCell.indexOf(lit, at + lit.length)) {
+        allowedSpans.push([at, at + lit.length]);
+      }
+    }
+    for (const call of maskedCell.matchAll(/this\.([A-Za-z_][A-Za-z0-9_]*)\s*\(/g)) {
+      if (allowedSpans.some((span) => call.index >= span[0] && call.index < span[1])) {
+        continue;
+      }
+      bad.push(`填空那一格里出现了 ${call[0].trim()} 这种 this 调用:格内只逐字放行 ${CELL_SELF_CALLS.join(' 与 ')} —— builder 定义在格外,格内一句小写调用照样能把颜色、图标或文字的回显带进来,第 14 把认大写看不见它`);
     }
   }
   // 12. 初始化那三行只许造空串。往那一格里塞 key 名、塞应有值,学生看到的就是一道已经替他
@@ -1135,11 +1194,14 @@ function findAnswerChannelHazards(src) {
       }
     }
     // 13c(Ruling R 之三)。体内不许出现对自身方法的调用:清空搬进 this.<helper>() 之后,
-    //     尺子只看得见调用、看不见它清了哪几格(复评实测这种搬法整框清仍然绿)。
+    //     尺子只看得见调用、看不见它清了哪几格(复评实测这种搬法整框清仍然绿,轮 2 已把它染红)。
     //     合法形状本来就不撞这条正则 —— this.runner.answer( 的调用对象是 this.runner,
     //     this.answerTexts.slice() 是数组方法 —— 显式放行它们不需要开后门。
-    //     代价如实记录:被调方法里干的「别的事」仍然看不见,但格内与逐格镜像不许再有任何
-    //     this.<方法>() 调用,「把清空搬走」这条路就此封死。
+    //     射程只到这一处,按 Ruling U 如实写:这把静态尺只管 `this.<方法>()` 这一种形状;
+    //     把清空写成模块级裸函数(clearFrameAll(next);,不带 this.)或走 this.controller.clearFrameAll(next)
+    //     都绕得过去 —— 复评在真树上实测**这两种都绿**,本轮按裁定不去追(Ruling U/V)。
+    //     真正的兜底是 Task 10 在屏幕上量的那一条:作废一个 key 之后只有那一格空,另一格留着数字。
+    //     逐格镜像这一头之外,格内另有第 17 把管 this 调用;两把都不承诺「封死搬走」这条路。
     const maskedSync = maskQuoted(syncBody);
     for (const call of maskedSync.matchAll(/this\.[A-Za-z_][A-Za-z0-9_]*\s*\(/g)) {
       bad.push(`syncAnswers 里出现了 this 自身的方法调用 ${call[0].trim()}():逐格镜像必须写在体内,搬进 helper 尺子就只看得见调用、看不见清了哪几格`);
@@ -1207,13 +1269,31 @@ function fakeRubric(metrics, id) {
 }
 
 /**
+ * 计数起点那句问话的两条**逐字钉串**(I4)。夹起点的场景必须恰好等于第一条(括注一个字都不许改);
+ * 不夹的场景必须恰好等于第二条名单里的某一条 —— 名单里没有括注,所以「会自动舍掉/忽略/跳过/不计数」
+ * 这类假承诺无论怎么措辞都红。串按 runner 的形状派给场景,不写死场景 id(见 findClampedStartRunners)。
+ * 为什么从同义词表换成钉串:轮 1/轮 2 认的是「舍」字,复评实测双向都歪 —— 不夹的落体写
+ * 「（开头密着的点会自动忽略）」**绿**(假承诺放过去),夹了的场景把「舍掉」改成「忽略」**红**
+ * (老实话被打死)。措辞表一换就双向失效,学生可见文案本来就是一道一道闸门按字面钉着的。
+ */
+const COUNT_START_CLAMPED_LABEL = '计数起点：从第几个点量起（开头密着的点会自动舍掉）';
+const COUNT_START_PLAIN_LABELS = ['计数起点：从第几个点量起', '比较起点：从第几个点量起'];
+
+/**
  * 计数起点那句 label 的诚实性。TapeCartRunner / NewtonSecondRunner 的 startDot() 会把滑杆
  * 给的起点夹到 movingStart() 之后 —— 滑杆写着 40、应用从第 76 个点量起。那句问话正压在一格
  * 填空上面,学生照着滑杆上那个数去对段,交上来的分子分母就对不上应有值。
- * 尺子按 runner 源码的写法形状认该不该说这句话,两个方向都咬(F4):夹住的场景少了括注是撒谎,
- * 不夹的场景写了括注同样是撒谎 ——「开头密着的点会自动舍掉」承诺的是这条实验根本不做的事。
- * 自由落体那条同一个 key 的滑杆不夹("这条实验要的就是从第一个点开始比"),
- * 它既**不许**被要求带上括注,也**不许**自己带上。
+ * 本轮(I4)不再认词,只按类逐字钉串:runner **夹**起点的场景,`countStart` 的 label 必须
+ * 恰好等于 COUNT_START_CLAMPED_LABEL;**不夹**的场景必须恰好等于 COUNT_START_PLAIN_LABELS 里的
+ * 一条(那条名单里一个括注都没有)。夹不夹仍由 findClampedStartRunners 从 startDot() 的源码形状
+ * 现推:把某条 runner 改成不夹,它要求的串当场跟着换(验收第四组)。
+ * 咬得住的形状 = 「这条 countStart label 与钉串不一样」:少括注、多括注、任意措辞的括注、
+ * 括注里改一个字 —— 全是同一条红(轮 3 真树实测:落体加「会自动忽略」的括注红 C1,纸带与
+ * 牛顿第二定律把「舍掉」改一个字各红一条 C2/C3,TapeCartRunner 改成不夹之后要求当场换串红 C4)。
+ * 它**看不见**的(不加机制去追,Ruling U):同一句假承诺写进任务正文、填空问句或读数名而不是这条
+ * 滑杆 label(那几栏进的是可见文案术语/标点闸门,不管诚实性;轮 3 真树实测写进任务正文与写在
+ * 别的参数 label 上都仍然绿);以及场景压根没有 countStart 这条参数(没有参数就没有这句话可钉)。
+ * 兜底 = **Task 10** 在屏幕上比「滑杆显示的数」与「应用真用的起点」,以及屏幕上读那几栏文案。
  */
 function findDishonestStartLabels(metas, clampedRunners) {
   const bad = [];
@@ -1226,16 +1306,14 @@ function findDishonestStartLabels(metas, clampedRunners) {
       if (r === null) {
         continue;
       }
-      const hasPromise = /（[^（）]*舍[^（）]*）/.test(p.label);
       if (clampedRunners.has(r.constructor.name)) {
-        if (!hasPromise) {
-          bad.push(`${m.id} 的 runner 会把计数起点夹到第一个移动点之后,label「${p.label}」却没告诉学生开头密着的点会被舍掉`);
+        if (p.label !== COUNT_START_CLAMPED_LABEL) {
+          bad.push(`${m.id} 的 runner 会把计数起点夹到第一个移动点之后,label 必须逐字等于「${COUNT_START_CLAMPED_LABEL}」;实得「${p.label}」—— 这句话的措辞由这条串钉,改 runner 形状或改文案都请同步这一处字面串`);
         }
-      } else if (hasPromise) {
-        // 反方向(F4):不夹起点的场景许不起这个承诺。轮 1 的闸门只咬一个方向,
-        // 给落体那条也加上「舍掉开头密着的点」当时全绿 —— 文案就此可以承诺一件
-        // 这条实验根本不会发生的事,而滑杆就压在一格填空上面。
-        bad.push(`${m.id} 的 runner 不夹计数起点(从第几个点量起就真的从第几个点量起),label「${p.label}」却承诺会舍掉开头密着的点:这句括注在这条实验里是假的`);
+      } else if (COUNT_START_PLAIN_LABELS.indexOf(p.label) < 0) {
+        // 不夹起点的场景:从第几个点量起就真的从第几个点量起,所以一句承诺都不许有。
+        // 串里没有括注 = 任何措辞的括注、任何追加从句都当场红(I4 复评实测「会自动忽略」绿的那条)。
+        bad.push(`${m.id} 的 runner 不夹计数起点,label 必须逐字等于 ${COUNT_START_PLAIN_LABELS.join(' / ')} 里的一条(不许带任何括注或从句);实得「${p.label}」—— 这条实验不会舍掉任何点,承诺它的括注就是当着学生撒谎;确要改文案请同步这一处字面串`);
       }
     }
   }
@@ -5786,8 +5864,11 @@ function findClampedStartRunners() {
     check('负对照:渲染循环换成 observables 会被认出',
       findAnswerChannelHazards(pageSrc.replace('ForEach(this.meta.submissions, (def: SubmissionDef, index: number)',
         'ForEach(this.meta.observables, (def: ObservableDef, index: number)')).length, 1, 0);
+    // 修复轮 3 起这个变异同时被第 4 把(下标没原样交回)与第 17 把(格内 this 调用只逐字放行
+    // this.onAnswerChange(index, value) 与 this.cls())各报一次。条数 1→2 是加严后的记账,
+    // 不是把哪根放宽 —— 两半都该咬:接线错了,而错的方式正是「把合法调用改成别的形状」。
     check('负对照:onChange 把下标写死会被认出',
-      findAnswerChannelHazards(pageSrc.replace('this.onAnswerChange(index, value)', 'this.onAnswerChange(0, value)')).length, 1, 0);
+      findAnswerChannelHazards(pageSrc.replace('this.onAnswerChange(index, value)', 'this.onAnswerChange(0, value)')).length, 2, 0);
     check('负对照:answerTexts 整框清空会被认出(Ruling F)',
       findAnswerChannelHazards(pageSrc + '\nthis.answerTexts = [];\n').length, 1, 0);
     // 修复轮 2 之后这个变异被两把尺子各报一次:第 6 条(骨架里没了两格衔接)与 13b
@@ -5893,7 +5974,15 @@ function findClampedStartRunners() {
         `在「${scopeAnchor.slice(0, 40)}…」之后没找到锚点`);
       return at < 0 ? base : base.slice(0, at) + to + base.slice(at + from.length);
     };
-    const PH_ANCHOR = "placeholder: '把你算出的数填进来'";
+    // placeholder 那处字面串的锚**按树取、三种引号都认**(I1 的连带修正):轮 2 把锚写成单引号
+    // 字面串,于是「把合法占位串换成反引号写」这种本来该绿的写法会让六条合成对照一起报
+    // 「锚点定位不到」(实测 15 条红,全是脚手架的账,尺子那条是绿的)。锚跟着树走之后,
+    // 花括号把戏照样钉在格内那串上,而引号风格不再牵对照。
+    const phFrom = pageSrc.indexOf(cellAnchor) < 0 ? null :
+      /placeholder:\s*(["'`])[^"'`]*\1/.exec(pageSrc.slice(pageSrc.indexOf(cellAnchor)));
+    const PH_ANCHOR = phFrom === null ? "placeholder: '把你算出的数填进来'" : phFrom[0];
+    // 把戏尾巴塞进串里、闭界符沿用树上那一种引号
+    const phWith = (tail) => PH_ANCHOR.slice(0, PH_ANCHOR.length - 1) + tail + PH_ANCHOR.slice(-1);
     const UNIT_ANCHOR = 'Text(def.unit)';
     const LABEL_ANCHOR = 'Text(def.label)';
     const WEIGHT_ANCHOR = '.layoutWeight(1)';
@@ -5932,7 +6021,7 @@ function findClampedStartRunners() {
     const cellBytes = baseSliced === null ? NaN : Buffer.byteLength(baseSliced, 'utf8');
     for (const trick of ['{', '}', '}}']) {
       const braced = inScope(pageSrc, cellAnchor, PH_ANCHOR,
-        "placeholder: '把你算出的数填进来" + trick + "'", '塞花括号进 placeholder');
+        phWith(trick), '塞花括号进 placeholder');
       checkText(`负对照脚手架:花括号把戏「${trick}」确实落在填空格的串里`,
         braced !== pageSrc ? '已改' : '空跑', '已改');
       const sliced = cellOf(braced);
@@ -5947,7 +6036,7 @@ function findClampedStartRunners() {
       commentSliced === null ? -1 : Math.abs(Buffer.byteLength(commentSliced, 'utf8') - cellBytes - 3), 0, 0);
     // 决定性证据(复评原案):}} 把戏 + 在该格 Column 上挂 .backgroundColor —— 轮 1 的射程
     // 被把戏挪开后它全绿;现在切片不动,第 8 条当场咬住。期望恰好 1(只有回显纪律那一把)。
-    const trickSrc = inScope(pageSrc, cellAnchor, PH_ANCHOR, "placeholder: '把你算出的数填进来 }}'", '决定性证据的把戏');
+    const trickSrc = inScope(pageSrc, cellAnchor, PH_ANCHOR, phWith(' }}'), '决定性证据的把戏');
     const decisiveSrc = inScope(trickSrc, cellAnchor, WEIGHT_ANCHOR,
       '.layoutWeight(1)\n                          .backgroundColor(Theme.DIVIDER)', '决定性证据的边框色');
     check('负对照:花括号把戏掩护下的 .backgroundColor 藏不住了(轮 1 那次是绿的)',
@@ -6036,6 +6125,31 @@ function findClampedStartRunners() {
       '.layoutWeight(1)\n                .borderWidth(this.running ? 2 : 0)', '读数行条件边框');
     check('负对照:条件 .borderWidth 写在读数那一行不许报(它本来就该随状态变脸)',
       findAnswerChannelHazards(readoutBorder).length, 0, 0);
+    // ---- 修复轮 3:I1(反引号引号类)与 I2 甲(第 17 把:格内 this 调用闭口)----
+    // 复评实测:placeholder 写成反引号包住判定词 → 零隐患绿,同样内容写成双引号 → 红。
+    // 三种引号现在都得咬;不含判定词的串换成反引号写仍然绿 —— 证明这条不是「见反引号就红」。
+    check('负对照:反引号写的判定词 placeholder 同样会被认出(I1:轮 2 的引号类只认单双引号)',
+      findAnswerChannelHazards(inScope(pageSrc, cellAnchor, PH_ANCHOR,
+        'placeholder: `应有值约 9.80`', '反引号判定词')).length, 1, 0);
+    const backtickPh = inScope(pageSrc, cellAnchor, PH_ANCHOR,
+      'placeholder: `把你算出的数填进来`', '反引号合法占位串');
+    check('负对照:同一段占位文案换成反引号写、但不带判定词不许报(I1 的绿向)',
+      findAnswerChannelHazards(backtickPh).length, 0, 0);
+    // I2 甲(复评原案):builder 定义在格外、格内只写一句 this.verdictBadge() —— 轮 2 的闭集
+    // 认大写构造,看不见小写调用,整条「输入时不回显对错」从这条路重新打开,当时实测绿。
+    // 现在第 17 把咬这一格里的每一个 this.<名字>(,只逐字放行名单里那两串。
+    check('负对照:格内调用格外定义的 builder(this.verdictBadge())会被认出(I2 甲)',
+      findAnswerChannelHazards(inScope(pageSrc, cellAnchor, UNIT_ANCHOR,
+        'this.verdictBadge()\n                          Text(def.unit)', '格内 builder 调用')).length, 1, 0);
+    const readoutBuilder = inScope(pageSrc, readoutAnchor, 'Text((this.readouts.length > index',
+      'this.buildReadout() Text((this.readouts.length > index', '读数行 builder 调用');
+    check('负对照:同样的 this.<builder>() 调用写在实时读数那一行不许报(I2 甲的作用域对照)',
+      findAnswerChannelHazards(readoutBuilder).length, 0, 0);
+    // 名单按整串逐字放行:把它改成另一种形状(下标写法变了)也算隐患 —— 上面
+    // 「onChange 把下标写死」那条从 1 条涨到 2 条记的就是这一咬(第 4 把 + 第 17 把)。
+    check('负对照:格内合法调用写成变体(this.cls(index))同样被第 17 把认出',
+      findAnswerChannelHazards(inScope(pageSrc, cellAnchor, 'Layout.labelSize(this.cls())',
+        'Layout.labelSize(this.cls(index))', '格内 cls 变体')).length, 1, 0);
   }
 
   // ---- 声明了的填空必须真被判得到;夹住的起点必须说在问句里(修复轮 1 的 I5 与 I7)------
@@ -6088,6 +6202,34 @@ function findClampedStartRunners() {
     check('负对照:夹起点的场景带着舍点括注,反方向也不报',
       findDishonestStartLabels([{ id: 'tape-cart', params: [{ key: 'countStart', label: `计数起点：从第几个点量起${CLAUSE}` }] }],
         clamped).length, 0, 0);
+    // ---- I4:闸门不再认词,改按类逐字钉串 ----
+    // 轮 2 的判据是「括注里有没有舍字」,复评实测双向都歪:不夹的落体写「会自动忽略」→ 绿(假承诺
+    // 放过去),夹了的场景把「舍掉」改成「忽略」→ 红(老实话被打死)。钉串之后两半同时闭合。
+    // 先钉住串本身:常量必须逐字等于 findings 给的那两条,谁改了常量这条先红。
+    checkText('夹起点那一类的钉串逐字等于 findings 给的那条(含全角括注)', COUNT_START_CLAMPED_LABEL,
+      '计数起点：从第几个点量起（开头密着的点会自动舍掉）');
+    checkText('不夹那一类的第一条钉串逐字等于 findings 给的那条(不带任何括注)', COUNT_START_PLAIN_LABELS[0],
+      '计数起点：从第几个点量起');
+    check('不夹那一类的钉串名单里不许混进带括注的串(钉串自身也得诚实)',
+      COUNT_START_PLAIN_LABELS.filter((s) => s.indexOf('（') >= 0).length, 0, 0);
+    // 复评点名的第一条漏法:不夹的场景换成「忽略」这种措辞,轮 2 的舍字表看不见
+    check('负对照:不夹起点的场景把括注换成「忽略」措辞照样被认出(I4 复评实测绿的那条)',
+      findDishonestStartLabels([{ id: 'free-fall', params: [{ key: 'countStart', label: '比较起点：从第几个点量起（开头密着的点会自动忽略）' }] }],
+        clamped).length, 1, 0);
+    // 第二条漏法:夹了的场景把「舍掉」改一个字,轮 2 会把老实话打死;钉串之后它照样红 ——
+    // 因为要改的是**这条字面串**,不是措辞表(改文案的人看到的就是这条摩擦,findings 点名要它)
+    check('负对照:夹起点的场景把「舍掉」改一个字会被认出(I4:钉串不认措辞)',
+      findDishonestStartLabels([{ id: 'tape-cart', params: [{ key: 'countStart', label: '计数起点：从第几个点量起（开头密着的点会自动忽略）' }] }],
+        clamped).length, 1, 0);
+    // 作用域对照:这把尺子只管 countStart 那一格参数,同一句串写在别的参数上不该报
+    check('负对照:同一句钉串写在不带 countStart 的参数上不许报(闸门只管计数起点那格)',
+      findDishonestStartLabels([{ id: 'tape-cart', params: [{ key: 'dotStep', label: COUNT_START_CLAMPED_LABEL }] }],
+        clamped).length, 0, 0);
+    // 派生不写死:夹不夹由 findClampedStartRunners 从 runner 源码现推。这条钉住「翻面」这件事
+    // —— 把夹起点的类去掉(合成一份 clamped 空集),同一条 label 的要求当场换串、当场红。
+    check('负对照:把 runner 从「夹」当成「不夹」,那条 label 的要求当场跟着换(不写死场景 id)',
+      findDishonestStartLabels([{ id: 'tape-cart', params: [{ key: 'countStart', label: COUNT_START_CLAMPED_LABEL }] }],
+        new Set()).length, 1, 0);
   }
   check('注册表里的场景数', registered.length, 15, 0);
   assertTrue('生物学科现在一条可打开的都没有(与地图自己的判断一致)',
