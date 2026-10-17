@@ -165,6 +165,28 @@ export class TickerTape {
   }
 
   /**
+   * 每一计数段的长度(毫米)。逐差法要的是"这几段各多长",不是段数也不是最短那段。
+   *
+   * 给毫米而不是米:学生拿毫米刻度尺量出来的就是这个数,判他的数与判他量的数同一单位,
+   * 中间不再有一次换算 —— 少一次换算就少一处"到底是谁错了"的扯皮。
+   */
+  segmentsMm(start: number, every: number): number[] {
+    const step = every < 1 ? 1 : every;
+    const from = start < 0 ? 0 : start;
+    const out: number[] = [];
+    const n = this.segmentCount(from, step);
+    for (let i = 0; i < n; i++) {
+      const here = this.dotAt(from + i * step);
+      const next = this.dotAt(from + (i + 1) * step);
+      if (here === null || next === null) {
+        break;
+      }
+      out.push((next.s - here.s) * 1000);
+    }
+    return out;
+  }
+
+  /**
    * 逐差法求加速度:计数段切成前后两半,各 perHalf 段,用「后一半减前一半」还原 a。
    *
    * 恒加速度下每段位移是 x_i = v₀T + ½aT²(2i−1),前后两半相减时 v₀ 那一项整项抵消,

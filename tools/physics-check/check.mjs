@@ -108,6 +108,7 @@ const MODULES = [
   'physics/circuit/EmfRunner',
   'physics/TickerTape',
   'physics/AnswerCheck',
+  'physics/TapeChunkProcedure',
   'physics/TapeCartRunner',
   'physics/TapeStrip',
   'physics/FreeFallRunner',
@@ -7305,6 +7306,92 @@ function findBadSubmissionLabels(all) {
   }
   assertTrue('每条场景声明的 submission key 都能原样 round-trip 过真 runner', offenders.length === 0,
     `回读不到的有: ${offenders.join(', ') || '无'}`);
+}
+
+// ---- 学生填数通道 4:逐差法的正确值与四种错法指纹 --------------------------------
+{
+  const { TapeChunkProcedure } = require(join(OUT, 'physics/TapeChunkProcedure.cjs'));
+  // 样例纸带:a=2 m/s²、T=0.1 s、六段 50..150 mm(spec §5 那张表)
+  const s = [50, 70, 90, 110, 130, 150];
+  check('分子 = 后三段之和 减 前三段之和', TapeChunkProcedure.numerator(s), 180, 1e-9);
+  check('分母里 T² 的倍数 = h²', TapeChunkProcedure.denFactor(s), 9, 0);
+  const print = {};
+  for (const f of TapeChunkProcedure.fingerprints(s)) print[f.id] = f.value;
+  check('F1 只吃首尾', print[1], 100, 1e-9);
+  check('F2 相邻逐段平均', print[2], 20, 1e-9);
+  check('F3 相邻配对', print[3], 60, 1e-9);
+  check('F4 单位错(放大一千倍)', print[4], 180000, 1e-6);
+  check('F5 单位错(缩小一千倍)', print[5], 0.18, 1e-12);
+  const den = {};
+  for (const f of TapeChunkProcedure.denPrints(s)) den[f.id] = f.value;
+  check('D1 漏乘段数平方', den[1], 1, 0);
+  check('D2 只乘 h', den[2], 3, 0);
+  check('D3 拿总段数平方', den[3], 36, 0);
+  // 负对照:指纹之间、指纹与正确值之间必须分得开,否则判词会指着学生说他犯了个没犯的错。
+  // 分子题、分母题各查一遍而不是混成一个数组:match() 只会把学生填进某一个空的数,
+  // 与那一个空的值集去比,两个空之间不必互相躲 —— 9 mm(分子)与 9(分母倍数)答的是
+  // 两道题,撞了也冤枉不了任何人。brief 把两题混成一条数组时,四条非样例纸带全部撞车,
+  // 其中 [50,51,52,53,54,55] 上撞的是两个**正确值本身**(分子 9 与倍数 9,0%),
+  // 删谁都删不掉;其余六对(倍数 9 与 F2 8、F1 40 与 D3 36、倍数 4 与 F3 4、F2 2 与 D2 2、
+  // 倍数 16 与 F2 15、F3 60 与 D3 64)全是"毫米 对 无量纲个数"的跨题比较。
+  // 阈值 20% 与五条纸带都不动,指纹一条不删:按题分池后分子池最小间距 25%、分母池 50%。
+  const tapes = [[50, 70, 90, 110, 130, 150], [50, 51, 52, 53, 54, 55],
+    [12, 20, 28, 36, 44, 52], [5, 7, 9, 11], [30, 45, 60, 75, 90, 105, 120, 135]];
+  const pairwiseWorst = (poolOf) => {
+    let worst = 100;
+    let where = '';
+    for (const t of tapes) {
+      const values = poolOf(t);
+      for (let i = 0; i < values.length; i++) {
+        for (let j = i + 1; j < values.length; j++) {
+          const gap = Math.abs(values[i] - values[j]) / Math.abs(values[i]) * 100;
+          if (gap < worst) { worst = gap; where = t.join(',') + ` #${i}vs#${j}`; }
+        }
+      }
+    }
+    return { worst: worst, where: where };
+  };
+  const numCtl = pairwiseWorst((t) => [TapeChunkProcedure.numerator(t),
+    ...TapeChunkProcedure.fingerprints(t).map((f) => f.value)]);
+  assertTrue('正确值与各指纹两两至少差 20%(分子题)', numCtl.worst >= 20,
+    `最小 ${numCtl.worst.toFixed(1)}% @ ${numCtl.where}`);
+  const denCtl = pairwiseWorst((t) => [TapeChunkProcedure.denFactor(t),
+    ...TapeChunkProcedure.denPrints(t).map((f) => f.value)]);
+  assertTrue('正确值与各指纹两两至少差 20%(分母题)', denCtl.worst >= 20,
+    `最小 ${denCtl.worst.toFixed(1)}% @ ${denCtl.where}`);
+  // detail 给观察值(本文件规矩:传 'x' 红了也看不出是多少)
+  assertTrue('三段切不出两半 → 分子 NaN',
+    !Number.isFinite(TapeChunkProcedure.numerator([50, 70, 90])),
+    String(TapeChunkProcedure.numerator([50, 70, 90])));
+  assertTrue('三段 → 倍数 NaN', !Number.isFinite(TapeChunkProcedure.denFactor([50, 70, 90])),
+    String(TapeChunkProcedure.denFactor([50, 70, 90])));
+  check('空纸带 → 没有指纹可点名', TapeChunkProcedure.fingerprints([]).length, 0, 0);
+  // 奇数段:只用前 2h 段,尾巴那段不参与(与 accelByChunking 的取窗一致)
+  check('七段时按前六段算,与 accelByChunking 同窗',
+    TapeChunkProcedure.numerator([50, 70, 90, 110, 130, 150, 999]), 180, 1e-9);
+
+  // segmentsMm 出口自己也得有牙:用 a=2 m/s²、50 Hz 的真纸带走一遍完整链路
+  // (打点 → 每 5 点取一个计数点 → 段长毫米 → 喂进 procedure),Task 5 接的就是这条线。
+  {
+    const { TickerTape } = require(join(OUT, 'physics/TickerTape.cjs'));
+    const tape = new TickerTape();
+    tape.setPower(true, 0);
+    tape.release(0);
+    for (let i = 0; i <= 40; i++) {
+      const t = i / 50;
+      tape.tick(t, 0.5 * 2 * t * t, 2 * t, 2);
+    }
+    const seg = tape.segmentsMm(10, 5);
+    check('第 10 点起每 5 点取一段,41 个点共 6 段', seg.length, 6, 0);
+    const want = [50, 70, 90, 110, 130, 150];
+    for (let i = 0; i < want.length; i++) {
+      check(`段 ${i + 1} 与刻度尺同单位(mm)`, seg[i], want[i], 1e-9);
+    }
+    check('真纸带的段长喂进 procedure 就是样例分子 180',
+      TapeChunkProcedure.numerator(seg), 180, 1e-9);
+    const overrun = tape.segmentsMm(41, 5);
+    assertTrue('起点落到点数之外 → 一段都出不来', overrun.length === 0, String(overrun.length));
+  }
 }
 
 if (failures.length > 0) {
