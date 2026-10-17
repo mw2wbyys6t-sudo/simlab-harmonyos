@@ -105,15 +105,20 @@ class AnswerOutcome {
   relErr: number // 相对偏差 %
   wrongKind: number // 命中的指纹序号，0 = 没命中
 }
-match(answer, correct, fingerprints[], tol): AnswerOutcome
+match(answer, correct, fingerprints[], tol): AnswerOutcome | null
 ```
 
 匹配顺序**写死**：先比 `correct`（|relErr| ≤ tol 判 0），没中再逐个比指纹（≤0.5% 记 wrongKind，code=1），
 都没中也只记 code=1。`answer` 为 NaN（没填）→ code=2。
 
-分工要说清：`match` 只管"填了没有、算得对不对"。
-**"这道题到底出不出得来"由 runner 判**（段数切不出两半、点数不够算比值），出不来就
-根本不调用 `match`、一个事实也不写。这条界线就是 §7 那个例外的落点。
+分工要说清（2026-10-16 实施时定稿，取代早先"由 runner 决定调不调用"的写法）：
+**边界收在 `match` 一处** —— `correct` 非有限**或为 0** 时返回 `null`，调用方据此一个事实都不写。
+理由：这条界线若放在各 runner 里"自己记得先判一下"，就有 N 处会忘；放在一处，忘的机会只有一次。
+`null`（这题没出）与 `code=2`（没交）必须是两个可区分的出口 —— §7 那处破例全靠它们不混。
+
+`correct === 0` 也算"出不来"是刻意的：相对误差在 0 处没有定义，为它另开一条"0 附近算对"的绝对误差
+带宽是新口径，不属于这条通道。落到 sr-003 上：μ ≥ tanθ 时小车不动、纸带全是 0 mm 段，此时
+`tape-crowded-start`（最短段 < 2 mm）已经在为这条废纸带扣分，数据判据再扣一次就是重复惩罚。
 
 ### 4.4 事实键（一次定清，避免各处自造名字）
 
