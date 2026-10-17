@@ -1,6 +1,7 @@
 import { ExperimentMeta } from '../model/ExperimentTypes';
 import { FactSheet } from '../model/FactSheet';
 import { Physics2DRunner } from './Physics2DRunner';
+import { ProjectileGProcedure } from './ProjectileGProcedure';
 import {
   BoxShape, CircleShape, LabelShape, SegmentShape, WorldSnapshot
 } from './World2D';
@@ -40,10 +41,18 @@ const C_DOT = '#25313F';
 const C_PLUMB = '#2E9E7A';
 const C_TEXT = '#1F2A3A';
 
-/** 描下来的一个点:坐标按**描它那一刻的原点设定**算,外加两条来路 —— 用了第几格释放、卡片摆在哪 */
+/**
+ * 描下来的一个点:坐标按**描它那一刻的原点设定**算,外加两条来路 —— 用了第几格释放、卡片摆在哪。
+ *
+ * `drop` 与 `x`/`y` 是两套东西,必须同时记(Controller Ruling I):
+ * `drop` 是从槽口算起的**真实下落**(米),与基准无关,反求 g 的应有值一律由它算;
+ * `x`/`y` 是学生在他自己那套基准下量到的坐标 —— 没挂重垂线时它是板角基准,
+ * 拿它反求 g 会得到另一个数,这正是"没定原点"的代价,标签上得把基准写出来。
+ */
 class TracedPoint {
   x: number = 0;
   y: number = 0;
+  drop: number = 0;
   slot: number = 0;
   card: number = 0;
   beforeOrigin: boolean = false;
@@ -144,7 +153,7 @@ export class ProjectileRunner extends Physics2DRunner {
     }
   }
 
-  /** 把此刻球的位置按当前原点设定记到纸上 */
+  /** 把此刻球的位置按当前原点设定记到纸上;真实下落另存一份(drop) */
   private mark(): void {
     const d = this.cardDistance();
     const drop = 0.5 * G * (d / this.v0()) * (d / this.v0());
@@ -152,6 +161,8 @@ export class ProjectileRunner extends Physics2DRunner {
     point.slot = this.slot;
     point.card = this.card;
     point.beforeOrigin = !this.originSet;
+    // 真实的那一套:下落存 drop,水平距离不必再存 —— 它就是 card · CARD_STEP
+    point.drop = drop;
     if (this.originSet) {
       point.x = d;
       point.y = drop;
@@ -182,9 +193,40 @@ export class ProjectileRunner extends Physics2DRunner {
         return this.range();
       case 'pjCardDistance':
         return this.cardDistance();
+      case 'pjGTrue':
+        return this.gFromDrop();
+      case 'pjGSeen':
+        return this.gFromSeen();
       default:
         return Number.NaN;
     }
+  }
+
+  /**
+   * 第 1 个描下的点上,按**真实下落**反求的 g —— 这一格的应有值。
+   *
+   * 它与原点无关:drop 是从槽口量下来的距离,水平距离就是 card · CARD_STEP,
+   * 用的 v0 是**描下那个点时**的释放格(points[0].slot),不是当前滑槽位置。
+   * Task 9 接的就是这一条;这里先给读数口,是为了让"先描点后挂线"那种做法在离线
+   * 也能断言到 9.8 而不是 19.3(Ruling I 的验收)。
+   */
+  private gFromDrop(): number {
+    if (this.points.length === 0) {
+      return Number.NaN;
+    }
+    const p = this.points[0];
+    return ProjectileGProcedure.gFromPoint(p.drop * 1000, p.card * CARD_STEP * 1000,
+      ProjectileRunner.v0At(p.slot));
+  }
+
+  /** 第 1 个描下的点上,按**他看到的那个 y**(没定原点时是板角基准)反求的 g */
+  private gFromSeen(): number {
+    if (this.points.length === 0) {
+      return Number.NaN;
+    }
+    const p = this.points[0];
+    return ProjectileGProcedure.gFromPoint(p.y * 1000, p.x * 1000,
+      ProjectileRunner.v0At(p.slot));
   }
 
   protected onCollectFacts(sheet: FactSheet): void {
@@ -286,7 +328,10 @@ export class ProjectileRunner extends Physics2DRunner {
       dot.r = 0.05;
       dot.color = C_DOT;
       this.snap.circles.push(dot);
-      this.snap.labels.push(this.text('y=' + (p.y * 1000).toFixed(1),
+      // 标签要说清它是按哪套基准量出来的:没挂重垂线时那个数是板角基准下的 y,不是下落距离。
+      // 把它光秃秃地印成 y=…,就等于应用替学生把错的基准认成了对的(Controller Ruling I)。
+      const shown = (p.y * 1000).toFixed(1);
+      this.snap.labels.push(this.text(p.beforeOrigin ? 'y（按板角）=' + shown : 'y=' + shown,
         dot.cx + 0.09, dot.cy - 0.11, 'left', 10));
     }
 
@@ -324,9 +369,13 @@ export class ProjectileRunner extends Physics2DRunner {
     return seg;
   }
 
-  /** 槽口速度只由释放高度决定:这就是"必须从同一位置静止释放"的理由所在 */
+  /** 槽口速度只由释放格数决定:这就是"必须从同一位置静止释放"的理由所在 */
+  static v0At(slot: number): number {
+    return Math.sqrt(2 * G * slot * SLOT_STEP);
+  }
+
   private v0(): number {
-    return Math.sqrt(2 * G * this.slot * SLOT_STEP);
+    return ProjectileRunner.v0At(this.slot);
   }
 
   private cardDistance(): number {

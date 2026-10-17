@@ -135,14 +135,21 @@ export class TickerTape {
    * 从第 start 个点起、每 every 个点取一个计数点,能量出几段。
    *
    * 逐差法至少要四段,三段就只能两两相减再平均 —— 那是这条实验明确不让做的做法。
+   *
+   * 数的是**凑得出完整一对**的段:第 n 段要用第 from+n·step 个点,它必须还在纸上。
+   * 早先这里写成 `floor((点数 − from) / step)`,在 `(点数 − start) % every == 0` 时
+   * 多报一段(实测 80 个点、start=40、every=5 → 报 8,而 segmentsMm 只给得出 7)。
+   * 面板上那条「切出的计数段数」与学生被要求的段数因此各差一段,而这一段在 Task 5
+   * 之后是承重的:段数决定 h,h 决定应有值 —— 报多了等于用一个量不到的数去判人。
    */
   segmentCount(start: number, every: number): number {
     const step = every < 1 ? 1 : every;
     const from = start < 0 ? 0 : start;
-    if (this.dots.length <= from + step) {
+    const lastReachable = this.dots.length - 1 - from;
+    if (lastReachable < step) {
       return 0;
     }
-    return Math.floor((this.dots.length - from) / step);
+    return Math.floor(lastReachable / step);
   }
 
   /** 上面那些段里最短的一段(米)。一段都没有时给 NaN:没量过的事不报数 */

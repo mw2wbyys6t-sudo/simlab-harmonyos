@@ -7322,44 +7322,162 @@ function findBadSubmissionLabels(all) {
   check('F2 相邻逐段平均', print[2], 20, 1e-9);
   check('F3 相邻配对', print[3], 60, 1e-9);
   check('F4 单位错(放大一千倍)', print[4], 180000, 1e-6);
-  check('F5 单位错(缩小一千倍)', print[5], 0.18, 1e-12);
+  assertTrue('5 号「缩小一千倍」已删除(理由见下面负对照里的删除说明)',
+    print[5] === undefined, `实得 ${String(print[5])}`);
+  checkText('分子的指纹表编号连续无空号(0 保留给"没命中")',
+    TapeChunkProcedure.fingerprints(s).map((f) => f.id).join(','), '1,2,3,4');
   const den = {};
   for (const f of TapeChunkProcedure.denPrints(s)) den[f.id] = f.value;
   check('D1 漏乘段数平方', den[1], 1, 0);
   check('D2 只乘 h', den[2], 3, 0);
   check('D3 拿总段数平方', den[3], 36, 0);
-  // 负对照:指纹之间、指纹与正确值之间必须分得开,否则判词会指着学生说他犯了个没犯的错。
-  // 分子题、分母题各查一遍而不是混成一个数组:match() 只会把学生填进某一个空的数,
-  // 与那一个空的值集去比,两个空之间不必互相躲 —— 9 mm(分子)与 9(分母倍数)答的是
-  // 两道题,撞了也冤枉不了任何人。brief 把两题混成一条数组时,四条非样例纸带全部撞车,
-  // 其中 [50,51,52,53,54,55] 上撞的是两个**正确值本身**(分子 9 与倍数 9,0%),
-  // 删谁都删不掉;其余六对(倍数 9 与 F2 8、F1 40 与 D3 36、倍数 4 与 F3 4、F2 2 与 D2 2、
-  // 倍数 16 与 F2 15、F3 60 与 D3 64)全是"毫米 对 无量纲个数"的跨题比较。
-  // 阈值 20% 与五条纸带都不动,指纹一条不删:按题分池后分子池最小间距 25%、分母池 50%。
-  const tapes = [[50, 70, 90, 110, 130, 150], [50, 51, 52, 53, 54, 55],
-    [12, 20, 28, 36, 44, 52], [5, 7, 9, 11], [30, 45, 60, 75, 90, 105, 120, 135]];
-  const pairwiseWorst = (poolOf) => {
-    let worst = 100;
-    let where = '';
-    for (const t of tapes) {
-      const values = poolOf(t);
-      for (let i = 0; i < values.length; i++) {
-        for (let j = i + 1; j < values.length; j++) {
-          const gap = Math.abs(values[i] - values[j]) / Math.abs(values[i]) * 100;
-          if (gap < worst) { worst = gap; where = t.join(',') + ` #${i}vs#${j}`; }
+  // ---- 负对照(Ruling G 第 1、2、3 条):扫描域换成场景真能答出来的参数格 ----------------
+  // 原来这里是手写的五条纸带 + 一条凭空的 20% 闸门,Issue 2/4 那两条撞车正是被这种窄域漏掉的。
+  // 现在扫的是 sr-003 那三条滑杆的整格:倾角 5..60° × 每几个点取一个计数点 1..10 ×
+  // 计数起点 0..80,纸带由真 runner 打出来(通电 → 90 帧 → 放车 → 150 帧,与 Task 5 计划里
+  // 那条 RUN_TAPE 同一走法)。带宽也不再说 20%,改成判分真在用的那两条:
+  //   ① 每条指纹距**本题应有值** ≥ tol(3%)。落进 3% 的那条永远点不着名 —— match 先比正确值
+  //      就判"算对了",留着它等于一张会撒谎的表(本轮正是照这条删掉分子题的 5 号);
+  //   ② 同一格里指纹彼此 ≥ MATCH_TOL(0.5%)。窄于点名单宽的两条指纹,犯乙错法的学生会被
+  //      点名成甲错法 —— 那正是"指认一个他没犯过的错"。
+  // 间距一律按 |a−b| / max(|a|,|b|):值为 0 的指纹在 AnswerCheck 里本就永不点名(通道 1 钉过),
+  // 老写法除以 |a| 会把这种对子算成 Infinity,而 Infinity ≥ 阈值 = "全都通过"(Minor 5 要修的那条)。
+  const { AnswerCheck } = require(join(OUT, 'physics/AnswerCheck.cjs'));
+  const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
+  const GRADE_TOL = 3;                    // Task 5 传进 checkNumber 的那个判分容差
+  const NAME_TOL = AnswerCheck.MATCH_TOL; // 点名的带宽,0.5%
+  const gapPct = (a, b) => Math.abs(a - b) / Math.max(Math.abs(a), Math.abs(b)) * 100;
+  const sweepTape = (angle) => {
+    const meta = ExperimentRegistry.find('tape-cart').meta;
+    const runner = ExperimentRegistry.createRunner('tape-cart');
+    runner.setup(meta);
+    runner.setParam('angle', angle);
+    runner.doAction('power');
+    for (let i = 0; i < 90; i++) runner.step(1 / 60);
+    runner.doAction('release');
+    for (let i = 0; i < 3; i++) runner.step(1 / 60);
+    const aScene = runner.readObservable('acceleration');
+    for (let i = 0; i < 147; i++) runner.step(1 / 60);
+    return { tape: runner.tape, aScene: aScene };
+  };
+  const worst = (gap, at) => ({ gap: gap, at: at });
+  let numWorst = worst(Infinity, '');
+  let denWorst = worst(Infinity, '');
+  let mutualWorst = worst(Infinity, '');
+  let crossWorst = worst(Infinity, '');
+  const crossKinds = new Set();
+  let windows = 0;
+  let segLenMismatch = 0;
+  let nonFinite = 0;
+  let crossPoints = 0;
+  for (let angle = 5; angle <= 60; angle++) {
+    const built = sweepTape(angle);
+    for (let every = 1; every <= 10; every++) {
+      for (let start = 0; start <= 80; start++) {
+        const seg = built.tape.segmentsMm(start, every);
+        // Important 4:段数与段长出口必须逐参数点一致 —— segmentsMm 里那个 null break
+        // 从此只是个守卫,一旦它吃掉一段,这里就红。
+        if (built.tape.segmentCount(start, every) !== seg.length) segLenMismatch++;
+        const num = TapeChunkProcedure.numerator(seg);
+        if (!Number.isFinite(num) || num === 0) continue;
+        windows++;
+        const den = TapeChunkProcedure.denFactor(seg);
+        const fps = TapeChunkProcedure.fingerprints(seg);
+        const dps = TapeChunkProcedure.denPrints(seg);
+        const at = `angle=${angle} start=${start} every=${every}`;
+        for (const f of fps) {
+          if (!Number.isFinite(f.value) || !Number.isFinite(den)) nonFinite++;
+          if (f.value === 0) continue;
+          const g = gapPct(f.value, num);
+          if (g < numWorst.gap) numWorst = worst(g, `${at} F${f.id}=${f.value.toFixed(4)} vs 分子应有 ${num.toFixed(4)}`);
         }
+        for (const d of dps) {
+          if (!Number.isFinite(d.value)) nonFinite++;
+          if (d.value === 0) continue;
+          const g = gapPct(d.value, den);
+          if (g < denWorst.gap) denWorst = worst(g, `${at} D${d.id}=${d.value} vs 分母应有 ${den}`);
+        }
+        // 同池内指纹彼此(F 池只跟 F 池比、D 池只跟 D 池比 —— 两张表的编号是各自独立的)
+        const tagged = [...fps.map((f) => ({ pool: 'F', id: f.id, v: f.value })),
+          ...dps.map((f) => ({ pool: 'D', id: f.id, v: f.value }))].filter((m) => m.v !== 0);
+        for (let i = 0; i < tagged.length; i++) {
+          for (let j = i + 1; j < tagged.length; j++) {
+            if (tagged[i].pool !== tagged[j].pool) continue;
+            const g = gapPct(tagged[i].v, tagged[j].v);
+            if (g < mutualWorst.gap) {
+              mutualWorst = worst(g, `${at} ${tagged[i].pool}${tagged[i].id}=${tagged[i].v.toFixed(4)} vs ${tagged[j].pool}${tagged[j].id}=${tagged[j].v.toFixed(4)}`);
+            }
+          }
+        }
+        // 跨池(Ruling G 第 1 条):把另一格的数打进这一格,会不会被点名成一个没犯过的错
+        let hitHere = false;
+        for (const f of fps) {
+          if (f.value === 0) continue;
+          const g = gapPct(f.value, den);
+          if (g < NAME_TOL) {
+            hitHere = true;
+            crossKinds.add(`F${f.id}←分母应有值`);
+            if (g < crossWorst.gap) crossWorst = worst(g, `${at} F${f.id}=${f.value.toFixed(4)} vs 分母应有 ${den}`);
+          }
+        }
+        for (const d of dps) {
+          if (d.value === 0) continue;
+          const g = gapPct(d.value, num);
+          if (g < NAME_TOL) {
+            hitHere = true;
+            crossKinds.add(`D${d.id}←分子应有值`);
+            if (g < crossWorst.gap) crossWorst = worst(g, `${at} D${d.id}=${d.value} vs 分子应有 ${num.toFixed(4)}`);
+          }
+        }
+        for (const f of fps) {
+          for (const d of dps) {
+            if (f.value === 0 || d.value === 0) continue;
+            const g = gapPct(f.value, d.value);
+            if (g < NAME_TOL) {
+              hitHere = true;
+              crossKinds.add(`F${f.id}↔D${d.id}`);
+              if (g < crossWorst.gap) crossWorst = worst(g, `${at} F${f.id}=${f.value.toFixed(4)} vs D${d.id}=${d.value}`);
+            }
+          }
+        }
+        if (hitHere) crossPoints++;
       }
     }
-    return { worst: worst, where: where };
-  };
-  const numCtl = pairwiseWorst((t) => [TapeChunkProcedure.numerator(t),
-    ...TapeChunkProcedure.fingerprints(t).map((f) => f.value)]);
-  assertTrue('正确值与各指纹两两至少差 20%(分子题)', numCtl.worst >= 20,
-    `最小 ${numCtl.worst.toFixed(1)}% @ ${numCtl.where}`);
-  const denCtl = pairwiseWorst((t) => [TapeChunkProcedure.denFactor(t),
-    ...TapeChunkProcedure.denPrints(t).map((f) => f.value)]);
-  assertTrue('正确值与各指纹两两至少差 20%(分母题)', denCtl.worst >= 20,
-    `最小 ${denCtl.worst.toFixed(1)}% @ ${denCtl.where}`);
+  }
+  // 参数格里所有取值都是有限数:出现 NaN 说明窗口取错了,而不是"比较被静默跳过"
+  check('扫描域里没有非有限值(NaN 会被比较静默吞掉)', nonFinite, 0, 0);
+  check('扫到的窗口数 = 倾角 56 × every 10 × start 81 里出得了题的那些', windows, 40366, 0);
+  check('segmentCount(start,every) 与 segmentsMm(start,every).length 逐参数点一致',
+    segLenMismatch, 0, 0);
+  assertTrue('每条分子指纹距应有值 ≥ 判分容差 3%(否则那个错法被判对)',
+    numWorst.gap >= GRADE_TOL, `最小 ${numWorst.gap.toFixed(2)}% @ ${numWorst.at}`);
+  assertTrue('每条分母指纹距应有值 ≥ 判分容差 3%',
+    denWorst.gap >= GRADE_TOL, `最小 ${denWorst.gap.toFixed(2)}% @ ${denWorst.at}`);
+  assertTrue('同一格里指纹彼此 ≥ MATCH_TOL 0.5%(否则张冠李戴)',
+    mutualWorst.gap >= NAME_TOL, `最小 ${mutualWorst.gap.toFixed(2)}% @ ${mutualWorst.at}`);
+  // 跨池撞车:按 controller 的话是"要报出来",不是"把两张表拆了"。
+  // 分子那一格要毫米、分母那一格要无量纲个数,数量级本来就互不相干,但 every=1..10 一滑,
+  // 到 aT² ≈ 1 mm 的窗口上两者就会重合(实测 8 类、446 个参数点,最坏一条见 detail)。
+  // 处置:删掉撞车的 F1/F2/F3 或 D2/D3 等于拆了这两张表(brief 的样例表钉着 100/20/60/36,
+  // Task 5 的断言还要点名 D2),而评审已把跨池混成一池判成范畴错误。这里把已核过参数点的
+  // 八类钉成上限:冒出第九类(或某一类换了形状)就红,红了看 detail 里的参数点。
+  const KNOWN_CROSS = new Set(['F1←分母应有值', 'F2←分母应有值', 'F3←分母应有值',
+    'F1↔D3', 'F2↔D2', 'F2↔D3', 'F3↔D2', 'F3↔D3']);
+  const newKinds = [...crossKinds].filter((k) => !KNOWN_CROSS.has(k));
+  assertTrue('跨池 0.5% 撞车只落在已列出并核过参数点的那几类里', newKinds.length === 0,
+    `冒出没见过的类: ${newKinds.join(', ') || '无'};已扫出 ${crossKinds.size} 类 / ${crossPoints} 个参数点;最坏一条: ${crossWorst.at}`);
+  // 池里含 0 的那些参数点(匀速纸带)走的是"显式跳过"这条分支,不能靠 Infinity ≥ 阈值蒙过去
+  {
+    const uniform = [40, 40, 40, 40];
+    check('匀速纸带:分子应当是 0(这题在 AnswerCheck 里就是"没出")',
+      TapeChunkProcedure.numerator(uniform), 0, 0);
+    const zs = TapeChunkProcedure.fingerprints(uniform).filter((f) => f.value === 0).length;
+    check('于是分子表 4 条指纹全部塌成 0', zs, 4, 0);
+    check('值为 0 的指纹永不点名(与通道 1 同一条约定,这里接的是真 procedure 的表)',
+      AnswerCheck.match(0, 180, TapeChunkProcedure.fingerprints(uniform), 3).wrongKind, 0, 0);
+    assertTrue('0 值成员之间用 max 做分母,算得出有限数而不是 NaN/Infinity',
+      Number.isFinite(gapPct(0, 40)) && gapPct(0, 40) === 100, `gapPct(0,40)=${gapPct(0, 40)}`);
+  }
   // detail 给观察值(本文件规矩:传 'x' 红了也看不出是多少)
   assertTrue('三段切不出两半 → 分子 NaN',
     !Number.isFinite(TapeChunkProcedure.numerator([50, 70, 90])),
@@ -7370,6 +7488,61 @@ function findBadSubmissionLabels(all) {
   // 奇数段:只用前 2h 段,尾巴那段不参与(与 accelByChunking 的取窗一致)
   check('七段时按前六段算,与 accelByChunking 同窗',
     TapeChunkProcedure.numerator([50, 70, 90, 110, 130, 150, 999]), 180, 1e-9);
+  // 没有死头时 liveFrom 不许动任何一段(样例表的全部数值都靠这条兜着)
+  checkText('无死头的窗口原样给出',
+    TapeChunkProcedure.liveFrom([50, 70, 90, 110, 130, 150]).join(','), '50,70,90,110,130,150');
+
+  // ---- Ruling H:死头不进窗口(Issue 1 —— 把做对的人判错的那一条)------------------------
+  // 场景自己的 summary 写着「舍开头里密着的那一段」,细则 tape-crowded-start 也扣这一条。
+  // 那条 RUN_TAPE(通电 → 90 帧 → 放车 → 150 帧)在默认计数窗口下打出 23 段,**前 7 段是 0.0 mm**
+  // (通电而未放车,点全叠在原地)。原样喂进来会得到分子 853.04、倍数 121 → 反推 a = 0.705,
+  // 而场景自己的 a 读数是 0.879;照学生的舍法算出来是 562.35 / 64 → 0.879。
+  // 判分用的是前者,照做的人就被判「算错」,而 562 不命中任何指纹 —— 只拿到一句光秃秃的算错了。
+  {
+    const built = sweepTape(8);
+    const raw = built.tape.segmentsMm(40, 5);
+    check('这条纸带按默认计数窗口切出 23 段', raw.length, 23, 0);
+    check('其中 7 段是量不出来的死段(≤0.1 mm)', raw.filter((v) => v <= 0.1).length, 7, 0);
+    const live = TapeChunkProcedure.liveFrom(raw);
+    check('liveFrom 舍掉 7 段死头、尾部截到 2h 整 → 16 段', live.length, 16, 0);
+    check('窗口第一段就是原来第 8 段', live[0], raw[7], 1e-12);
+    check('带死头喂进来也按活窗口算:分子报 562.35,不再报 853.04',
+      TapeChunkProcedure.numerator(raw), TapeChunkProcedure.numerator(live), 1e-9);
+    assertTrue('分子确是舍头后的那个数(含死头时是 853.037)',
+      Math.abs(TapeChunkProcedure.numerator(raw) - 562.346) < 1e-2,
+      `实得 ${TapeChunkProcedure.numerator(raw).toFixed(3)}`);
+    check('分母倍数同样按活窗口:h=8 → 64(含死头时是 121)',
+      TapeChunkProcedure.denFactor(raw), 64, 0);
+    check('指纹表也按活窗口出:F1 = 活窗口首尾差',
+      TapeChunkProcedure.fingerprints(raw)[0].value, live[15] - live[0], 1e-9);
+    assertTrue('F1 因此不再是含死头那个 128.14(它把死段当成"第一段"了)',
+      Math.abs(TapeChunkProcedure.fingerprints(raw)[0].value - 128.14) > 1,
+      `实得 ${TapeChunkProcedure.fingerprints(raw)[0].value.toFixed(3)}`);
+    check('liveFrom 是幂等的:调用点先舍过一次也不会再舍一遍',
+      TapeChunkProcedure.liveFrom(live).length, 16, 0);
+    check('有死头且活段是奇数时,尾部照样截到 2h 整',
+      TapeChunkProcedure.liveFrom(raw.slice(0, 22)).length, 14, 0);
+    const T = 5 / 50;
+    const aFromWindow = TapeChunkProcedure.numerator(raw) / 1000 /
+      (TapeChunkProcedure.denFactor(raw) * T * T);
+    assertTrue('应有值反推的 a 与场景自己的 a 读数一致(≤2%,Ruling H 要的这条)',
+      Math.abs(aFromWindow - built.aScene) / built.aScene * 100 <= 2,
+      `窗口反推 ${aFromWindow.toFixed(4)} vs 场景读数 ${built.aScene.toFixed(4)}`);
+    // 反向证据:同一条数据按含死头的老窗口算,a 会差到 20% 之外 —— 上面那条断言不是空跑
+    const hRaw = Math.floor(raw.length / 2);
+    let sumRaw = 0;
+    for (let i = 0; i < hRaw; i++) sumRaw += raw[hRaw + i] - raw[i];
+    const aWithDead = sumRaw / 1000 / (hRaw * hRaw * T * T);
+    assertTrue('含死头的老算法确实把 a 拉偏 15% 以上(说明上面那条闸门有牙)',
+      Math.abs(aWithDead - built.aScene) / built.aScene * 100 > 15,
+      `含死头 ${aWithDead.toFixed(4)} vs 场景 ${built.aScene.toFixed(4)}`);
+    // 整条都没分开(小车被摩擦按住):窗口是空的 → 应有值 NaN → match 判「这题没出」,不判没交
+    check('全死头的段长 → liveFrom 给出空窗口',
+      TapeChunkProcedure.liveFrom([0, 0, 0, 0, 0, 0, 0, 0]).length, 0, 0);
+    assertTrue('空窗口的分子是 NaN(而不是 0 冒充量过)',
+      Number.isNaN(TapeChunkProcedure.numerator([0, 0, 0, 0, 0, 0, 0, 0])),
+      String(TapeChunkProcedure.numerator([0, 0, 0, 0, 0, 0, 0, 0])));
+  }
 
   // segmentsMm 出口自己也得有牙:用 a=2 m/s²、50 Hz 的真纸带走一遍完整链路
   // (打点 → 每 5 点取一个计数点 → 段长毫米 → 喂进 procedure),Task 5 接的就是这条线。
@@ -7393,52 +7566,208 @@ function findBadSubmissionLabels(all) {
     const overrun = tape.segmentsMm(41, 5);
     assertTrue('起点落到点数之外 → 一段都出不来', overrun.length === 0, String(overrun.length));
   }
+
+  // ---- Important 4:评审报的那个具体参数点单独钉一次(整格扫描红得不够显眼)------------
+  // 80 个点、计数起点 40、每 5 个点取一段:老写法 floor((80−40)/5)=8,可第 8 段要用第 80 个
+  // 点,而纸上的点号只到 79 —— segmentsMm 只给得出 7 段。面板那条 tapeSegments 与学生被要求
+  // 的"段数"因此各差一段,而 Task 5 之后这一段决定 h、决定应有值。
+  {
+    const { TickerTape } = require(join(OUT, 'physics/TickerTape.cjs'));
+    const t80 = new TickerTape();
+    t80.setPower(true, 0);
+    for (let i = 0; i < 80; i++) {
+      const tt = i / 50;
+      t80.tick(tt, 0.1 * tt, 0.1, 0);
+    }
+    check('这条纸带打出 80 个点', t80.count(), 80, 0);
+    check('段数=7(第 8 段要用第 80 个点,纸上没有)', t80.segmentCount(40, 5), 7, 0);
+    check('段长出口也是 7 段', t80.segmentsMm(40, 5).length, 7, 0);
+    check('恰好整除时也不再差一段', t80.segmentCount(0, 1), 79, 0);
+    check('shortestSegment 不受影响(匀速纸带走最短=1 段)',
+      t80.shortestSegment(40, 5) * 1000, 10, 1e-9);
+  }
 }
 
 // ---- 学生填数通道 8:sr-007 反求 g 与竖直段比,含各自指纹 ------------------------
 {
   const { ProjectileGProcedure } = require(join(OUT, 'physics/ProjectileGProcedure.cjs'));
+  const { AnswerCheck } = require(join(OUT, 'physics/AnswerCheck.cjs'));
+  const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
+  const PJ_META = ExperimentRegistry.find('projectile-frame').meta;
   const G = 9.8;
   const v0 = Math.sqrt(2 * G * 4 * 0.05);            // 斜槽第 4 格
   const xs = [0.15, 0.30, 0.45, 0.60];
   const ysMm = xs.map((x) => 0.5 * G * Math.pow(x / v0, 2) * 1000);
   check('由第 2 个点反求 g', ProjectileGProcedure.gFromPoint(ysMm[1], 300, v0), 9.8, 1e-6);
   const print = {};
-  for (const f of ProjectileGProcedure.fingerprints(ysMm[1], 300, v0)) print[f.id] = f.value;
+  const printIds = [];
+  for (const f of ProjectileGProcedure.fingerprints(ysMm[1], 300, v0)) {
+    print[f.id] = f.value;
+    printIds.push(f.id);
+  }
   check('G1 漏乘 2', print[1], 4.9, 1e-6);
-  check('G2 把 x 当时间', print[2], 2 * (ysMm[1] / 1000) / Math.pow(0.3, 2), 1e-6);
-  check('G4 单位错(放大一千倍)', print[4], 9800, 1e-3);
+  check('G2 单位错(放大一千倍)', print[2], 9800, 1e-3);
+  check('G3 单位错(缩小一千倍)', print[3], 0.0098, 1e-6);
+  // 原 2 号「把 x 当时间」(样例值 2.5)与空号 3 号一并收掉,理由见下面扫描域里那两段证据
+  checkText('g 表编号连续无空号(0 保留给"没命中")', printIds.join(','), '1,2,3');
+  assertTrue('表里没有「把 x 当时间」那个值(slot 4 上是 2.5)',
+    !printIds.some((id) => Math.abs(print[id] - 2.5) < 0.05), printIds.map((i) => `${i}:${print[i]}`).join(' '));
   check('竖直段比:从抛出点数起 1:3 → 3.00',
     ProjectileGProcedure.segmentRatio([ysMm[0], ysMm[1]]), 3, 1e-6);
   check('段比指纹 V1 是两点总位移之比',
     ProjectileGProcedure.ratioFingerprints([ysMm[0], ysMm[1]])[0].value, 4, 1e-6);
-  let worst = 100;
-  for (const y of [ysMm[0], ysMm[1], ysMm[2]]) {
-    const values = [ProjectileGProcedure.gFromPoint(y, 300, v0)];
-    for (const f of ProjectileGProcedure.fingerprints(y, 300, v0)) values.push(f.value);
-    for (let i = 0; i < values.length; i++) {
-      for (let j = i + 1; j < values.length; j++) {
-        worst = Math.min(worst, Math.abs(values[i] - values[j]) / Math.abs(values[i]) * 100);
+  // detail 给观察值(本文件规矩:传 'x' 红了也看不出是多少)
+  assertTrue('y 为 0 时算不出 g',
+    !Number.isFinite(ProjectileGProcedure.gFromPoint(0, 300, v0)),
+    String(ProjectileGProcedure.gFromPoint(0, 300, v0)));
+  // Minor 5:三条没人测的 NaN 分支之一 —— xMm ≤ 0(与上面 y=0 是两条不同的短路)
+  assertTrue('xMm 为 0 时算不出 g(分母塌了)',
+    !Number.isFinite(ProjectileGProcedure.gFromPoint(112.5, 0, v0)),
+    String(ProjectileGProcedure.gFromPoint(112.5, 0, v0)));
+  assertTrue('v0 为 0 时算不出 g',
+    !Number.isFinite(ProjectileGProcedure.gFromPoint(112.5, 300, 0)),
+    String(ProjectileGProcedure.gFromPoint(112.5, 300, 0)));
+  // Minor 5:另一条 —— segmentRatio 里 second ≤ 0 那个分支(两点一样高 = 没有第二段)
+  assertTrue('两点齐平 → 第二段落差不为正,段比算不出',
+    !Number.isFinite(ProjectileGProcedure.segmentRatio([100, 100])),
+    String(ProjectileGProcedure.segmentRatio([100, 100])));
+  assertTrue('第二段反而更小(基准混了)→ 段比算不出',
+    !Number.isFinite(ProjectileGProcedure.segmentRatio([100, 40])),
+    String(ProjectileGProcedure.segmentRatio([100, 40])));
+  assertTrue('两个点以下算不出段比', !Number.isFinite(ProjectileGProcedure.segmentRatio([30])),
+    String(ProjectileGProcedure.segmentRatio([30])));
+
+  // ---- 扫描域(Ruling G 第 2、3 条):场景真描得出来的那些点 -------------------------
+  // 原来这里只扫单一 slot 4 的四个 x,而且闸门说的是凭空的 20%。现在扫 slot 1..4 × card 1..8:
+  // 球飞不到卡片那一格(range < card · 0.15)时压根描不出点,那些组合自然不在域内 ——
+  // 这不是把扫描域收窄,是场景在那儿答不出这道题。带宽同 Task 4:指纹距应有值 ≥ 3%(tol),
+  // 同格指纹彼此 ≥ MATCH_TOL(0.5%),两格之间跨池也按 0.5%(g 与段比的单位一个 m/s² 一个无量纲,
+  // 但与 Task 4 不同,实测在这张格上跨池一条都不撞,所以这里敢写成硬闸门)。
+  const gapPct = (a, b) => Math.abs(a - b) / Math.max(Math.abs(a), Math.abs(b)) * 100;
+  const GRADE_TOL = 3;
+  const NAME_TOL = AnswerCheck.MATCH_TOL;
+  // harness 读的是转译后的私有字段 points:等 Task 9 把两格填空接成事实
+  // (pjGTrue / pjSegRatioTrue),这里应改成读事实,而不是继续poke。
+  const tracePoints = (slot, cards, withOrigin) => {
+    const runner = ExperimentRegistry.createRunner('projectile-frame');
+    runner.setup(PJ_META);
+    const act = (k) => runner.doAction(k);
+    // 走读数口对齐档位(与 Task 9 计划里那条 diligent 同一种写法),不靠按几次按钮的算术
+    while (runner.readObservable('pjSlot') < slot - 1e-9) act('slot+');
+    while (runner.readObservable('pjSlot') > slot + 1e-9) act('slot-');
+    if (withOrigin) act('origin');
+    for (const card of cards) {
+      while (runner.readObservable('pjCardDistance') < card * 0.15 - 1e-9) act('card+');
+      while (runner.readObservable('pjCardDistance') > card * 0.15 + 1e-9) act('card-');
+      act('release');
+      for (let i = 0; i < 60; i++) runner.step(1 / 60);
+    }
+    return { points: runner.points, v0: runner.readObservable('pjLaunchSpeed'), runner: runner };
+  };
+  let gWorst = { gap: Infinity, at: '' };
+  let gMutual = { gap: Infinity, at: '' };
+  let rWorst = { gap: Infinity, at: '' };
+  let rMutual = { gap: Infinity, at: '' };
+  let crossWorst = { gap: Infinity, at: '' };
+  let traced = 0;
+  let ratioPairs = 0;
+  for (let slot = 1; slot <= 4; slot++) {
+    for (let card = 1; card <= 8; card++) {
+      const one = tracePoints(slot, [card], true);
+      if (one.points.length === 0) continue;
+      traced++;
+      const p = one.points[0];
+      const yMm = p.drop * 1000;
+      const xMm = p.card * 0.15 * 1000;
+      const correct = ProjectileGProcedure.gFromPoint(yMm, xMm, one.v0);
+      const fps = ProjectileGProcedure.fingerprints(yMm, xMm, one.v0);
+      const at = `slot=${slot} card=${card}`;
+      for (const f of fps) {
+        const g = gapPct(f.value, correct);
+        if (g < gWorst.gap) gWorst = { gap: g, at: `${at} G${f.id}=${f.value.toFixed(4)} vs 应有 ${correct.toFixed(4)}` };
+      }
+      for (let i = 0; i < fps.length; i++) {
+        for (let j = i + 1; j < fps.length; j++) {
+          const g = gapPct(fps[i].value, fps[j].value);
+          if (g < gMutual.gap) gMutual = { gap: g, at: `${at} G${fps[i].id} vs G${fps[j].id}` };
+        }
+      }
+      if (card < 8) {
+        const two = tracePoints(slot, [card, card + 1], true);
+        if (two.points.length !== 2) continue;
+        ratioPairs++;
+        const ys = [two.points[0].drop * 1000, two.points[1].drop * 1000];
+        const rCorrect = ProjectileGProcedure.segmentRatio(ys);
+        const rPrints = ProjectileGProcedure.ratioFingerprints(ys);
+        for (const f of rPrints) {
+          const g = gapPct(f.value, rCorrect);
+          if (g < rWorst.gap) rWorst = { gap: g, at: `${at} 相邻两格 V${f.id}=${f.value.toFixed(4)} vs 应有 ${rCorrect.toFixed(4)}` };
+        }
+        for (let i = 0; i < rPrints.length; i++) {
+          for (let j = i + 1; j < rPrints.length; j++) {
+            const g = gapPct(rPrints[i].value, rPrints[j].value);
+            if (g < rMutual.gap) rMutual = { gap: g, at: `${at} 相邻两格 V${rPrints[i].id} vs V${rPrints[j].id}` };
+          }
+        }
+        for (const f of fps) {
+          for (const v of [rCorrect, ...rPrints.map((x) => x.value)]) {
+            const g = gapPct(f.value, v);
+            if (g < crossWorst.gap) crossWorst = { gap: g, at: `${at} G${f.id}=${f.value.toFixed(4)} vs 段比池 ${v.toFixed(4)}` };
+          }
+        }
+        for (const f of rPrints) {
+          for (const v of [correct, ...fps.map((x) => x.value)]) {
+            const g = gapPct(f.value, v);
+            if (g < crossWorst.gap) crossWorst = { gap: g, at: `${at} V${f.id}=${f.value.toFixed(4)} vs g 池 ${v.toFixed(4)}` };
+          }
+        }
       }
     }
   }
-  assertTrue('g 的正确值与各指纹两两至少差 20%', worst >= 20, `最小 ${worst.toFixed(1)}%`);
-  // 段比是第二个空,负对照各查各的(与 Task 4 的"按题分池"同一条理由:跨题比的是不同量纲的数)
-  const ratioVals = [ProjectileGProcedure.segmentRatio([ysMm[0], ysMm[1]]),
-    ...ProjectileGProcedure.ratioFingerprints([ysMm[0], ysMm[1]]).map((f) => f.value)];
-  let worstR = 100;
-  for (let i = 0; i < ratioVals.length; i++) {
-    for (let j = i + 1; j < ratioVals.length; j++) {
-      worstR = Math.min(worstR, Math.abs(ratioVals[i] - ratioVals[j]) / Math.abs(ratioVals[i]) * 100);
-    }
+  check('参数格上描得出点的组合数(slot 1..4 × card 1..8,球飞不到的那些不算)', traced, 25, 0);
+  check('段比能配出的相邻两格组合数', ratioPairs, 21, 0);
+  assertTrue('每条 g 指纹距应有值 ≥ 判分容差 3%',
+    gWorst.gap >= GRADE_TOL, `最小 ${gWorst.gap.toFixed(2)}% @ ${gWorst.at}`);
+  assertTrue('g 格里指纹彼此 ≥ MATCH_TOL 0.5%',
+    gMutual.gap >= NAME_TOL, `最小 ${gMutual.gap.toFixed(2)}% @ ${gMutual.at}`);
+  assertTrue('每条段比指纹距应有值 ≥ 判分容差 3%',
+    rWorst.gap >= GRADE_TOL, `最小 ${rWorst.gap.toFixed(2)}% @ ${rWorst.at}`);
+  assertTrue('段比格里指纹彼此 ≥ MATCH_TOL 0.5%',
+    rMutual.gap >= NAME_TOL, `最小 ${rMutual.gap.toFixed(2)}% @ ${rMutual.at}`);
+  assertTrue('跨池:g 池与段比池彼此 ≥ MATCH_TOL 0.5%',
+    crossWorst.gap >= NAME_TOL, `最小 ${crossWorst.gap.toFixed(2)}% @ ${crossWorst.at}`);
+
+  // 删 G2「把 x 当时间」的证据留在这儿:slot=1 那一档 v0² = 2·g·1·0.05 = 0.98 ≈ 1,
+  // 那个错法算出来与正确值只差 2.04%,落在判分容差之内 —— 学生直接把"算对了"拿走,
+  // 指纹永远点不着名。留着它 = 一张会撒谎的表,所以删(见 ProjectileGProcedure 文件注释)。
+  {
+    const one = tracePoints(1, [1], true);
+    const p = one.points[0];
+    const asTime = 2 * p.drop / (p.card * 0.15 * p.card * 0.15);
+    assertTrue('slot=1 时「把 x 当时间」算出的 g 距应有值 <3%(所以它不配是一条指纹)',
+      gapPct(asTime, ProjectileGProcedure.gFromPoint(p.drop * 1000, p.card * 150, one.v0)) < GRADE_TOL,
+      `实得 ${asTime.toFixed(4)} m/s²,差 ${gapPct(asTime, 9.8).toFixed(2)}%`);
   }
-  assertTrue('段比的正确值与各指纹两两至少差 20%', worstR >= 20, `最小 ${worstR.toFixed(1)}%`);
-  // detail 给观察值(本文件规矩:传 'x' 红了也看不出是多少)
-  assertTrue('一个点也算不出 g(y 为 0 时)',
-    !Number.isFinite(ProjectileGProcedure.gFromPoint(0, 300, v0)),
-    String(ProjectileGProcedure.gFromPoint(0, 300, v0)));
-  assertTrue('两个点以下算不出段比', !Number.isFinite(ProjectileGProcedure.segmentRatio([30])),
-    String(ProjectileGProcedure.segmentRatio([30])));
+  // 也不补 G3「板角基准的 g」(Ruling I 要的"没定原点的人会得到什么"这件事,改由标签说清
+  // + pj-origin-late 扣分,见下面 8 附)。扫描域里它有 2 个参数点同样落进 3% 带宽。
+  {
+    const colliding = [];
+    for (let slot = 1; slot <= 4; slot++) {
+      for (let card = 1; card <= 8; card++) {
+        const before = tracePoints(slot, [card], false);
+        if (before.points.length === 0) continue;
+        const q = before.points[0];
+        const gSeen = ProjectileGProcedure.gFromPoint(q.y * 1000, q.x * 1000, before.v0);
+        const gTrue = ProjectileGProcedure.gFromPoint(q.drop * 1000, q.card * 150, before.v0);
+        if (gapPct(gSeen, gTrue) < GRADE_TOL) colliding.push(`slot=${slot}/card=${card}(反求 ${gSeen.toFixed(3)} vs 应有 ${gTrue.toFixed(3)})`);
+      }
+    }
+    check('先描点后挂线时,"按板角那套 y 反求的 g"撞进 3% 判分带宽的参数点数(G3 因此不进表)',
+      colliding.length, 2, 0);
+    assertTrue('撞车的就是这两个参数点',
+      colliding.join(' ').includes('slot=2/card=1') && colliding.join(' ').includes('slot=4/card=3'),
+      colliding.join(' '));
+  }
 }
 
 // ---- 学生填数通道 8 附:描下的每个点旁边都标出 y(离线验标签的有无、位置与读数) ----
@@ -7460,8 +7789,12 @@ function findBadSubmissionLabels(all) {
   const snap = runner.snapshot();
   const dots = snap.circles.filter((c) => c.color === '#25313F');
   check('连描三个点', dots.length, 3, 0);
-  const ys = snap.labels.filter((l) => l.text.indexOf('y=') === 0);
+  // 标签前缀按基准分两种:y=…(挂过线)与 y（按板角）=…(没挂线),两条都算"跟着一个 y 读数"
+  const isYLabel = (l) => l.text.indexOf('y=') === 0 || l.text.indexOf('y（按板角）=') === 0;
+  const ys = snap.labels.filter(isYLabel);
   check('每个描下的点旁边都跟着一个 y 读数', ys.length, 3, 0);
+  check('挂过线之后描的点,标签不写基准前缀(三种里只该出现 y=)',
+    ys.filter((l) => l.text.indexOf('y（按板角）=') === 0).length, 0, 0);
   for (let i = 0; i < dots.length; i++) {
     const d = dots[i];
     assertTrue(`第 ${i + 1} 个点的 y 标签贴在它的右下方`,
@@ -7472,6 +7805,58 @@ function findBadSubmissionLabels(all) {
   // 28.125/253.125 这种二进制舍入刀刃上,不钉字面数,只钉存在与位置)
   assertTrue('第 2 个点的读数就是 spec §6 的 112.5 mm',
     ys.some((l) => l.text === 'y=112.5'), ys.map((l) => l.text).join('|'));
+
+  // ---- Ruling I:先描点、后挂线 —— 标签自己说清基准,应有值仍按真实下落算 --------------
+  // 那个点存的是板角基准的坐标(2221.9 mm),反求出来是 19.3014 m/s²。
+  // 以前 TracedPoint 只有一套坐标,基准由"描它那一刻挂没挂线"决定,于是应用会把这个
+  // 19.3 当成"应有值"印出去 —— 供认错的基准为正确答案。现在两套都记:标签写明基准,
+  // 应有值只由 drop(从槽口算起的真实下落)算。
+  {
+    const before = ExperimentRegistry.createRunner('projectile-frame');
+    before.setup(ExperimentRegistry.find('projectile-frame').meta);
+    before.doAction('slot+');
+    before.doAction('slot+');   // 斜槽第 4 格
+    before.doAction('card-');
+    before.doAction('card-');   // 卡片第 1 格,与上面那条同一走法
+    before.doAction('release');
+    for (let i = 0; i < 60; i++) before.step(1 / 60);
+    check('没挂线也描上了一个点', before.snapshot().circles
+      .filter((c) => c.color === '#25313F').length, 1, 0);
+    checkText('标签写明它是按板角量的(不藏基准)',
+      before.snapshot().labels.filter(isYLabel)[0].text, 'y（按板角）=2221.9');
+    check('按标签那套 y 反求的 g 是 19.3014 —— 这才是"没定原点的人会得到什么"',
+      before.readObservable('pjGSeen'), 19.3014, 1e-3);
+    check('应有值只由真实下落算:先描点后挂线也还是 9.8,不是 19.3',
+      before.readObservable('pjGTrue'), 9.8, 1e-6);
+    // 挂线之后再看那张纸:已经描下的点不许被改口成"按抛出点量的"
+    before.doAction('origin');
+    checkText('挂线之后,先前那个点的标签仍写按板角',
+      before.snapshot().labels.filter(isYLabel)[0].text, 'y（按板角）=2221.9');
+    check('挂线之后应有值不变(还是真实下落那个 9.8)',
+      before.readObservable('pjGTrue'), 9.8, 1e-6);
+    // 反向对照:先挂线再描同一个位置,标签就是光秃秃的 y=,两个读数相等
+    const after = ExperimentRegistry.createRunner('projectile-frame');
+    after.setup(ExperimentRegistry.find('projectile-frame').meta);
+    after.doAction('origin');
+    after.doAction('slot+');
+    after.doAction('slot+');
+    after.doAction('card-');
+    after.doAction('card-');
+    after.doAction('release');
+    for (let i = 0; i < 60; i++) after.step(1 / 60);
+    // 这个点的 y 数学值 28.125 mm 正落在 toFixed(1) 的二进制舍入刀刃上(见上面的注释),
+    // 所以这里只钉"它没写基准前缀",不钉字面数。
+    const seenLabel = after.snapshot().labels.filter(isYLabel)[0].text;
+    assertTrue('定过原点之后描的点,标签不带「按板角」前缀',
+      seenLabel.indexOf('按板角') < 0 && seenLabel.indexOf('y=') === 0, seenLabel);
+    check('两套读数在同一点上相等(只有定过原点时才允许相等)',
+      after.readObservable('pjGSeen'), after.readObservable('pjGTrue'), 1e-9);
+    assertTrue('两者差得判分出胜负(19.3 对 9.8 差到 3% 带宽之外,G3 若加回来必须过那道闸门)',
+      Math.abs(before.readObservable('pjGSeen') - before.readObservable('pjGTrue'))
+        / before.readObservable('pjGTrue') * 100 > 3,
+      `差 ${(Math.abs(before.readObservable('pjGSeen') - before.readObservable('pjGTrue'))
+        / before.readObservable('pjGTrue') * 100).toFixed(2)}%`);
+  }
 }
 
 if (failures.length > 0) {
