@@ -7221,6 +7221,24 @@ function findBadSubmissionLabels(all) {
     AnswerCheck.match(20.06, 180, [fp(0, 20), fp(2, 20)], 3).wrongKind, 2, 0);
 }
 
+// ---- 学生填数通道 2:答案进 runner,重置要清干净 --------------------------------
+// 交卷时读的是 runner 里的答案,"换一条纸带还留着上一次填的数"会直接判错人。
+{
+  const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
+  const runner = ExperimentRegistry.createRunner('tape-cart');
+  runner.setup(ExperimentRegistry.find('tape-cart').meta);
+  assertTrue('没填时读到 NaN 而不是 0(0 是合法的数,不能当缺省)',
+    !Number.isFinite(runner.answer('tapeNumerator')), String(runner.answer('tapeNumerator')));
+  runner.setAnswer('tapeNumerator', 180);
+  check('填进去就读得到', runner.answer('tapeNumerator'), 180, 1e-12);
+  runner.setAnswer('tapeNumerator', Number.NaN);
+  assertTrue('清空回到没填', !Number.isFinite(runner.answer('tapeNumerator')), 'x');
+  runner.setAnswer('tapeNumerator', 180);
+  runner.reset();
+  assertTrue('重置把答案一起清掉', !Number.isFinite(runner.answer('tapeNumerator')),
+    String(runner.answer('tapeNumerator')));
+}
+
 if (failures.length > 0) {
   console.log(`\n✗ ${failures.length} 项失败 / ${passed} 项通过`);
   for (const line of failures) {

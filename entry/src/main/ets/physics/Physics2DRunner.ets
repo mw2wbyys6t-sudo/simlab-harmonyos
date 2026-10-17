@@ -11,6 +11,7 @@ export abstract class Physics2DRunner implements IExperimentRunner {
   protected params: Map<string, number> = new Map();
   protected meta: ExperimentMeta = new ExperimentMeta();
   protected time: number = 0;
+  protected answers: Map<string, number> = new Map();
 
   setup(meta: ExperimentMeta): void {
     this.meta = meta;
@@ -19,11 +20,13 @@ export abstract class Physics2DRunner implements IExperimentRunner {
       this.params.set(meta.params[i].key, meta.params[i].defaultValue);
     }
     this.time = 0;
+    this.answers.clear();
     this.onSetup();
   }
 
   reset(): void {
     this.time = 0;
+    this.answers.clear();
     this.onSetup();
   }
 
@@ -35,6 +38,15 @@ export abstract class Physics2DRunner implements IExperimentRunner {
   getParam(key: string): number {
     const hit = this.params.get(key);
     return hit === undefined ? 0 : hit;
+  }
+
+  setAnswer(key: string, value: number): void {
+    this.answers.set(key, value);
+  }
+
+  answer(key: string): number {
+    const hit = this.answers.get(key);
+    return hit === undefined ? Number.NaN : hit;
   }
 
   /**

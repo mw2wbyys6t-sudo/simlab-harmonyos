@@ -30,6 +30,7 @@ export class BenchWorld implements IExperimentRunner {
     this.ended = false;
     this.pouredMl = 0;
     this.missedMl = 0;
+    this.answers.clear();
     this.cylinder = Container.of('cylinder', '量筒', Glassware.graduatedCylinder10());
     this.reagent = Container.of('reagent', '试剂瓶', Glassware.beaker100());
     // 试剂瓶不该装到瓶口:满瓶一歪,液面就被器沿夹住,「液面保持水平」这件事在屏幕上根本看不见。
@@ -43,6 +44,9 @@ export class BenchWorld implements IExperimentRunner {
 
   /** 世界参数表由外壳通过 setParam 驱动,这里只存放与判据有关的量 */
   private params: Map<string, number> = new Map();
+
+  /** 学生交上来的处理结果。量取训练今天不出填空题,这张表正常是空的,但格子得存得住 */
+  private answers: Map<string, number> = new Map();
 
   private readParam(key: string): number {
     const hit = this.params.get(key);
@@ -79,6 +83,16 @@ export class BenchWorld implements IExperimentRunner {
 
   getParam(key: string): number {
     return this.readParam(key);
+  }
+
+  setAnswer(key: string, value: number): void {
+    this.answers.set(key, value);
+  }
+
+  /** 没填就是 NaN:0 是一个合法答案,不能当缺省 —— 未知 key 同样读 NaN,不抛异常 */
+  answer(key: string): number {
+    const hit = this.answers.get(key);
+    return hit === undefined ? Number.NaN : hit;
   }
 
   /** 学生主动收手:之后的判定就是终局判定 */

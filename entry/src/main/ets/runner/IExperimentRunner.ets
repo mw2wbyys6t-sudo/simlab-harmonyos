@@ -20,6 +20,13 @@ export interface IExperimentRunner {
   setParam(key: string, value: number): void;
 
   /**
+   * 学生交上来的一个处理结果。与 setParam 的区别是方向:那是我们施给世界的条件,
+   * 这是他算出来的结论 —— 判定层读的是"它和这批数据应得的结果差多少",不是它本身。
+   * 传 NaN 表示清空这一格。
+   */
+  setAnswer(key: string, value: number): void;
+
+  /**
    * 学生按下一个动作按钮(加砝码、记读数)。
    *
    * 这是判定层唯一的「学生做过什么」入口:动作必须改变世界并留下时刻与后果,
@@ -37,6 +44,9 @@ export interface IExperimentRunner {
 
   /** 读取观测量当前值,键来自 ExperimentMeta.observables */
   readObservable(key: string): number;
+
+  /** 学生填过的值;没填一律 NaN,不得用 0 兜底 */
+  answer(key: string): number;
 
   /** 仿真已推进的时间(秒),不是墙钟时间 */
   elapsedTime(): number;
