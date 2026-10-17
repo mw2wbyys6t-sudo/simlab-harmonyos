@@ -1,4 +1,4 @@
-import { ChartDef, ChartSeries, ActionDef, ObservableDef, ParamControl, ParamDef, TaskDef } from '../model/ExperimentTypes';
+import { ChartDef, ChartSeries, ActionDef, ObservableDef, ParamControl, ParamDef, SubmissionDef, TaskDef } from '../model/ExperimentTypes';
 import { Theme } from '../common/Theme';
 
 /** 场景元数据的简写构造器,避免每个实验重复写赋值样板。 */
@@ -30,6 +30,18 @@ export class SceneBuilders {
     def.unit = unit;
     def.precision = precision;
     def.sampled = sampled;
+    return def;
+  }
+
+  /** 学生要交的一个数。taskKey 必须指向本场景已声明的任务(由断言守) */
+  static submission(key: string, taskKey: string, label: string,
+    unit: string, precision: number): SubmissionDef {
+    const def = new SubmissionDef();
+    def.key = key;
+    def.taskKey = taskKey;
+    def.label = label;
+    def.unit = unit;
+    def.precision = precision;
     return def;
   }
 

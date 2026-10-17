@@ -91,6 +91,22 @@ export class TaskDef {
 }
 
 /**
+ * 学生要交的一个数。
+ *
+ * 它和 ObservableDef 的方向正好相反:observable 是应用报给他看的数,submission 是他
+ * 自己处理出来的数。所以 label 得把"用哪几个数、按什么流程算"说清 ——
+ * 屏幕上不会给他别处找不到的提示。
+ */
+export class SubmissionDef {
+  key: string = ''
+  /** 挂在哪个 taskKey 下面渲染 */
+  taskKey: string = ''
+  label: string = ''
+  unit: string = ''
+  precision: number = 2
+}
+
+/**
  * 学生主动按下的离散动作(加一个砝码、记下这一读数)。
  *
  * 它和 ParamDef 的区别是这条实验能不能被判定:滑杆给的是**我们施予的连续量**,
@@ -126,6 +142,7 @@ export class ExperimentMeta {
   observables: ObservableDef[] = []
   charts: ChartDef[] = []
   tasks: TaskDef[] = []
+  submissions: SubmissionDef[] = []
   /** 世界边界与视口(米),2D 渲染器据此做世界坐标到画布坐标的映射 */
   worldWidth: number = 10
   worldHeight: number = 6

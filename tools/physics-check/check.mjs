@@ -708,6 +708,8 @@ function checkRel(label, actual, expected, relTolerance) {
     for (const a of meta.actions) push(`${meta.id} 动作`, a.label);
     // 任务正文是打印在实验页上的,以前这一栏压根没进清单:新场景写错标点没人拦
     for (const t of meta.tasks) push(`${meta.id} 任务`, t.prompt);
+    // 填空的问句是印在实验页上让学生照着算的,漏进闸门就等于新写一类文案没人管标点
+    for (const s of meta.submissions) push(`${meta.id} 填空`, s.label);
   }
   // 细则清单由注册表自己长出来:每个场景声明的 rubricId 顺着索引取回细则。
   // 手写四份的写法在加实验时必然漏掉新细则 —— 新细则的标点就是这样漏检过一次
@@ -5058,6 +5060,16 @@ function checkRel(label, actual, expected, relTolerance) {
     .map((mapId) => `${mapId} 声称可打开,但注册表里没有 ${BASIS[mapId]}`);
   assertTrue('每条按注册表登记的 RUNNABLE 都指得到一个真注册了的场景', lostBasis.length === 0,
     lostBasis.join(' | '));
+  // 填空必须挂在真存在的任务下:挂错了,页面上那一栏找不到归属,渲染成孤儿
+  const orphan = [];
+  for (const m of ExperimentRegistry.all()) {
+    for (const s of m.submissions) {
+      if (!m.tasks.some((t) => t.key === s.taskKey)) {
+        orphan.push(`${m.id}/${s.key}→${s.taskKey}`);
+      }
+    }
+  }
+  assertTrue('每个填空都挂在真声明了的任务下', orphan.length === 0, orphan.join(' | '));
   check('注册表里的场景数', registered.length, 15, 0);
   assertTrue('生物学科现在一条可打开的都没有(与地图自己的判断一致)',
     CurriculumIndex.experimentsOf(MapSubject.BIOLOGY)
