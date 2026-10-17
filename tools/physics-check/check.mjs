@@ -109,6 +109,7 @@ const MODULES = [
   'physics/TickerTape',
   'physics/AnswerCheck',
   'physics/TapeChunkProcedure',
+  'physics/ProjectileGProcedure',
   'physics/TapeCartRunner',
   'physics/TapeStrip',
   'physics/FreeFallRunner',
@@ -7392,6 +7393,85 @@ function findBadSubmissionLabels(all) {
     const overrun = tape.segmentsMm(41, 5);
     assertTrue('起点落到点数之外 → 一段都出不来', overrun.length === 0, String(overrun.length));
   }
+}
+
+// ---- 学生填数通道 8:sr-007 反求 g 与竖直段比,含各自指纹 ------------------------
+{
+  const { ProjectileGProcedure } = require(join(OUT, 'physics/ProjectileGProcedure.cjs'));
+  const G = 9.8;
+  const v0 = Math.sqrt(2 * G * 4 * 0.05);            // 斜槽第 4 格
+  const xs = [0.15, 0.30, 0.45, 0.60];
+  const ysMm = xs.map((x) => 0.5 * G * Math.pow(x / v0, 2) * 1000);
+  check('由第 2 个点反求 g', ProjectileGProcedure.gFromPoint(ysMm[1], 300, v0), 9.8, 1e-6);
+  const print = {};
+  for (const f of ProjectileGProcedure.fingerprints(ysMm[1], 300, v0)) print[f.id] = f.value;
+  check('G1 漏乘 2', print[1], 4.9, 1e-6);
+  check('G2 把 x 当时间', print[2], 2 * (ysMm[1] / 1000) / Math.pow(0.3, 2), 1e-6);
+  check('G4 单位错(放大一千倍)', print[4], 9800, 1e-3);
+  check('竖直段比:从抛出点数起 1:3 → 3.00',
+    ProjectileGProcedure.segmentRatio([ysMm[0], ysMm[1]]), 3, 1e-6);
+  check('段比指纹 V1 是两点总位移之比',
+    ProjectileGProcedure.ratioFingerprints([ysMm[0], ysMm[1]])[0].value, 4, 1e-6);
+  let worst = 100;
+  for (const y of [ysMm[0], ysMm[1], ysMm[2]]) {
+    const values = [ProjectileGProcedure.gFromPoint(y, 300, v0)];
+    for (const f of ProjectileGProcedure.fingerprints(y, 300, v0)) values.push(f.value);
+    for (let i = 0; i < values.length; i++) {
+      for (let j = i + 1; j < values.length; j++) {
+        worst = Math.min(worst, Math.abs(values[i] - values[j]) / Math.abs(values[i]) * 100);
+      }
+    }
+  }
+  assertTrue('g 的正确值与各指纹两两至少差 20%', worst >= 20, `最小 ${worst.toFixed(1)}%`);
+  // 段比是第二个空,负对照各查各的(与 Task 4 的"按题分池"同一条理由:跨题比的是不同量纲的数)
+  const ratioVals = [ProjectileGProcedure.segmentRatio([ysMm[0], ysMm[1]]),
+    ...ProjectileGProcedure.ratioFingerprints([ysMm[0], ysMm[1]]).map((f) => f.value)];
+  let worstR = 100;
+  for (let i = 0; i < ratioVals.length; i++) {
+    for (let j = i + 1; j < ratioVals.length; j++) {
+      worstR = Math.min(worstR, Math.abs(ratioVals[i] - ratioVals[j]) / Math.abs(ratioVals[i]) * 100);
+    }
+  }
+  assertTrue('段比的正确值与各指纹两两至少差 20%', worstR >= 20, `最小 ${worstR.toFixed(1)}%`);
+  // detail 给观察值(本文件规矩:传 'x' 红了也看不出是多少)
+  assertTrue('一个点也算不出 g(y 为 0 时)',
+    !Number.isFinite(ProjectileGProcedure.gFromPoint(0, 300, v0)),
+    String(ProjectileGProcedure.gFromPoint(0, 300, v0)));
+  assertTrue('两个点以下算不出段比', !Number.isFinite(ProjectileGProcedure.segmentRatio([30])),
+    String(ProjectileGProcedure.segmentRatio([30])));
+}
+
+// ---- 学生填数通道 8 附:描下的每个点旁边都标出 y(离线验标签的有无、位置与读数) ----
+// 这条实验此前学生在纸上描了点却量不到自己的点;设备上的观感另测,这里先钉住快照层面。
+{
+  const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
+  const runner = ExperimentRegistry.createRunner('projectile-frame');
+  runner.setup(ExperimentRegistry.find('projectile-frame').meta);
+  const act = (k) => runner.doAction(k);
+  const frames = (n) => { for (let i = 0; i < n; i++) runner.step(1 / 60); };
+  act('origin');
+  act('slot+');
+  act('slot+');   // 斜槽第 4 格,与上面反求 g 用的 v0 同一条
+  act('card-');
+  act('card-');   // 卡片挪到第 1 格
+  act('release'); frames(50);
+  act('card+'); act('release'); frames(50);
+  act('card+'); act('release'); frames(50);
+  const snap = runner.snapshot();
+  const dots = snap.circles.filter((c) => c.color === '#25313F');
+  check('连描三个点', dots.length, 3, 0);
+  const ys = snap.labels.filter((l) => l.text.indexOf('y=') === 0);
+  check('每个描下的点旁边都跟着一个 y 读数', ys.length, 3, 0);
+  for (let i = 0; i < dots.length; i++) {
+    const d = dots[i];
+    assertTrue(`第 ${i + 1} 个点的 y 标签贴在它的右下方`,
+      ys.some((l) => Math.abs(l.x - (d.cx + 0.09)) < 1e-12 && Math.abs(l.y - (d.cy - 0.11)) < 1e-12),
+      ys.map((l) => `${l.text}@${l.x},${l.y}`).join('|'));
+  }
+  // spec §6 的样例读数:x=0.30 m 那个点应当标 y=112.5(第 1、3 个点的 toFixed 落在
+  // 28.125/253.125 这种二进制舍入刀刃上,不钉字面数,只钉存在与位置)
+  assertTrue('第 2 个点的读数就是 spec §6 的 112.5 mm',
+    ys.some((l) => l.text === 'y=112.5'), ys.map((l) => l.text).join('|'));
 }
 
 if (failures.length > 0) {

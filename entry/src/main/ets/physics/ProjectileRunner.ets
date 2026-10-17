@@ -286,6 +286,8 @@ export class ProjectileRunner extends Physics2DRunner {
       dot.r = 0.05;
       dot.color = C_DOT;
       this.snap.circles.push(dot);
+      this.snap.labels.push(this.text('y=' + (p.y * 1000).toFixed(1),
+        dot.cx + 0.09, dot.cy - 0.11, 'left', 10));
     }
 
     this.snap.labels.push(this.text('斜槽 ×' + this.slot, 0.3, 3.78, 'left', 11));
