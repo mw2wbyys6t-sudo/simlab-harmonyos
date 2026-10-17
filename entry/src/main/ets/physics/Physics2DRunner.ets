@@ -59,6 +59,19 @@ export abstract class Physics2DRunner implements IExperimentRunner {
   }
 
   /**
+   * 只作废**某一格**填空(其余原样保留)。
+   *
+   * setup/reset/setParam 那三条路径由上面 clear() 整框收(Ruling D);场景自己声明的作废
+   * 未必是整框的:哪个动作改了哪一批数据,只有这个场景知道。sr-007 的 `release` 会把段比
+   * 那一问的窗口挪走,却挤不动 g 那一问(它只读第 1 个点,而点只会追加)—— 拿整框 clear()
+   * 去作废一根本不会移动的应有值,就是把一个做对的人判成"没交"。
+   * Task 7 的页面必须按 key 镜像清空(Ruling F),不许再整框清。
+   */
+  protected dropAnswer(key: string): void {
+    this.answers.delete(key);
+  }
+
+  /**
    * 学生动作。默认实现转给 onAction;不认识这个 key 时什么都不做 ——
    * 外壳的按钮由元数据渲染,老实验没声明动作时不该因为多按一次而崩。
    */

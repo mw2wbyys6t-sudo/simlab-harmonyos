@@ -37,7 +37,8 @@ export class FactLabels {
     table.set('undissolvedAtFilterG', new FactLabel('过滤时未溶盐', ' g'));
     table.set('spilledMl', new FactLabel('倾倒洒失', ' mL'));
     table.set('pourSpillSaltG', new FactLabel('洒失带走的盐', ' g'));
-    table.set('paperOverRimCm', new FactLabel('液面高过滤纸(峰值)', ' cm'));
+    // 括号一律全角:这条是报告页直接印出来的字,以前不在文案闸门里所以漏了半角括号
+    table.set('paperOverRimCm', new FactLabel('液面高过滤纸（峰值）', ' cm'));
     table.set('bypassedMl', new FactLabel('未经滤纸直灌', ' mL'));
     table.set('filtrateTurbidity', new FactLabel('滤液浊度', ' NTU'));
     table.set('splashSaltG', new FactLabel('蒸发飞溅损失盐', ' g'));

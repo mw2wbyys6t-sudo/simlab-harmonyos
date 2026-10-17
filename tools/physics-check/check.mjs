@@ -822,16 +822,45 @@ function findBadSubmissionLabels(all) {
     }
   }
 
+  // 报告页把事实印成「显示名 + 数值 + 单位」,判定码还要过 codes 表换成「算对了 / 没交」。
+  // 这一整张表以前压根没进清单(清单只收 meta 与细则),于是 Task 9 新加的 8 条平抛标签
+  // 一句都没被管过 —— 评审把某个 label 写成「反求g判定:口径」(半角冒号 + 内部术语)仍全绿。
+  const { FactLabels } = require(join(OUT, 'model/FactLabels.cjs'));
+  let pushedLabels = 0;
+  let pushedCodes = 0;
+  FactLabels.TABLE.forEach((label, key) => {
+    push(`事实标签 ${key}`, label.label);
+    push(`事实单位 ${key}`, label.unit);
+    pushedLabels++;
+    if (label.codes !== null) {
+      label.codes.forEach((text, code) => {
+        push(`事实枚举 ${key}#${code}`, text);
+        pushedCodes++;
+      });
+    }
+  });
+  FactLabels.MOMENTS.forEach((text, event) => push(`时刻标签 ${event}`, text));
+
   // 先确认清单真的收满了:否则两条断言会"零命中"假绿
   assertTrue('可见文案清单收满了场景与细则', visible.length > 80,
     `只收到 ${visible.length} 条`);
+  check('事实标签一条不漏地进了可见文案清单',
+    visible.filter(([where]) => where.startsWith('事实标签 ')).length, pushedLabels, 0);
+  check('枚举码也逐条进清单(3 码 × 带 codes 的那几格)',
+    visible.filter(([where]) => where.startsWith('事实枚举 ')).length, pushedCodes, 0);
+  assertTrue('负对照:事实标签这一栏不是空跑(平抛两格的结果码确实在清单里)',
+    visible.some(([where]) => where === '事实标签 pjGOutcome')
+      && visible.some(([where]) => where === '事实枚举 pjSegRatioOutcome#2'), '清单里没有平抛标签');
   // 填空这一栏单独再核一次条数:带「填空」标签的条目要等于注册表声明的填空总数。
   // 今天注册表还没有填空(0 == 0,这一条暂时空跑),Task 5 一接上就活:此后谁把上面
   // 那行 push 删掉或把标签写歪,漏灌就不再只有靠填空硬闸门兜(变异 M15 实测今天测不到这行)。
   const declaredSubmissions = ExperimentRegistry.all().reduce((n, m) => n + m.submissions.length, 0);
   const collectedSubmissions = visible.filter(([where]) => where.endsWith(' 填空')).length;
   check('填空一条不漏地进了可见文案清单', collectedSubmissions, declaredSubmissions, 0);
-  const leaks = visible.filter(([, text]) => BLOCKED.some((w) => text.includes(w)));
+  // 两条闸门都做成"喂一批行、返回不合格行"的函数:清单本身能被负对照证明它咬得住
+  const findBlockedTerms = (rows) => rows.filter(([, text]) => BLOCKED.some((w) => text.includes(w)));
+  const findHalfWidth = (rows) => rows.filter(([, text]) => HALF_WIDTH_PUNCT.test(text));
+  const leaks = findBlockedTerms(visible);
   assertTrue('学生可见文案里没有内部术语',
     leaks.length === 0, `${leaks.length} 条命中:${leaks.slice(0, 6).map(([w, t]) => `${w}「${t}」`).join(' / ')}`);
   // 半角标点混在中文里是"AI 写的"最直观的痕迹之一,可见文案一律全角
@@ -840,9 +869,18 @@ function findBadSubmissionLabels(all) {
   // 为什么非扩不可:填空 label 天生是问句(Task 5 计划里那句就带冒号),旧类对混进来的
   // 半角 `:`/`?` 完全看不见。旧类是瞎的、新类咬得住,由下面三条负对照钉死。
   // 字符类住在文件上面模块作用域,填空硬闸门 findBadSubmissionLabels 用的是同一个
-  const halfWidth = visible.filter(([, text]) => HALF_WIDTH_PUNCT.test(text));
+  const halfWidth = findHalfWidth(visible);
   assertTrue('可见文案不混半角标点',
     halfWidth.length === 0, `${halfWidth.length} 条命中:${halfWidth.slice(0, 6).map(([w, t]) => `${w}「${t}」`).join(' / ')}`);
+
+  // 负对照:上面两条闸门对"事实标签"这一栏真的有效 —— 用评审举过的那个写法试一遍
+  // (半角冒号 + 内部术语)。以前这种串压根进不了清单,所以两条断言都零命中假绿。
+  const dirtyLabel = [['事实标签 pjGOutcome', '反求g判定:口径']];
+  check('负对照:事实标签混半角冒号会被标点闸门认出', findHalfWidth(dirtyLabel).length, 1, 0);
+  check('负对照:事实标签带内部术语会被术语闸门认出', findBlockedTerms(dirtyLabel).length, 1, 0);
+  check('负对照:枚举码写成半角括号一样被抓', findHalfWidth([['事实枚举 pjGOutcome#2', '没交(空)']]).length, 1, 0);
+  check('负对照:正常的事实标签不误伤', findHalfWidth([['事实标签 pjGOutcome', '反求 g 判定']]).length
+    + findBlockedTerms([['事实标签 pjGOutcome', '反求 g 判定']]).length, 0, 0);
 
   // 填空 label 的「漏写」不能指望上面那条闸门兜:push() 只收非空串,空串根本进不了清单,
   // 于是最现实的接线缺陷(label 忘了填)全绿溜过去。所以「是不是句人话」必须在清单之外拦。
@@ -7031,6 +7069,11 @@ function findBadSubmissionLabels(all) {
    * 同一套操作脚本走两遍:第一遍只为量出两格填空的应有值,第二遍照应有值交上来。
    * Task 9 之后两格没交要各扣 20,不这么写的话"某一条手上功夫单独响"那类断言
    * 会被这 40 分淹掉 —— 判据的独立性就没量了。
+   *
+   * 它**只能用来消音,不能用来断言数值**:把自己的应有值喂回框里,凡是"应有值算错了"的
+   * 缺陷都会被判成"算对了"而绿掉(评审就是这么被混基准那个 0.44 骗过去的)。要钉住某个
+   * 数该是多少,一律写独立字面量,或者钉"这一格不许有值"。下面 6. 那一节是反面教材改正面
+   * 的例子。
    */
   function answeredRun(steps) {
     const dry = run(steps);
@@ -7183,13 +7226,24 @@ function findBadSubmissionLabels(all) {
   // 6. 描了一半才想起挂重垂线:两套基准拼不到一起,两条读数宁可没有值
   //    —— 不能拿一个"基准问题算成间隔问题"的假数去扣间隔那条分
   {
-    const half = answeredRun(FIRES[1][1]);
+    // 这里**不许**用 answeredRun:它把应用自己算出的应有值喂回框里,段比这一格跨基准挑出来的
+    // 那个 0.44 就是这样被"喂对"的(评审 240 010 序列穷举量出来的假扣分)。改成真人会交的数:
+    // g 按真实下落交 9.8、段比照课本交 3。
+    const half = run(FIRES[1][1].concat([['ans', ['pjG', 9.8]], ['ans', ['pjSegRatio', 3]]]));
     check('定原点前描了两个', half.sheet.num('pjEarlyMarks'), 2, 1e-12);
     assertTrue('混了基准就不报水平间隔比', !Number.isFinite(half.sheet.num('pjXGapRatio')),
       String(half.sheet.num('pjXGapRatio')));
     assertTrue('混了基准就不报 y/x² 离散度', !Number.isFinite(half.sheet.num('pjRatioErr')),
       String(half.sheet.num('pjRatioErr')));
-    check('只扣"没定原点"这一条', half.card.deductions.length, 1, 1e-12);
+    // 段比那一问的窗口是按 x 挑的,混基准时挑出来的是跨两套基准的两个点 → 这道题必须不出
+    assertTrue('混基准时段比这一格**没有值**:不是 0、不是 2,是压根不写',
+      !half.sheet.numbers.has('pjSegRatioOutcome'), `写了 ${half.sheet.num('pjSegRatioOutcome')}`);
+    assertTrue('混基准时连应有值都不写(判词不许拿一个跨基准的数去"应为 …")',
+      !half.sheet.numbers.has('pjSegRatioTrue'), `写了 ${half.sheet.num('pjSegRatioTrue')}`);
+    check('g 那一格不受影响:drop 与基准无关,照 9.8 交仍判"算对了"',
+      half.sheet.num('pjGOutcome'), 0, 0);
+    check('只扣"没定原点"这一条(照课本答 3 的人不该再吃段比那 20 分)',
+      half.card.deductions.length, 1, 1e-12);
     check('扣完还剩 85 分(Task 9 之后这条判据是 15 分,不是原来的 25)', half.card.awarded, 85, 1e-9);
     checkText('没量过的事实印成破折号', FactLabels.valueText('pjXGapRatio', Number.NaN), '—');
   }
@@ -8383,10 +8437,14 @@ function findBadSubmissionLabels(all) {
 // ② 两格都要求"定过原点":没定原点时这道题不出(一个事实都不写、判据不响)。基准那件事由
 //    pj-origin-late 说,不在这里用一个"按板角量出来的 g"当应有值(那等于应用供认错的基准);
 // ③ 作废与不作废这一对(每场景自己声明,Task 3 的硬要求):再描一个点会把段比那一问的窗口挪走
-//    → 作废;改斜槽档位、挪卡片、挂重垂线都不动已经描下的点 → 不作废;
+//    → **只按 key 作废段比那一格**;g 那一格的应有值只读 points[0],而 points 只追加,
+//    新点挤不动它 —— 作废它就是拿误伤判人"没交"(修复轮 1 的 Important 1);
+//    改斜槽档位、挪卡片、挂重垂线都不动已经描下的点 → 不作废;
 // ④ 没交要扣分、算错要点名,谁都不像的那种只说"算错了";
 // ⑤ 细则六条 4×15 + 2×20 = 100,认真描完 + 两格按应有值交 = 满分(能被满足),两条新判据各自能单独响;
 // ⑥ 判词不许承诺抓住两条已经删掉的错法(「把横坐标当成时间」按 Ruling G 删了、板角那一项压根没进表)。
+// ⑦ 修复轮 1 补的三条:混基准时段比那一格**根本不出题**(它以前跨两套基准挑窗口,把照课本答 3 的人
+//    判成"算错了");段比的 V1 必须由窗口算出来(不许硬写 4);FactLabels 的显示名与枚举码进文案闸门。
 {
   const { ExperimentRegistry } = require(join(OUT, 'runner/ExperimentRegistry.cjs'));
   const { RubricProjectile } = require(join(OUT, 'bench/RubricProjectile.cjs'));
@@ -8399,8 +8457,17 @@ function findBadSubmissionLabels(all) {
   const G = 9.8;
   const SLOT_STEP = 0.05;
   const CARD_STEP = 0.15;
+  const CARD_MAX = 8;
   const v0At = (slot) => Math.sqrt(2 * G * slot * SLOT_STEP);
   const isBlank = (sheet, key) => !Number.isFinite(sheet.num(key));
+
+  /** 把卡片挪到第 card 格、释放一次、等它把点描下来(档位一律走读数口对齐) */
+  function traceCard(runner, card) {
+    while (runner.readObservable('pjCardDistance') < card * CARD_STEP - 1e-9) runner.doAction('card+');
+    while (runner.readObservable('pjCardDistance') > card * CARD_STEP + 1e-9) runner.doAction('card-');
+    runner.doAction('release');
+    for (let i = 0; i < 50; i++) runner.step(1 / 60);
+  }
 
   /** 先挂不挂线、从第几格释放、卡片依次摆哪几格各描一下(档位一律走读数口对齐) */
   function mk(origin, slot, cards) {
@@ -8412,10 +8479,7 @@ function findBadSubmissionLabels(all) {
     while (runner.readObservable('pjSlot') < slot - 1e-9) runner.doAction('slot+');
     while (runner.readObservable('pjSlot') > slot + 1e-9) runner.doAction('slot-');
     for (const card of cards) {
-      while (runner.readObservable('pjCardDistance') < card * CARD_STEP - 1e-9) runner.doAction('card+');
-      while (runner.readObservable('pjCardDistance') > card * CARD_STEP + 1e-9) runner.doAction('card-');
-      runner.doAction('release');
-      for (let i = 0; i < 50; i++) runner.step(1 / 60);
+      traceCard(runner, card);
     }
     return runner;
   }
@@ -8463,8 +8527,13 @@ function findBadSubmissionLabels(all) {
   check('段比应有值是 3', good.sheet.num('pjSegRatioTrue'), 3, 1e-6);
   check('两格都没交时应有的数照样量得出(没交 ≠ 这道题没出)',
     Number.isFinite(gTrue) && Number.isFinite(rTrue) ? 1 : 0, 1, 0);
-  check('没交也把这一格写进事实(报告页要印得出「你交的重力加速度 —」)',
-    Number.isNaN(blank.sheet.num('ans.pjG')) ? 1 : 0, 1, 0);
+  // 这条以前用 num() 检查:不存在的键也返回 NaN,于是"写"与"不写"都绿(评审 M35/N8 把
+  // checkNumber 改成只在有限值时才写,3355 项仍全绿)。必须改成能区分两者的写法。
+  check('没交也把这一格写进事实:键必须存在(报告页要印得出「你交的… —」)',
+    blank.sheet.numbers.has('ans.pjG') ? 1 : 0, 1, 0);
+  check('负对照:这道题没出时那个键根本不存在 —— has() 分得开"没写"与"写了 NaN"',
+    (blank.sheet.numbers.has('ans.pjG')
+      && !scored(mk(true, 2, [])).sheet.numbers.has('ans.pjG')) ? 1 : 0, 1, 0);
   check('你交的数原样进事实(不是只有码)', good.sheet.num('ans.pjSegRatio'), rTrue, 1e-12);
   check('事实里的应有值与 Task 8 那条读数口 pjGTrue 同一条算式(不许两处各写各的)',
     mk(true, 2, [1, 2, 3, 4]).readObservable('pjGTrue'), gTrue, 1e-12);
@@ -8527,9 +8596,13 @@ function findBadSubmissionLabels(all) {
       after.sheet.num('pjSegRatioTrue'), 3, 1e-6);
     check('这个动作让上一次交的数作废:读成"没交"而不是"算错了"',
       after.sheet.num('pjSegRatioOutcome'), 2, 0);
-    check('两格一起作废(g 那一格的期望值其实没动,但一次动作只给一个说法)',
-      after.sheet.num('pjGOutcome'), 2, 0);
-    check('作废之后手上四条做满也只到 60 分', after.card.awarded, 60, 1e-9);
+    // 以前这里钉的是"两格一起作废",把缺陷钉成了规矩:firstPointArgs() 只读 points[0],
+    // 而 points 只追加,所以 pjG 的应有值在 mark() 下恒定不动 —— 作废它是纯误伤。
+    check('g 那一格不作废(它的应有值只读第 1 个点,新点挤不动它)',
+      after.sheet.num('pjGOutcome'), 0, 0);
+    check('作废是**按 key** 的:只扣段比那 20 分,不是 40 → 80 分', after.card.awarded, 80, 1e-9);
+    checkText('扣分清单里只有段比那一条',
+      after.card.deductions.map((d) => d.criterionId).join(','), 'pj-seg-ratio-value');
     // 反面对照:什么都没添上的一次释放不牵连作废 —— 作废的触发点是"纸上多了一个点",不是那颗按钮
     const missed = mk(true, 2, [1, 2, 3, 4]);
     missed.setAnswer('pjG', 9.8);
@@ -8557,6 +8630,33 @@ function findBadSubmissionLabels(all) {
       String(reSetup.answer('pjG')));
     assertTrue('换过白纸之后这道题压根不出(一个点也没有)',
       isBlank(scored(re).sheet, 'pjGOutcome'), String(scored(re).sheet.num('pjGOutcome')));
+  }
+
+  // ---- 评审实测的那条学生序列:中途交卷、之后继续描点(不再碰输入框) ------------------
+  // 一个按课本答 9.8 的人,做完实验交卷只该丢"段比没交"那 20 分。旧写法把他判成两格都没交
+  // (pjGOutcome=2、得分 60),判词还写着"你交的 g 是 —…判定:没交" —— 而他自己看得见那个 9.8。
+  // 这里刻意用独立字面量 9.8(课本值),不从事实里读回来,免得又变成自喂式断言。
+  {
+    const runner = ExperimentRegistry.createRunner('projectile-frame');
+    runner.setup(meta);
+    runner.doAction('origin');
+    traceCard(runner, 1);
+    runner.setAnswer('pjG', 9.8);
+    runner.setAnswer('pjSegRatio', 3);
+    traceCard(runner, 2);
+    traceCard(runner, 3);
+    traceCard(runner, 4);
+    const mid = scored(runner);
+    check('中途交的 g 不被后面三次描点牵连:仍判"算对了"', mid.sheet.num('pjGOutcome'), 0, 0);
+    check('判词里那个"你交的数"还在(不是吞了输入)', mid.sheet.num('ans.pjG'), 9.8, 1e-12);
+    check('应有值仍是 9.8', mid.sheet.num('pjGTrue'), 9.8, 1e-6);
+    check('段比那一格才是真没交(按 key 作废只动它)', mid.sheet.num('pjSegRatioOutcome'), 2, 0);
+    check('这个学生总共只丢 20 分,不是 40 → 80 分', mid.card.awarded, 80, 1e-9);
+    checkText('扣分清单里只有段比那一条',
+      mid.card.deductions.map((d) => d.criterionId).join(','), 'pj-seg-ratio-value');
+    // 同一条序列走到底之后再补交 g,也不该被"已经作废"卡住:答案不作废,直接判对
+    runner.setAnswer('pjSegRatio', 3);
+    check('补交段比之后满分', scored(runner).card.awarded, 100, 1e-9);
   }
 
   // ---- 这道题出不出来:点数门槛(反求 g 一对数就够,段比要凑得出前两段) ----------------
@@ -8604,6 +8704,13 @@ function findBadSubmissionLabels(all) {
     checkText('挂线不动纸上的点 → 不作废答案:扣分清单里只剩"没定原点"那一条',
       hung.card.deductions.map((d) => d.criterionId).join(','), 'pj-origin-late');
     check('应有值按真实下落算,仍是 9.8(不是他手上那套板角数)', hung.sheet.num('pjGTrue'), 9.8, 1e-6);
+    // Ruling I 那道门以前只钉了 pjG:把 sortedDrop() 里的 .drop 改回 .y 时全绿(评审 M8/N4)。
+    // 这四个点全是板角基准 y(2.19、2.03、1.13、0.75,越往外越小),拿 .y 算段比会算出负数
+    // 而"不出题";拿 .drop 才是 3。所以这里钉的是**有值且等于 3**,不是钉"没值"。
+    check('段比的窗口也取真实下落:四个板角基准的点照样量得出 1:3 → 应有值 3',
+      hung.sheet.num('pjSegRatioTrue'), 3, 1e-6);
+    check('照课本答 3 的人段比判"算对了"(不是"没交"、不是"算错了")',
+      hung.sheet.num('pjSegRatioOutcome'), 0, 0);
     const seen = late.readObservable('pjGSeen');
     const gap = Math.abs(seen - hung.sheet.num('pjGTrue')) / hung.sheet.num('pjGTrue') * 100;
     check('他照自己那套板角标签反求出来的是 9.5285(第 2 格释放、卡片第 1 格)', seen, 9.5285, 1e-3);
@@ -8619,6 +8726,97 @@ function findBadSubmissionLabels(all) {
       scored(hole).card.awarded, 85, 1e-9);
   }
 
+  // ---- 这个洞到底放过几个人(评审:细则头原来那句"这两种人会被放过"只说对一半) ------
+  // 把"第一个点是板角基准"这件事铺到 slot 1..4 × card 1..8 上真跑一遍。每种组合都描满
+  // **四个连续卡片**(间隔齐、同一释放格,免得"点太少/忽近忽远"来搅局),只是把要考的那一格
+  // 摆在第一个,再挂线、照自己标签上那套板角数反求的 g 交进来。数出三种人:落进带宽被放过的、
+  // 算错但说不出错法的、算错还能点名的。细则头那句文案必须以这几个数为准。
+  {
+    let reachable = 0;
+    let insideBand = 0;
+    let unNamed = 0;
+    let named = 0;
+    let bothDeducted = 0;
+    for (let slot = 1; slot <= 4; slot++) {
+      const far = mk(true, slot, []).readObservable('pjRange');
+      const top = Math.min(CARD_MAX, Math.floor(far / CARD_STEP));
+      for (let card = 1; card <= 8; card++) {
+        const one = mk(false, slot, [card]);
+        if (one.readObservable('pjPointCount') !== 1) {
+          continue;
+        }
+        reachable++;
+        assertTrue('读数量出来的可达卡片与真描得上的那张一致', card <= top,
+          `slot ${slot} 的第 ${card} 格飞不到`);
+        // 包含这一格的四个连续卡片(第 1 格释放时只有 1..4 够得着,窗口就贴到边界)
+        const low = Math.min(Math.max(1, card - 3), top - 3);
+        for (let extra = low; extra < low + 4; extra++) {
+          if (extra !== card) {
+            traceCard(one, extra);
+          }
+        }
+        const seen = one.readObservable('pjGSeen');
+        one.doAction('origin');
+        one.setAnswer('pjG', seen);
+        const out = scored(one);
+        const ids = out.card.deductions.map((d) => d.criterionId);
+        if (out.sheet.num('pjGOutcome') === 0) {
+          insideBand++;
+        } else if (out.sheet.num('pjGWrongKind') !== 0) {
+          named++;
+        } else {
+          unNamed++;
+        }
+        if (ids.includes('pj-origin-late') && ids.includes('pj-g-value')) {
+          bothDeducted++;
+        }
+      }
+    }
+    check('可达的"第一个点"组合共 25 个(扫描域不是空跑)', reachable, 25, 0);
+    check('板角项落进 3% 带宽、这一格被放过的只有 2 个(slot2/1 与 slot4/3)', insideBand, 2, 0);
+    check('其余 23 个都被判"算错了"却点不出名(板角项没进错法表)', unNamed, 23, 0);
+    check('这 23 个里没有一个能被错法表点名', named, 0, 0);
+    check('那 23 个人每人同时吃 pj-origin-late 15 与 pj-g-value 20 这两条',
+      bothDeducted, 23, 0);
+    // 其中一个人的账要算得出来:第 1 格释放、四个点描在卡片 1..4,照板角标签交那个数
+    // → 基准 15 + g 20 = 35 分,段比那一格他答对了(真实下落与基准无关)
+    {
+      const kid = mk(false, 1, [1, 2, 3, 4]);
+      const seen = kid.readObservable('pjGSeen');
+      kid.doAction('origin');
+      kid.setAnswer('pjG', seen);
+      kid.setAnswer('pjSegRatio', 3);
+      const out = scored(kid);
+      // 这个字面量是手算出来的,不是从读数口抄的:第 1 格释放 v0² = 2·9.8·1·0.05 = 0.98,
+      // 板角基准下 x = 1.15 + 0.15 − 0.35 = 0.95、y = 2.75 − 0.1125 − 0.5 = 2.1375,
+      // g = 2·(y/x²)·v0² = 2 × (2.1375/0.9025) × 0.98 = 4.6421052…
+      check('他照标签上那套板角数交的是 4.6421(手算字面量,不是从应有值读回来的)', seen, 4.6421, 1e-3);
+      check('g 这一格判"算错了"', out.sheet.num('pjGOutcome'), 1, 0);
+      check('但说不出他错在哪(错法码 0 —— 判词只能给一句光秃秃的"算错了")',
+        out.sheet.num('pjGWrongKind'), 0, 0);
+      check('段比那一格他是对的(应有值按真实下落算,与基准无关)',
+        out.sheet.num('pjSegRatioOutcome'), 0, 0);
+      check('这个人总分 65:基准 15 + g 20', out.card.awarded, 65, 1e-9);
+      checkText('扣分清单就是这两条',
+        out.card.deductions.map((d) => d.criterionId).join(','), 'pj-origin-late,pj-g-value');
+    }
+  }
+
+  // ---- 细则头那句"配方"必须与 harness 真走过的那条一致(评审 Minor 8) ----------------
+  // 原头注释写"卡片依次摆第 2/4/6/8 格":只有第 4 格释放才飞得到第 8 格,第 1-3 格那三次
+  // 释放球先落地、纸上什么都没添,照那句话做的人连点都描不满四个。
+  {
+    let reachedCard8 = 0;
+    for (let slot = 1; slot <= 4; slot++) {
+      if (mk(true, slot, [8]).readObservable('pjPointCount') === 1) {
+        reachedCard8++;
+      }
+    }
+    check('卡片第 8 格只有第 4 格那一次释放接得住(1..3 格都飞不到)', reachedCard8, 1, 0);
+    check('harness 真验证过的那条配方是"第 2 格释放 + 卡片 1/2/3/4":它拿得到满分',
+      diligent([['pjG', 9.8], ['pjSegRatio', 3]]).card.awarded, 100, 1e-9);
+  }
+
   // ---- 交上来的数:算对 / 点名成哪一种错法 / 说不出错在哪 ------------------------------
   {
     check('漏乘 2 → g 这格算错', gCase(4.9).sheet.num('pjGOutcome'), 1, 0);
@@ -8631,6 +8829,22 @@ function findBadSubmissionLabels(all) {
     check('g 差 2% 仍算对(带宽 3%)', gCase(9.8 * 0.98).sheet.num('pjGOutcome'), 0, 0);
     check('g 差 5% 就算错', gCase(9.8 * 0.95).sheet.num('pjGOutcome'), 1, 0);
     check('拿两点总位移之比当段比 → 点名 V1', rCase(4).sheet.num('pjSegRatioWrongKind'), 1, 0);
+    // V1 必须由窗口算出来,不许硬写 4(评审 M19/N7:写成 of(1, 4) 当时全绿,因为上面这条
+    // 用的窗口恰好是 1:2 那种、y₂/y₁ 就是 4)。换 {2,3} 这个窗口:应有值 1.25、V1 是 2.25。
+    {
+      const runner = mk(true, 2, [2, 3, 4]);
+      runner.setAnswer('pjG', 9.8);
+      check('窗口 {2,3} 的应有值是 1.25(独立字面量,不是从事实里读回来的)',
+        scored(runner).sheet.num('pjSegRatioTrue'), 1.25, 1e-6);
+      runner.setAnswer('pjSegRatio', 2.25);
+      check('在这个窗口里把总位移之比当段比会得到 2.25,照样点名 V1',
+        scored(runner).sheet.num('pjSegRatioWrongKind'), 1, 0);
+      runner.setAnswer('pjSegRatio', 4);
+      const notFour = scored(runner);
+      check('同一个窗口答 4 不许命中 V1(表里根本没有 4 这个数,硬写就会指认一个没犯的错)',
+        notFour.sheet.num('pjSegRatioWrongKind'), 0, 0);
+      check('但不点名也不放过:仍是"算错了"', notFour.sheet.num('pjSegRatioOutcome'), 1, 0);
+    }
     check('只扣这一条 = 80 分', rCase(4).card.awarded, 80, 1e-9);
     checkText('扣的是段比那条', hitId(rCase(4)), 'pj-seg-ratio-value');
     check('以为每段翻倍 → 点名 V2', rCase(2).sheet.num('pjSegRatioWrongKind'), 2, 0);
@@ -8692,6 +8906,12 @@ function findBadSubmissionLabels(all) {
         R_EVID.includes('总位移之比') && R_EVID.includes('翻倍'), R_EVID);
       assertTrue('段比那条把窗口口径也说给学生(哪两个点算第一段)',
         R_EVID.includes('槽口量到') && R_EVID.includes('次近'), R_EVID);
+      // 具体倍数只在 1:2 那种窗口成立:V1 = y₂/y₁ = 段比 + 1,窗口 {2,3} 是 2.25、
+      // 跨基准那个窗口是 1.44。判词写死"会得到 4"就是一句只对一部分数据成立的话(评审 Minor 5)。
+      assertTrue('段比判词不许承诺"会得到 4"这种窗口相关的倍数',
+        !R_EVID.includes('会得到 4'), R_EVID);
+      assertTrue('段比判词改用窗口成立的说法:总位移之比总比段比大 1',
+        R_EVID.includes('总比段比大 1'), R_EVID);
     }
     // 判词印出来得是学生读得通的话(结果码经 codes 表,不带表的事实照旧按数字格式化)
     {

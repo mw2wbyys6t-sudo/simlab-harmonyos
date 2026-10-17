@@ -77,10 +77,15 @@ class TracedPoint {
  * ① 改斜槽档位(`slot+`/`slot-`)、挪卡片(`card+`/`card-`)、挂重垂线(`origin`)都不作废 ——
  *    这三下只改世界的当前状态,不动已经描在纸上的点,而两格的应有值恰恰只由那些点带着的
  *    `drop`/`card`/`slot` 决定(描完之后再去升档位,拿新的 v0 配旧的点会假扣分);
- * ② 再描一个点(`release` 真的在纸上留下点时)作废两格 —— 段比那一问的窗口是"离槽口最近的
- *    那两个点",新点可能比它们更靠近槽口,窗口一挪,上一次交的那个数就属于另一批数据了。
+ * ② 再描一个点(`release` 真的在纸上留下点时)**只作废段比那一格** —— 段比那一问的窗口是
+ *    "离槽口最近的那两个点",新点可能比它们更靠近槽口,窗口一挪,上一次交的那个数就属于
+ *    另一批数据了。g 那一格不在其列:它只读第 1 个点,而点只会追加,它的应有值纹丝不动,
+ *    作废一个没动的数就是把做对的人判成"没交"。
  *    这与 sr-003 声明的"power/release 不作废"不一样,是这条实验自己的事实逼出来的:
  *    那边纸带已经走完,再按键不改窗口;这边纸还在长。
+ * ③ 两格都还有一道共同的门:**描的点混了两套基准时段比那一格不出题**。它的窗口按 x 挑,
+ *    而 x 在挂线前后是两套基准(板角 vs 抛出点),跨基准挑出来的"最近两个点"根本不是那回事;
+ *    `pjXGapRatio` 与 `pjRatioErr` 两条读数早就为此拒答了(`mixedBaseline()`),这一格照同一把门。
  */
 export class ProjectileRunner extends Physics2DRunner {
   private points: TracedPoint[] = [];
@@ -167,11 +172,16 @@ export class ProjectileRunner extends Physics2DRunner {
   /**
    * 把此刻球的位置按当前原点设定记到纸上;真实下落另存一份(drop)。
    *
-   * 落笔这一刻作废两格填空:段比那一问的窗口是"离槽口最近的那两个点",而这个新点完全可能
-   * 比它们更靠近槽口 —— 窗口一挪,应有值就换了一批数据,留着旧数只会被判"算错了"(假扣分,
-   * Controller Ruling D 的原话)。作废只在这一笔落笔发生:`release` 空放(球先落地、纸上什么
-   * 都没添)不进这里,也就不牵连作废 —— 触发点是"纸上多了一个点",不是那颗按钮。
-   * Task 7 的页面必须镜像清空(Ruling F),不能让学生盯着一框还在回显的数被判"没交"。
+   * 落笔这一刻**只作废段比那一格**:段比那一问的窗口是"离槽口最近的那两个点",而这个新点
+   * 完全可能比它们更靠近槽口 —— 窗口一挪,应有值就换了一批数据,留着旧数只会被判"算错了"
+   * (Controller Ruling D 的原话)。作废只在这一笔落笔发生:`release` 空放(球先落地、纸上
+   * 什么都没添)不进这里,也就不牵连作废 —— 触发点是"纸上多了一个点",不是那颗按钮。
+   *
+   * g 那一格**不作废**,因为它的应有值根本不会移动:`firstPointArgs()` 只读 `points[0]`,
+   * 而 `points` 在 setup/reset 之间只会追加(评审把 240 010 个动作序列穷举过一遍证明了这点)。
+   * 以前这里整框 clear(),于是"中途把 g 交了、再继续描点"这个做对了的人被判定"没交",
+   * 白丢 20 分,判词还写着"你交的 g 是 —" —— 那是本项目最不能有的错法。
+   * Task 7 的页面要按 key 镜像清空(只清段比那一框),不许整框清(Ruling F)。
    */
   private mark(): void {
     const d = this.cardDistance();
@@ -190,7 +200,7 @@ export class ProjectileRunner extends Physics2DRunner {
       point.y = EXIT_Y - drop - CORNER_Y;
     }
     this.points.push(point);
-    this.answers.clear();
+    this.dropAnswer('pjSegRatio');
   }
 
   readObservable(key: string): number {
@@ -309,7 +319,13 @@ export class ProjectileRunner extends Physics2DRunner {
     if (this.originSet) {
       this.checkNumber(sheet, 'pjG', this.gFromDrop(), this.gPrintsFromDrop(), 3);
     }
-    if (this.originSet && this.points.length >= 3) {
+    // 段比这一格再多一道门:点混了两套基准时**不出这道题**,与 pjXGapRatio、pjRatioErr
+    // 那两条读数是同一个理由(`mixedBaseline()`)。它的窗口按存下来的 x 挑"离槽口最近的
+    // 两个点",而 x 在挂线前后是两套基准(板角 vs 抛出点),跨基准挑出来的那两个点根本不是一条
+    // 抛物线上的邻居 —— 拿这个窗口量出的数去判人"算错了",会把你自己的判词写矛盾:
+    // 判词一边说"相邻两段之比才是 1:3:5",一边报一个 1:3:5 里根本不该出现的"应为 0.44"。
+    // 学生照课本答 3 反而被扣 20 分,这是本项目最不能有的错法(Controller Ruling I 的同一条理由)。
+    if (this.originSet && !this.mixedBaseline() && this.points.length >= 3) {
       this.checkNumber(sheet, 'pjSegRatio', this.segRatio(), this.segRatioPrints(), 3);
     }
     sheet.mark('traced', this.points.length > 0 ? 0 : -1);

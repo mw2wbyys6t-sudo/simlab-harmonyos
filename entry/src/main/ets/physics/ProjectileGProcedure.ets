@@ -77,7 +77,14 @@ export class ProjectileGProcedure {
     return second / first;
   }
 
-  /** V1 拿两点总位移之比(y₂/y₁ = 4)、V2 以为每段翻倍 */
+  /**
+   * 段比那一格的错法。
+   * V1 = 「把两点的总位移之比当成段比」那个数,**必须由窗口自己算**(y₂/y₁),不许写死 4:
+   * 只有第 1、2 格那种 1:2 的窗口才是 4,窗口挪到第 2、3 格就是 2.25,跨基准那个窗口是 1.44。
+   * 写死会两头错:答 2.25 的人点不出名,答 4 的人被指认一个他根本没犯的错。
+   * 恒等式 y₂/y₁ = 1 + (y₂−y₁)/y₁ 说明它总比正确段比大 1 —— 判词就用这句话,不承诺具体倍数。
+   * V2 = 以为每段翻倍(那是个与窗口无关的常数 2)。
+   */
   static ratioFingerprints(yMmFirstTwo: number[]): Fingerprint[] {
     const correct = ProjectileGProcedure.segmentRatio(yMmFirstTwo);
     if (!Number.isFinite(correct)) {
