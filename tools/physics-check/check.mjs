@@ -805,10 +805,13 @@ const VERDICT_WORDS = ['应有值', '判定', '算对', '算错', '没交'];
  * (本轮实测:3 处 this.cls( 加 1 处 this.onAnswerChange(,见 fix3 报告)。所以放行按**整串逐字**匹配:
  * 写成 `this.onAnswerChange(i, v)` 或 `this.cls(1)` 这种变体一样报隐患(本轮真树实测 `this.cls(index)`
  * 当场红,B4),要新增合法形状得显式回来加。
- * 这把尺子**看不见**的(如实记录,不加机制去追;本轮真树实测这两种**仍然绿**):
+ * 这把尺子**看不见**的(如实记录,不加机制去追;前两种本轮真树实测**仍然绿**):
  * 不带 `this.` 的模块级裸函数、`this.controller.xxx()`(调用对象不是 this)—— Ruling V 把这两条
  * 与「builder 定义在格外」一起移交 **Task 10** 的设备断言(屏幕上作废一个 key 之后只许那一格空,
  * 另一格留着数字;屏幕上这一格不许有回显)。
+ * 还有第三种放行本身带来的缝(轮 3 复评 residual #9,按字面放行必然有):名单里那两串是**逐字**认的,
+ * 于是把回显藏进一个恰好也叫 `cls` 的 @Builder 里、写成 `this.cls()`,这条尺子认不出来 ——
+ * 它认形状,不认名字后面是什么。兜底同样是 Task 10 在屏幕上读那一格。
  */
 const CELL_SELF_CALLS = ['this.onAnswerChange(index, value)', 'this.cls()'];
 
@@ -1021,6 +1024,8 @@ function findAnswerChannelHazards(src) {
   if (!/ForEach\(this\.meta\.submissions, \(def: SubmissionDef, index: number\)/.test(src)) {
     bad.push('填空渲染循环遍历的不是 meta.submissions(或未带 index)');
   }
+  // 4. onChange 必须把**渲染用的那个下标**原样交回来:第 3 条按 (def, index) 渲染,这里换成常量
+  //    或换一套下标,存进 runner 的 key 就不是这一格问的那个数了
   if (!/this\.onAnswerChange\(index, value\)/.test(src)) {
     bad.push('TextInput 的 onChange 没有把渲染下标原样交给 onAnswerChange');
   }
@@ -1045,26 +1050,32 @@ function findAnswerChannelHazards(src) {
   // 连带范围按复评实测记录在修复轮报告里,「一次变异只红一根」这种话不许再写(F6)。
   const cell = sliceBody(src, 'ForEach(this.meta.submissions, (def: SubmissionDef, index: number) =>');
   if (cell !== null) {
+    // 形状类尺子(8/9/10/11/14/16/17)一律读 **maskedCell** —— maskQuoted 把字符串字面量与注释的
+    // 内容换成等长空格,只留代码的形状。轮 2 复评实测:这五把读的是原文,于是在这一格里加一句
+    // `// Image( 只是注释里的字样`(屏幕上什么都不画)当场报隐患,连带把十几条合成对照一起顶红
+    // (controller 本轮复现:✗ 41 / 3478)。一条不许有人改的注释都能引起假红,这种尺子早晚被人删掉。
+    // 唯一还读原文的是第 15 把:它要读的本来就是字符串**里的字**。
+    const maskedCell = maskQuoted(cell);
     // 8. 回显纪律之①(颜色)。这一格的字色只许是两种静态令牌,别的一律算隐患 ——
     //    多加一句 `? Theme.DANGER : ...`,学生一边打字一边就知道对不对,「算」当场退化成「猜」;
     //    而它不着一字,Task 10 那条查「算对了 / 算错了」的字面探针看不见它。底色与边框色是
     //    同一条通道的另外两张嘴(出错框变红没人写判定文字),所以这一格里一个都不许出现。
-    for (const ink of cell.matchAll(/\.fontColor\(([^)]*)\)/g)) {
+    for (const ink of maskedCell.matchAll(/\.fontColor\(([^)]*)\)/g)) {
       if (QUIET_INK.indexOf(ink[1].trim()) < 0) {
         bad.push(`填空那一格写了 .fontColor(${ink[1].trim()}):输入时不许用颜色表态,这一格只许 ${QUIET_INK.join(' / ')}`);
       }
     }
-    for (const ink of cell.matchAll(/\.(backgroundColor|borderColor)\s*\(/g)) {
+    for (const ink of maskedCell.matchAll(/\.(backgroundColor|borderColor)\s*\(/g)) {
       bad.push(`填空那一格写了 .${ink[1]}():这一格要一直是组件默认令牌,底色与边框色同样是回显`);
     }
     // 9. 回显纪律之②(图标与进度)。评审点名的另一道闸门:漏颜色看得见、漏图标看不见 ——
     //    一个对勾、一只红叉、一条进度环都不写一个字,却把「算对没算对」当场告诉学生
-    for (const icon of cell.matchAll(/\b(Image|Symbol|Badge|LoadingProgress|Gauge)\s*\(/g)) {
+    for (const icon of maskedCell.matchAll(/\b(Image|Symbol|Badge|LoadingProgress|Gauge)\s*\(/g)) {
       bad.push(`填空那一格里出现了 ${icon[1]}():这一格不许挂任何图标或进度控件,那是不写字的回显`);
     }
     // 10. 回显纪律之③(文字)。这一格里印得出来的只有该格的问句与单位。多一句,就是应有值或
     //     判定从细则那边溜进了输入界面 —— 交卷之前学生手上不该有任何答案的痕迹。
-    for (const t of cell.matchAll(/Text\(([^)]*)\)/g)) {
+    for (const t of maskedCell.matchAll(/Text\(([^)]*)\)/g)) {
       const arg = t[1].trim();
       // 按下标去够别的数组那类写法归第 11 条管,这里不重复报,免得一次变异弄红两根尺子
       if (/this\.meta\.[A-Za-z]+\[/.test(arg)) {
@@ -1078,11 +1089,11 @@ function findAnswerChannelHazards(src) {
     //     字只能是 this.answerTexts[index]。体内一旦再按下标去够某个数组,第 i 格显示的问句
     //     与第 i 格存进去的 key 就分家了 —— 学生照着「分子」那问算,数却交进「倍数」那格,
     //     正是这段守卫的注释自己点名的事故(评审实测:错一格当时全绿)。
-    for (const grab of cell.matchAll(/this\.meta\.([A-Za-z]+)\[/g)) {
+    for (const grab of maskedCell.matchAll(/this\.meta\.([A-Za-z]+)\[/g)) {
       bad.push(`填空那一格按下标去读了 this.meta.${grab[1]}[]:这一格显示的问句与它存进去的 key 就此可能错开一格`);
     }
     for (const need of CELL_WIRING) {
-      if (!cell.includes(need)) {
+      if (!maskedCell.includes(need)) {
         bad.push(`填空那一格不再写出 ${need}:同序与配对就只剩注释在承诺`);
       }
     }
@@ -1090,8 +1101,7 @@ function findAnswerChannelHazards(src) {
     //     「下一只」:Progress、Button、嵌套的自定义组件,复评全试绿。这一格从此只许
     //     Column / Row / Text / TextInput 四种构造;真要进第五种,得显式回来扩这张名单 ——
     //     对一条「不许回显对错」的约束,这种摩擦正是想要的。页面别处一律不管(负对照钉住)。
-    //     在 mask 过的文本上认构造:注释里写一句 `Progress(` 不算,串里的词也不算。
-    const maskedCell = maskQuoted(cell);
+    //     在 mask 过的文本上认构造:注释里写一句 `Progress(` 不算,串里的词也不算(见上面 maskedCell)。
     for (const w of maskedCell.matchAll(/(^|[^A-Za-z0-9_.$])([A-Z][A-Za-z0-9_]*)\s*\(/g)) {
       if (IN_CELL_WIDGETS.indexOf(w[2]) < 0) {
         bad.push(`填空那一格里出现了闭集之外的 ${w[2]}():格内只许 ${IN_CELL_WIDGETS.join(' / ')} 四种构造,要加新控件得显式扩这张名单`);
@@ -1102,16 +1112,39 @@ function findAnswerChannelHazards(src) {
     //     字段名就不是答案了?这一条把输入框自己的文案也管起来。
     //     引号类三种都得认(I1):轮 2 只认单引号与双引号两种 placeholder,反引号写出来当场绿 ——
     //     复评实测 placeholder: 反引号「应有值约 9.80」 零隐患,同内容写成双引号才红。一个引号字符的差。
-    //     仍然绕得过去的(照 Ruling U 如实记录,不追;本轮真树实测**仍然绿**):改用
-    //     `.placeholder('应有值约 9.80')` 那个方法形状写 —— 这把尺子只认对象字面量里的 placeholder: 字段,
-    //     而第 10/14/17 条管的是构造与 Text( 印出来的字,属性字符串它们不看,拦不住它;
-    //     换一个不在词表里的说法也一样(词表是枚举,本轮真树实测 placeholder: '标准答案在此' 仍绿,E4)。
-    //     这两种的兜底都是 **Task 10** 在屏幕上读那一格的
-    //     占位文字 —— 占位串是空格里印出来的字,屏上看得到。本轮只补引号类,不再加形状。
-    for (const ph of cell.matchAll(/placeholder\s*:\s*(["'`])([^"'`]*)\1/g)) {
-      const hit = VERDICT_WORDS.filter((word) => ph[2].indexOf(word) >= 0);
+    //     形状也得认(轮 3 收口,controller 本轮复现两条绿漏):这把尺子原来只认「placeholder: 一个纯
+    //     字面串」那一种写法,于是 `placeholder: '把你算出的数填进来' + '应有值约 9.80'`(拼接)和
+    //     `.placeholder('应有值约 9.80')`(方法形状)两条都绿。这一格上的占位文案必须是**当场读得出来**
+    //     的字面串:拼接、变量、模板插值、方法式属性,一律算隐患 —— 判定词藏在表达式后面就没人读得到它。
+    //     仍然绕得过去的(照 Ruling U 如实记录,不加机制去追;本轮真树实测**仍然绿**):
+    //     换一个不在词表里的说法(词表是枚举,轮 3 实测 placeholder: '标准答案在此' 仍绿,E4)。
+    //     兜底是 **Task 10** 在屏幕上读那一格的占位文字 —— 占位串是空格里印出来的字,屏上看得到。
+    for (const at of cell.matchAll(/placeholder/g)) {
+      // 注释里、串里提到的 placeholder 不算:maskQuoted 等长置换,所以同一个下标在 maskedCell 上
+      // 被抹成空格就说明那一处不是代码里的字段名(这一把读的是原文,得自己防这一手)
+      if (maskedCell[at.index] !== at[0][0]) {
+        continue;
+      }
+      const m = /^placeholder\s*:\s*(["'`])([^"'`]*)\1/.exec(cell.slice(at.index));
+      if (m === null) {
+        bad.push(`填空那一格的 placeholder 写成了读不出来的形状(变量或 .placeholder() 方法):`
+          + '这一格的文案只许是一个字面串,否则第 15 把读不到它,屏上印的到底是什么就没人钉');
+        continue;
+      }
+      // 字面串后面还接着表达式(拼接)也一样读不出来:轮 3 复评实测
+      // `placeholder: '把你算出的数填进来' + '应有值约 9.80'` 只匹配到前半段,当场绿。
+      const tail = cell.slice(at.index + m[0].length).replace(/^[ \t]*/, '');
+      if (tail.length > 0 && ',\r\n})'.indexOf(tail[0]) < 0) {
+        bad.push(`填空那一格的 placeholder 字面串后面还写着「${tail.slice(0, 24)}」:拼接出来的文案第 15 把读不全,`
+          + '这一格印到屏幕上的到底是什么就没人钉');
+        continue;
+      }
+      const text = m[2];
+      const hit = VERDICT_WORDS.filter((word) => text.indexOf(word) >= 0);
       if (hit.length > 0) {
-        bad.push(`填空那一格的 placeholder「${ph[2]}」写着判定词(${hit.join('、')}):交卷之前这一格的文案不许有答案或判定的影子`);
+        bad.push(`填空那一格的 placeholder「${text}」写着判定词(${hit.join('、')}):交卷之前这一格的文案不许有答案或判定的影子`);
+      } else if (text.indexOf('${') >= 0) {
+        bad.push(`填空那一格的 placeholder「${text}」里插了值:占位文案是屏上印出来的字,插进去的东西这一格说了算,得当场读得出来`);
       }
     }
     // 16. 条件化的 .borderWidth/.borderColor。轮 1 把格内 .borderColor 直接禁了,
@@ -1152,8 +1185,10 @@ function findAnswerChannelHazards(src) {
   if (initBody !== null && !/^\s*answers\.push\(''\);\s*$/.test(initBody)) {
     bad.push('answerTexts 的初始化循环体不再只是 answers.push 空串:填空开局必须是空着的一格');
   }
-  // 13. 逐格镜像那两个字的另一半。第 5 条禁掉的是整框清的一种写法,这一条禁掉它全部写法:
-  //     syncAnswers 里对 next 只许有 next[i] = '' 这一种赋值,回写 @State 只许是 = next。
+  // 13. 逐格镜像那两个字的另一半。第 5 条只禁了整框清的一种写法(= []),这一条把 **syncAnswers
+  //     这一格里**能写成整框清的形状都禁掉:对 next 只许有 next[i] = '' 这一种赋值,回写 @State
+  //     只许是 = next。管不到的要说清:它只看这一个函数体,把清空搬出这个体(模块级裸函数、
+  //     this.controller.…)它照样看不见(Ruling U/V,兜底 = Task 10 在屏幕上逐格比对)。
   //     清错一次的代价要等交卷才看得见 —— 而且看见的是「你没交」,不是「我吞了你的数」。
   const syncBody = sliceBody(src, 'private syncAnswers(): void');
   if (syncBody !== null) {
@@ -6109,6 +6144,22 @@ function findClampedStartRunners() {
       findAnswerChannelHazards(inScope(pageSrc, cellAnchor, WEIGHT_ANCHOR,
         '.layoutWeight(1)\n                          .borderWidth(this.answerTexts.length > index ? 2 : 0)', '格内条件边框')).length, 1, 0);
     // 闭集只管格内:同一批构造写在实时读数那一行,页面上本来就该随状态变脸的地方,一条都不许报。
+    // ---- 轮 3 收尾(controller 本轮复现的三条):形状漏法与「注释引起假红」----
+    // 第 15 把原来只认「placeholder: 字面串」,于是换形状就绿:拼接一条、方法式属性一条。
+    check('负对照:placeholder 用拼接写出后半段会被认出(轮 3 controller 实测绿的那条)',
+      findAnswerChannelHazards(inScope(pageSrc, cellAnchor, PH_ANCHOR,
+        "placeholder: '把你算出的数填进来' + '应有值约 9.80'", '拼接占位串')).length, 1, 0);
+    check('负对照:placeholder 改写成 .placeholder() 方法形状会被认出(轮 3 controller 实测绿的那条)',
+      findAnswerChannelHazards(inScope(pageSrc, cellAnchor, WEIGHT_ANCHOR,
+        ".layoutWeight(1)\n                          .placeholder('应有值约 9.80')", '方法式 placeholder')).length, 1, 0);
+    // 反向的一条更要紧:形状类尺子读原文时,一句无害的注释就能在该格报出「挂了图标」,
+    // 连带把十几条合成对照一起顶红(实测 ✗ 41 / 3478)。尺子咬合法改动,下一个改页面的人就会删尺子。
+    check('负对照:填空那一格里只写一句提到 Image( 的注释不许报(maskQuoted 之后形状类不看注释)',
+      findAnswerChannelHazards(inScope(pageSrc, cellAnchor, UNIT_ANCHOR,
+        '// Image( 只是注释里的字样,屏幕上不画任何东西\n                          Text(def.unit)', '格内注释提图标')).length, 0, 0);
+    check('负对照:注释里提到 placeholder 也不算第 15 把的那种漏法',
+      findAnswerChannelHazards(inScope(pageSrc, cellAnchor, UNIT_ANCHOR,
+        '// placeholder 写在注释里不算字段\n                          Text(def.unit)', '格内注释提 placeholder')).length, 0, 0);
     const readoutProgress = inScope(pageSrc, readoutAnchor, 'Text(def.label)',
       'Progress({ value: 1, total: 6 })\n              Text(def.label)', '读数行 Progress');
     check('负对照:Progress 写在实时读数那一行(不是填空那一格)不许报',
@@ -6211,10 +6262,15 @@ function findClampedStartRunners() {
     checkText('不夹那一类的第一条钉串逐字等于 findings 给的那条(不带任何括注)', COUNT_START_PLAIN_LABELS[0],
       '计数起点：从第几个点量起');
     check('不夹那一类的钉串名单里不许混进带括注的串(钉串自身也得诚实)',
-      COUNT_START_PLAIN_LABELS.filter((s) => s.indexOf('（') >= 0).length, 0, 0);
+      COUNT_START_PLAIN_LABELS.filter((s) => s.indexOf('（') >= 0 || s.indexOf('(') >= 0).length, 0, 0);
     // 复评点名的第一条漏法:不夹的场景换成「忽略」这种措辞,轮 2 的舍字表看不见
     check('负对照:不夹起点的场景把括注换成「忽略」措辞照样被认出(I4 复评实测绿的那条)',
       findDishonestStartLabels([{ id: 'free-fall', params: [{ key: 'countStart', label: '比较起点：从第几个点量起（开头密着的点会自动忽略）' }] }],
+        clamped).length, 1, 0);
+    // 钉串是逐字相等,所以半角括号那种"看着像没像"的写法同样得红(轮 3 复评在真树上量到 3 条红,
+    // 当时没有一条站着写的对照,今天补上)
+    check('负对照:不夹起点的场景把括注写成半角括号照样被认出',
+      findDishonestStartLabels([{ id: 'free-fall', params: [{ key: 'countStart', label: '比较起点：从第几个点量起(开头密着的点会自动舍掉)' }] }],
         clamped).length, 1, 0);
     // 第二条漏法:夹了的场景把「舍掉」改一个字,轮 2 会把老实话打死;钉串之后它照样红 ——
     // 因为要改的是**这条字面串**,不是措辞表(改文案的人看到的就是这条摩擦,findings 点名要它)
