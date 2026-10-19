@@ -3399,6 +3399,28 @@ function findClampedStartRunners() {
     `实得 ${unscored.all()[0].awarded}`);
   check('未评分的记录仍不参与最高分', unscored.bestAwarded('measure-10ml'), 82, 1e-12);
 
+  // 事实列是同一条坑的另一头:「这一格没交」在判定层是 NaN,反序列化塌成 0 之后,
+  // 报告会当着学生印「你交的逐差法分子 0 mm」。Task 10 在模拟器上实测到这一屏
+  // (实验页判词写破折号、历史行写 0 —— 同一个数在两处不是一个说法)。
+  // 上面那组守的是 awardedText,这里补上 facts 这一头:NaN 必须原样回来。
+  const nanFact = new SessionLedger();
+  const nfRec = rec('nf', 'tape-1', 9000, 60);
+  nfRec.facts = [fact('ans.tapeNumerator', Number.NaN), fact('tapeNumeratorTrue', 562.3)];
+  nanFact.add(nfRec);
+  const nfBack = SessionLedger.fromJson(nanFact.toJson()).all()[0];
+  assertTrue('没交(NaN)这条事实往返后仍是 NaN 而不是 0',
+    Number.isNaN(nfBack.facts[0].value), `实得 ${nfBack.facts[0].value}`);
+  check('同一条记录里的有限事实值照常往返', nfBack.facts[1].value, 562.3, 1e-12);
+  // value 整个字段缺失(老 payload 或写坏了)也不许读成 0:读成 NaN 才让判据按缺失放过
+  const noVal = SessionLedger.fromJson(JSON.stringify({
+    version: 1,
+    records: [{ id: 'nv', experimentId: 'tape-1', title: '缺值', subject: 'physics-mechanics',
+      endedAtMs: 100, durationSec: 5, rubricId: 'tape-ref', rubricVersion: 'v', rubricSource: 's',
+      total: 100, awardedText: '60', deductionTitles: [], facts: [{ key: 'ans.tapeNumerator' }] }]
+  }));
+  assertTrue('事实的 value 字段整个缺失时读成 NaN 而不是 0',
+    Number.isNaN(noVal.all()[0].facts[0].value), `实得 ${noVal.all()[0].facts[0].value}`);
+
   // 脏数据不能把应用带崩
   for (const bad of ['', '   ', 'not json', 'null', '[]', '{}', '{"records":null}', '{"records":[]}']) {
     const dirty = SessionLedger.fromJson(bad);

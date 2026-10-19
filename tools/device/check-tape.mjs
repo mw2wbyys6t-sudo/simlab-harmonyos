@@ -5,9 +5,11 @@
  * 而是三件只有屏幕上能判的事:
  * ① 「接通电源」与「释放小车」是两个分开的按钮,顺序反了会留下可量的后果;
  * ② 纸带真的画在画面上,点距是越往后越开(不是等距铺开);
- * ③ 按正确顺序做完,交卷能拿的分要一分不少 —— 但今天它是 60 不是 100:
- *    数据处理两格(逐差法分子/倍数)要到 Task 7 才有输入框,在这台机器上永远读作"没交",
- *    各扣 20。第 3 步如实按 60 判,Task 7/10 两格真能交了,必须把期望改回「得分 100」。
+ * ③ 按正确顺序做完,交卷能拿的分要一分不少。两格填空(逐差法分子/倍数)在 Task 7 之前没有
+ *    输入口,这台机器上只能读作"没交"、各扣 20,所以那条探针当年钉的是 60;
+ *    Task 10 把框打通之后按实测钉回**空交 60 + 照应有值交 100** 两个数(见第 3 步注释)。
+ * ④ 这条实验也是全工程第一个 TextInput 的落点,打字、清框、收键盘那几件共用件
+ *    都走 probe.mjs 的 typeIntoField / clearField / hideKeyboard。
  *
  * 运行:node tools/device/check-tape.mjs [--install <hap 路径>] [--out <截图目录>]
  */
@@ -132,17 +134,40 @@ scrollToText('头一段漏打的点数');
 p.expect('顺序对了就不该漏头', readout('头一段漏打的点数'), '0 个');
 p.shot('tape-run');
 
-p.say('== 3. 认真做完交卷:今天口径下的满分必须一分不少 ==');
-// 期望写的是今天的事实而不是愿望:逐差法分子与倍数这两格到 Task 7 才有输入框,
-// 在这台机器上永远读作"没交",细则各扣 20 → 手上功夫做满也只到 60。
-// Task 7/10 两格真能交上数之后,这条必须改回「得分 100」—— 那才是"细则能被满足"的正证。
+p.say('== 3. 认真做完:两格空着交只到 60,照应有值交上去就该回到 100 ==');
+// 这一条以前钉的是 60,那是"两格还没有输入口"时的大实话(Task 7 之前这条链只能读作没交,
+// 各扣 20)。Task 10 把框打通了,注释里说的"必须改回 100"今天做到了:
+// 本轮实测(模拟器 127.0.0.1:5555,构建 entry-default-unsigned.hap)——
+// 空交判词「得分 60 / 100」两条 判定：没交;分子填判词里的应有值、倍数照填 → 「得分 100 / 100」零扣分。
 tapByWalk('交卷评分');
-const graded = texts().find((t) => t.indexOf('得分') === 0) || '';
-p.expectTrue('判词出现,且是今天口径下的满分 60(两格数据处理还没开交)',
-  graded.indexOf('得分 60') === 0, graded || '没有判词');
+// 判词收整块:得分那一行与两条扣分句是各一个节点,只取一次 dumpLayout 会漏掉「判定：没交」
+const blank = p.verdictBlob(EDGE);
+p.expectTrue('两格空着交 → 判词 60,而且两格都写着"没交"',
+  blank.indexOf('得分 60') === 0 && (blank.match(/判定：没交/g) || []).length === 2,
+  blank.slice(0, 200) || '没有判词');
 p.expectTrue('参考细则来源必须露出(不得伪装成官方标准)',
-  texts().some((t) => t.indexOf('参考细则') >= 0), '');
-p.shot('tape-graded');
+  blank.indexOf('参考细则') >= 0, blank.slice(0, 200) || '没有判词');
+p.shot('tape-blank-60');
+const mNum = blank.match(/按逐差法应为\s*([\d.]+)\s*mm/);
+const mDen = blank.match(/这条纸带该是\s*(\d+)/);
+if (mNum === null || mDen === null) {
+  p.fail('判词里读出两格的应有值', blank.slice(0, 400));
+} else {
+  p.ok(`判词给的应有值:分子 ${mNum[1]} mm、倍数 ${mDen[1]}`);
+  p.expectTrue('分子那一格打得上字(填空框收得到键盘输入)',
+    p.typeIntoField('逐差法的分子', mNum[1], EDGE), 'typeIntoField 失败');
+  p.expect('框里就是打进去的应有值', p.fieldText('逐差法的分子'), mNum[1]);
+  p.expectTrue('倍数那一格打得上字',
+    p.typeIntoField('分母里 T² 的倍数', mDen[1], EDGE), 'typeIntoField 失败');
+  p.expect('框里就是打进去的倍数', p.fieldText('分母里 T² 的倍数'), mDen[1]);
+  tapByWalk('交卷评分');
+  const graded = p.verdictBlob(EDGE);
+  p.expectTrue('两格照应有值交上去 → 得分 100 一分不少',
+    graded.indexOf('得分 100') === 0, graded.slice(0, 200) || '没有判词');
+  p.expectTrue('满分之上没有扣分句,来源照样露出',
+    graded.indexOf('没算对或没交') < 0 && graded.indexOf('参考细则') >= 0, graded.slice(0, 300));
+  p.shot('tape-graded');
+}
 
 p.say('== 4. 反过来做:先放车再通电,应当被扣且漏打点数变大 ==');
 p.tap('重置', 1500);

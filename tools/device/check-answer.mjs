@@ -1,0 +1,902 @@
+/**
+ * 学生填数通道的设备侧验收(Task 10)。
+ *
+ * Task 1~9 全是离线验证,这是这条链路第一次跑在屏幕上。屏幕上要判的这几件事,每一件都是
+ * 离线源码守卫明确说自己管不了的(task-7-fix3-report 最后一节 ①~⑤):
+ * ① runner 作废**一格**之后,屏上只有那一格空着、另一格留着数字(整框清会把「早交了 g、
+ *    还在描点」的人判成没交;走模块级函数或 this.controller 的清空,源码守卫看不见);
+ * ② 打字过程中不许有任何回显:文字、**底色**、**图标**三道闸门都要查 —— 计划里那条只认
+ *    「算对了/算错了/没交」几个字,漏色与漏图标两道它都是绿的;
+ * ③ 框上真正印出来的占位文案,而不是源码里那句字面串;
+ * ④ 计数起点那句「开头密着的点会自动舍掉」在屏幕上兑现成什么数;
+ * ⑤ 最后一格填空到「交卷评分」那颗按钮隔着多少屏(只量,不动版面 —— 要改是 #67 的决定)。
+ * 再加 brief 的断言清单:任务正文第一次上屏、两格问句可见、一条不填→没交→60、
+ * 填 F1→点名错法→80、照应有值填→100、ans.* 落盘进历史、键盘弹起时框没被顶出可视区。
+ *
+ * 打字这一层用 uitest 的 inputText,本轮实测出它两根必须写进代码的脾气:
+ *   · **追加而不是替换** —— 同一格不清就再打一次,屏上是 9.809.80(Task 7 报告顾虑 3);
+ *   · 坐标必须每次现取 —— 软键盘弹起时整页被顶上去,拿旧坐标点下去就落在键盘上
+ *     (实测那样会把一个 '8' 打进框里,看着像应用吞字符,其实是探针按错了地方)。
+ *
+ * 运行(默认全跑一遍;分段是给自己调试用的,验收要跑不带 --only 的那一条):
+ *   node tools/device/check-answer.mjs --install entry/build/default/outputs/default/entry-default-unsigned.hap
+ *   --only a        只看 T1~T4(渲染、⑤ 距离、打字、回显纪律)
+ *   --only b        只看 T5~T9(手上动作 + ④、60、脏框 60、80、100、断言 8)
+ *   --only history  只看 T10,要用 --expect "应有分子,历史印的F1,应有倍数"
+ *                   (第二个数按报告页那把尺子 FactLabels.valueText 写,不是判词那把)
+ *   --only pj       只看平抛那一段(① 逐格作废)
+ *   --out <目录>    截图目录(默认 %TEMP%/simlab-probe)
+ */
+import { join } from 'node:path';
+import os from 'node:os';
+import { readFileSync } from 'node:fs';
+import { Probe } from './probe.mjs';
+
+const outArg = process.argv.indexOf('--out');
+const outDir = outArg > -1 ? process.argv[outArg + 1] : join(os.tmpdir(), 'simlab-probe');
+const installArg = process.argv.indexOf('--install');
+const hapPath = installArg > -1 ? process.argv[installArg + 1] : null;
+const onlyArg = process.argv.indexOf('--only');
+const only = onlyArg > -1 ? process.argv[onlyArg + 1] : 'all';
+
+// 走左侧留白滚:参数滑杆占满 98..1158,手势落在轨道上会把值跳到那个 x
+const EDGE = 60;
+const TAPE_TITLE = '测量匀变速直线运动物体的加速度';
+const PJ_TITLE = '探究平抛运动的特点';
+const SECTION = '要交的结论';
+// 问句按开头认:整句在场景里定义,屏上就是一整行(改问句后半截不用回来改两处)
+const NUM_LABEL = '逐差法的分子';
+const DEN_LABEL = '分母里 T² 的倍数';
+const PJ_G_LABEL = '由你描的第 1 个点反求';
+const PJ_SEG_LABEL = '竖直方向第二段位移';
+/** 回显闸门认的词:判定词 + 任何"应有值"类说法 */
+const ECHO_WORDS = ['算对了', '算错了', '没交', '得分', '判定', '应有值', '应为', '扣分', '答案'];
+/** 占位文案里不许出现的判定/答案影子(③读的是屏上真印出来的字) */
+const PLACEHOLDER_BANNED = ['算对', '算错', '没交', '判定', '应有值', '应为', '答案', '标准', '正确', '错误', '得分'];
+
+const p = new Probe({ tag: 'answer', outDir: outDir });
+/** 当前这条实验的两格前缀 */
+let firstLabel = NUM_LABEL;
+let secondLabel = DEN_LABEL;
+
+function nodes() {
+  return p.dumpNodes();
+}
+
+function texts() {
+  return nodes().map((a) => a.text || '').filter((t) => t.length > 0);
+}
+
+function rectOf(b) {
+  const m = b.match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/);
+  return [+m[1], +m[2], +m[3], +m[4]];
+}
+
+/**
+ * 填空这一层的四件事(定位那一格、读框里的字、清框、打字)已经收进共用件 probe.mjs:
+ * locateField / fieldText / clearField / typeIntoField。三条设备探针(check-answer、
+ * check-tape、check-projectile)都走同一份实现,免得清框与收键盘的脾气在两个文件里各漂移一版。
+ */
+function locateCell(prefix) {
+  return p.locateField(prefix, EDGE, 1900, 900);
+}
+
+function boxText(prefix) {
+  return p.fieldText(prefix);
+}
+
+function imeTop(list) {
+  return p.imeTop(list);
+}
+
+function hideKeyboard() {
+  return p.hideKeyboard();
+}
+
+function clearBox(prefix) {
+  return p.clearField(prefix);
+}
+
+/**
+ * 往一格填空里打字:先定位那一格,再用 uitest 的 inputText 打进去。
+ * brief 给的就是这个形状;多出来的是清框与打完收键盘这两笔 —— uitest 的 inputText 只追加,
+ * 而软键盘弹起会把整页顶上去,坐标不现取就点到键盘上(本轮实测,见文件头)。
+ */
+function typeInto(label, text) {
+  return p.typeIntoField(label, text);
+}
+
+/** 找一颗按钮/一行文本的中心:当前屏有就用,没有再回顶往下找(每次都重取树) */
+function locate(label) {
+  let list = nodes();
+  // 键盘还支着就先收掉。本轮实测:P2 打完字直接进 P3 找「交卷评分」,那 18 下甩屏全打在输入法上,
+  // 面板一格没动,最后报的是「滚到底也没找到」—— 探针的错,不是应用的错(截图上按钮明明在)。
+  if (p.imeTop(list) >= 0) {
+    p.hideKeyboard();
+    list = nodes();
+  }
+  let hit = list.find((a) => (a.text || '') === label);
+  if (hit === undefined) {
+    hit = list.find((a) => (a.text || '').indexOf(label) === 0);
+  }
+  if (hit !== undefined) {
+    return Probe.center(hit.bounds);
+  }
+  p.scrollToTop();
+  for (let i = 0; i < 18; i++) {
+    list = nodes();
+    hit = list.find((a) => (a.text || '') === label);
+    if (hit === undefined) {
+      hit = list.find((a) => (a.text || '').indexOf(label) === 0);
+    }
+    if (hit !== undefined) {
+      return Probe.center(hit.bounds);
+    }
+    p.swipe(EDGE, 1900, EDGE, 1500);
+    p.sleep(400);
+  }
+  p.fail('找到「' + label + '」', '滚到底也没找到');
+  return null;
+}
+
+function press(label) {
+  const c = locate(label);
+  if (c === null) {
+    return false;
+  }
+  p.shell(`uitest uiInput click ${c[0]} ${c[1]}`);
+  p.sleep(1400);
+  return true;
+}
+
+function pressMany(label, times) {
+  const center = locate(label);
+  if (center === null) {
+    return;
+  }
+  for (let i = 0; i < times; i++) {
+    p.shell(`uitest uiInput click ${center[0]} ${center[1]}`);
+    p.sleep(1400);
+  }
+}
+
+function rowOf(label, list) {
+  const at = list.indexOf(label);
+  return at >= 0 && at + 1 < list.length ? list[at + 1] : '';
+}
+
+/**
+ * 应用自己那两把数字尺子,逐字抄自源码,探针拿它们算期望字符串:
+ *   · 判词走 Judgment.text(Judgment.ets:180)—— 整数原样、|v|>=100 收成整数、否则两位小数;
+ *   · 报告页(历史行摘要与事实表)走 FactLabels.valueText(FactLabels.ets:193)—— 整数原样、
+ *     否则一律两位小数,**没有 >=100 收成整数那一档**。
+ *
+ * 为什么要抄两把:同一个数在两个屏上印得不一样。本轮实测学生打 131.7,
+ * 判词印「你交的分子是 132 mm」而历史印「你交的逐差法分子 131.70 mm」。
+ * 上一版探针只猜了一把(无条件 toFixed(2)),于是把判词那条预测成「131.70」报了假红 ——
+ * 错在探针,不在这条断言。这里按各自的尺子各钉各的串,两条都是精确匹配,
+ * 哪一侧的格式悄悄漂了都会当场红;两把尺子本身不一致这件事是应用的问题,记进报告。
+ */
+function verdictNumber(value) {
+  if (!Number.isFinite(value)) {
+    return '—';
+  }
+  if (Number.isInteger(value)) {
+    return String(value);
+  }
+  return Math.abs(value) >= 100 ? value.toFixed(0) : value.toFixed(2);
+}
+
+/** 报告页那一列的格式(摘要行与事实表同一条路,ReportPage.ets:191 与 :224) */
+function historyNumber(value) {
+  if (!Number.isFinite(value)) {
+    return '—';
+  }
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+/** 滚到某一格读数再读:读数与它的值在同一个 Row 里,值就是后面那条文本。顺带把那一屏的文本表留下 */
+function readout2(label) {
+  p.scrollToTop();
+  for (let i = 0; i < 18; i++) {
+    const list = texts();
+    if (list.indexOf(label) >= 0 && rowOf(label, list).length > 0) {
+      p.sleep(600);
+      return { value: rowOf(label, list), screen: list };
+    }
+    p.swipe(EDGE, 1900, EDGE, 900);
+    p.sleep(400);
+  }
+  p.fail(`读到「${label}」`, '滚到底也没出现这一格读数');
+  return { value: '', screen: [] };
+}
+
+function readout(label) {
+  return readout2(label).value;
+}
+
+/** 交卷后的判词:可能比一屏长,从头往下把这些句子收齐。实现收在共用件里,三条探针同一份 */
+function verdictBlob() {
+  return p.verdictBlob(EDGE);
+}
+
+function scoreOf(text) {
+  return parseInt((text.match(/得分\s+(\d+)/) || [])[1], 10);
+}
+
+/** 「要交的结论」这一节的节点(从小节标题到最后一格填空的下沿);锚点不在屏上就给 null */
+function regionOf(list) {
+  const boxes = list.filter((n) => n.type === 'TextInput');
+  if (boxes.length === 0) {
+    return null;
+  }
+  const head = list.find((n) => (n.text || '') === SECTION);
+  const lbl = list.find((n) => (n.text || '').indexOf(firstLabel) === 0
+    || (n.text || '').indexOf(secondLabel) === 0);
+  if (head === undefined && lbl === undefined) {
+    return null;
+  }
+  const top = head !== undefined ? rectOf(head.bounds)[1] : rectOf(lbl.bounds)[1] - 40;
+  let bottom = 0;
+  for (const b of boxes) {
+    bottom = Math.max(bottom, rectOf(b.bounds)[3]);
+  }
+  return list.filter((n) => {
+    const bb = rectOf(n.bounds);
+    return bb[3] >= top && bb[1] <= bottom;
+  });
+}
+
+/** 这一节的结构指纹:类型/文本/占位/底色/勾选/选中/透明度/说明/可点/背景图/层级 */
+function fingerprint(region) {
+  if (region === null) {
+    return null;
+  }
+  return region.map((n) => ({
+    type: n.type, text: n.text || '', hint: n.hint || '', bg: n.backgroundColor || '',
+    checked: n.checked || '', selected: n.selected || '', opacity: n.opacity || '',
+    desc: n.description || '', enabled: n.enabled || '', clickable: n.clickable || '',
+    image: n.backgroundImage || '', hier: n.hierarchy || ''
+  }));
+}
+
+function echoHits(list) {
+  const hit = [];
+  for (const n of list) {
+    const t = (n.text || '') + '|' + (n.hint || '') + '|' + (n.description || '');
+    for (const w of ECHO_WORDS) {
+      if (t.indexOf(w) >= 0) {
+        hit.push(w);
+      }
+    }
+  }
+  return [...new Set(hit)].sort().join(',');
+}
+
+/** 两次结构快照的差异:只许 TextInput 的 text 变,别的一律不许 */
+function echoDiff(before, after) {
+  if (before === null || after === null) {
+    return '两次快照里有一次的这一节根本不在屏上';
+  }
+  if (before.length !== after.length) {
+    return '这一节的节点数从 ' + before.length + ' 变成 ' + after.length + '(多一个图标、多一行字都在这里露形)';
+  }
+  for (let i = 0; i < before.length; i++) {
+    const a = before[i];
+    const b = after[i];
+    const changed = [];
+    for (const k of Object.keys(a)) {
+      if (k === 'text' && a.type === 'TextInput') {
+        continue;
+      }
+      if (a[k] !== b[k]) {
+        changed.push(k + ':「' + a[k] + '」→「' + b[k] + '」');
+      }
+    }
+    if (changed.length > 0) {
+      return '第 ' + (i + 1) + ' 个节点(' + a.type + ' ' + (a.text || a.hint) + ')变了:' + changed.join(' / ');
+    }
+  }
+  return '';
+}
+
+/** 相邻两次 dump 之间这条滚动列真实挪了多少像素(按 hierarchy 配对,取正位移的中位数) */
+function shiftBetween(prev, cur) {
+  const at = new Map();
+  for (const n of cur) {
+    if ((n.text || '').length > 0) {
+      at.set(n.hierarchy, rectOf(n.bounds)[1]);
+    }
+  }
+  const deltas = [];
+  for (const n of prev) {
+    if ((n.text || '').length === 0) {
+      continue;
+    }
+    const y = at.get(n.hierarchy);
+    if (y === undefined) {
+      continue;
+    }
+    const d = rectOf(n.bounds)[1] - y;
+    if (d > 0) {
+      deltas.push(d);
+    }
+  }
+  if (deltas.length < 3) {
+    return -1;
+  }
+  deltas.sort((a, b) => a - b);
+  return deltas[Math.floor(deltas.length / 2)];
+}
+
+p.say(`设备:${p.assertDevice()}`);
+if (hapPath !== null) {
+  p.install(hapPath.replace(/\\/g, '/'));
+}
+
+// =====================================================================
+// 一、sr-003 逐差法 A 段:渲染、⑤ 距离、打字、回显纪律
+// =====================================================================
+function tapeA() {
+  p.launch();
+  p.ensureHome();
+  if (!p.tapInList(TAPE_TITLE)) {
+    return false;
+  }
+  firstLabel = NUM_LABEL;
+  secondLabel = DEN_LABEL;
+
+  p.say('== T1. 任务正文与两格问句第一次上屏(brief 断言 1、2 与 ③) ==');
+  p.expectTrue('「要交的结论」这一节出现在屏幕上',
+    locateCell(NUM_LABEL) !== null && texts().some((t) => t === SECTION),
+    '这一屏没有那句小节标题');
+  p.expectTrue('第一条任务正文的前 8 个字可见(任务文本第一次上屏)',
+    texts().some((t) => t.indexOf('用逐差法把各计数') === 0),
+    texts().slice(0, 6).join(' / '));
+  p.expectTrue('第一格填空的问句「逐差法的分子」可见',
+    texts().some((t) => t.indexOf(NUM_LABEL) === 0), '定位不到问句');
+  p.expectTrue('第二格填空的问句「分母里 T² 的倍数」可见',
+    locateCell(DEN_LABEL) !== null, '滚到底也没有那一格');
+  // ③ 占位文案:读屏上真印出来的那几个字,而不是源码里那句
+  const hints = nodes().filter((n) => n.type === 'TextInput').map((n) => n.hint || '');
+  p.say(`  屏上两格的占位文案:${JSON.stringify(hints)}`);
+  p.expectTrue('两格都印出了占位提示(不是空着的一格)',
+    hints.length >= 2 && hints.every((h) => h.length > 0), JSON.stringify(hints));
+  const banned = PLACEHOLDER_BANNED.filter((w) => hints.some((h) => h.indexOf(w) >= 0));
+  p.expectTrue('占位文案里没有判定/答案的影子(交卷之前不许透露应有值)',
+    banned.length === 0, `${banned.join(',')} / ${JSON.stringify(hints)}`);
+  const pageSrc = readFileSync(join('entry', 'src', 'main', 'ets', 'pages', 'ExperimentPage.ets'), 'utf8');
+  const ph = pageSrc.match(/placeholder\s*:\s*(["'`])([^"'`]*)\1/);
+  if (ph === null) {
+    p.say('  源码里 placeholder 不是字段字面串(方法形状或模板串),这条只比屏上词表');
+  } else {
+    p.expect('③ 屏上占位文案 = 源码里那句字面串', hints[0], ph[2]);
+  }
+  p.shot('answer-empty');
+
+  p.say('== T2. ⑤ 最后一格填空到「交卷评分」隔多远(只量,不动版面) ==');
+  p.scrollToTop();
+  let prev = nodes();
+  let acc = 0;
+  let btnBottom = -1;
+  let btnTop = -1;
+  let boxTop = -1;
+  let boxBottom = -1;
+  let viewport = 0;
+  let swipes = 0;
+  let sameScreen = false;
+  for (let i = 0; i < 14; i++) {
+    const scrolls = prev.filter((n) => n.type === 'Scroll').map((n) => rectOf(n.bounds));
+    scrolls.sort((a, b) => (b[3] - b[1]) - (a[3] - a[1]));
+    if (scrolls.length > 0 && viewport === 0) {
+      viewport = scrolls[0][3] - scrolls[0][1];
+    }
+    const btn = prev.find((n) => (n.text || '') === '交卷评分');
+    if (btn !== undefined && btnBottom < 0) {
+      btnBottom = rectOf(btn.bounds)[3] + acc;
+      btnTop = rectOf(btn.bounds)[1] + acc;
+    }
+    const bs = prev.filter((n) => n.type === 'TextInput');
+    if (bs.length >= 2) {
+      let last = bs[0];
+      for (const b of bs) {
+        if (rectOf(b.bounds)[3] > rectOf(last.bounds)[3]) {
+          last = b;
+        }
+      }
+      boxTop = rectOf(last.bounds)[1] + acc;
+      boxBottom = rectOf(last.bounds)[3] + acc;
+      sameScreen = btn !== undefined;
+      break;
+    }
+    p.swipe(EDGE, 1900, EDGE, 800);
+    swipes += 1;
+    const cur = nodes();
+    const d = shiftBetween(prev, cur);
+    acc += d < 0 ? 1100 : d;
+    prev = cur;
+  }
+  p.expectTrue('⑤ 量到了:交卷按钮与最后一格填空的内容坐标都取到',
+    btnBottom > 0 && boxTop > 0, `按钮下沿 ${btnBottom} / 框上沿 ${boxTop}`);
+  const gap = boxTop - btnBottom;
+  p.say(`  ⑤ 面板可视窗口高 ${viewport} px;从页顶甩到最后一格共 ${swipes} 下、累计挪 ${acc} px`);
+  p.say(`  ⑤「交卷评分」内容 y ${btnTop}..${btnBottom};最后一格填空内容 y ${boxTop}..${boxBottom}`);
+  p.say(`  ⑤ 两者之间 ${gap} px = ${(gap / Math.max(viewport, 1)).toFixed(2)} 屏;打完字要看得见交卷按钮`
+    + `得往回滚;同一屏同时可见:${sameScreen ? '是' : '否'}`);
+  p.expectTrue('⑤ 交卷按钮与最后一格填空不在同一屏(这条就是要记的那个数字)',
+    !sameScreen, '竟然同屏可见,量到的距离不成立');
+  p.shot('answer-last-box-screen');
+
+  p.say('== T3. 学生打的字进得了框;框里就是打的那几个字 ==');
+  p.expectTrue('打字 9.80 进分子那一格', typeInto(NUM_LABEL, '9.80'), 'typeInto 失败');
+  p.expect('框里就是打进去的 9.80(小数点没被吞)', boxText(NUM_LABEL), '9.80');
+  const again = locateCell(NUM_LABEL);
+  if (again !== null) {
+    const c = Probe.center(again.bounds);
+    p.shell(`uitest uiInput inputText ${c[0]} ${c[1]} 9.80`);
+    p.sleep(1200);
+    p.say(`  inputText 追加实测:不清再打一次 9.80 → 框里是「${boxText(NUM_LABEL)}」`
+      + '(所以 typeInto 必须先清框)');
+  }
+  p.expectTrue('退格能把一整格清干净', clearBox(NUM_LABEL), '清不掉');
+  p.expect('清完之后框是空的', boxText(NUM_LABEL), '');
+  // 脏输入:SDK 文档承诺 NUMBER_DECIMAL「digits and only one decimal point」,屏上验这句
+  p.expectTrue('往空格打 9.8.0', typeInto(NUM_LABEL, '9.8.0'), 'typeInto 失败');
+  const dirty = boxText(NUM_LABEL);
+  p.say(`  脏输入实测:打 9.8.0 → 框里留下「${dirty}」(Number() = ${Number(dirty)})`);
+  p.expectTrue('组件自己就把第二个小数点滤掉了(框里不会留着解析不出的脏字串)',
+    dirty.indexOf('.') === dirty.lastIndexOf('.'), `框里是「${dirty}」`);
+  p.expectTrue('滤完之后不是 0,也不是空', dirty !== '0' && dirty.length > 0, `框里是「${dirty}」`);
+  clearBox(NUM_LABEL);
+
+  p.say('== T4. 回显纪律:打字时不许有字、不许有底色、不许有图标(brief 断言 6 + ②) ==');
+  // 每一次快照之前都把软键盘收掉。实测原因:往空框打字那一下,键盘弹起会把面板重新定位,
+  // 下面那一格的问句因此滚进量窗(整屏对照实测:TextInput 只有 text 从空变「9.80」,新增的两个
+  // 节点是下一条填空的 label 与它的容器,应用什么都没加)。拿「空」与「填了」直接比节点数,
+  // 量到的是键盘而不是回显;键盘收干净之后同一个量窗才比得出东西。
+  // 比两组:空 → 填值(抓「一有字就冒出来的对勾」),换一个值(抓「值一变底色就变」)。
+  p.expectTrue('两格都是空的(基线)', boxText(NUM_LABEL) === '' && boxText(DEN_LABEL) === '',
+    `${boxText(NUM_LABEL)} / ${boxText(DEN_LABEL)}`);
+  p.expectTrue('基线快照前键盘已收起', p.hideKeyboard(), '键盘收不掉,这一节的量窗不稳');
+  const baseList = nodes();
+  const baseRegion = regionOf(baseList);
+  const base = fingerprint(baseRegion);
+  const baseRegionHits = echoHits(baseRegion === null ? [] : baseRegion);
+  const basePageHits = echoHits(baseList);
+  p.say(`  基线:这一节 ${base === null ? '不在屏上' : base.length + ' 个节点'};`
+    + `这一节里回显词命中「${baseRegionHits === '' ? '无' : baseRegionHits}」;`
+    + `整屏命中「${basePageHits === '' ? '无' : basePageHits}」`);
+  p.expectTrue('打一个明显错的数进分子格(3.14)', typeInto(NUM_LABEL, '3.14'), 'typeInto 失败');
+  p.expectTrue('打一个明显错的数进分母格(77)', typeInto(DEN_LABEL, '77'), 'typeInto 失败');
+  p.expectTrue('甲快照前键盘已收起', p.hideKeyboard(), '键盘收不掉');
+  const midList = nodes();
+  const midDiff = echoDiff(base, fingerprint(regionOf(midList)));
+  p.expectTrue('② 空框填上值之后,这一节的结构一个字都没变(多一个图标、多一行字都在这里露形)',
+    midDiff === '', midDiff);
+  p.expectTrue('换一个值:分子 2.71、倍数 44',
+    typeInto(NUM_LABEL, '2.71') && typeInto(DEN_LABEL, '44'), 'typeInto 失败');
+  p.expectTrue('乙快照前键盘已收起', p.hideKeyboard(), '键盘收不掉');
+  const afterList = nodes();
+  // 空转闸门:甲乙必须是两组不同的数,否则这条比的同一张快照,绿了也不算验过
+  const midFilled = (regionOf(midList) || []).filter((n) => n.type === 'TextInput').map((n) => n.text).join(',');
+  const afterFilled = (regionOf(afterList) || []).filter((n) => n.type === 'TextInput').map((n) => n.text).join(',');
+  p.expectTrue('甲乙取的确实不是同一组数(否则下面那条比的是自己)',
+    midFilled !== afterFilled && midFilled.length > 0, `甲「${midFilled}」 乙「${afterFilled}」`);
+  const diff = echoDiff(fingerprint(regionOf(midList)), fingerprint(regionOf(afterList)));
+  p.expectTrue('② 换一个值,这一节的结构一个字都没变(文本、底色、图标、层级全比)',
+    diff === '', diff);
+  const colored = (regionOf(afterList) || []).filter((n) => (n.backgroundColor || '') !== ''
+    && n.backgroundColor !== '#00000000').map((n) => n.type + '=' + n.backgroundColor);
+  p.say(`  这一节里带底色的节点:${JSON.stringify(colored)}`);
+  p.expectTrue('② 这一节里不许出现新的判定词',
+    echoHits(regionOf(afterList) || []) === baseRegionHits,
+    `${baseRegionHits} → ${echoHits(regionOf(afterList) || [])}`);
+  p.expectTrue('② 整屏也不许出现新的判定词(交卷之前)',
+    echoHits(afterList) === basePageHits, `${basePageHits} → ${echoHits(afterList)}`);
+  p.shot('answer-typing-no-echo');
+  p.say('  这一条抓不到的:纯 fontColor 变化。本轮实测 dumpLayout 加 -a 也不输出字色字段,'
+    + '树里只有 backgroundColor —— 字色那一半只能看下面两张截图,报告里如实写明。');
+  return true;
+}
+
+// =====================================================================
+// 一b、sr-003 逐差法 B 段:手上动作 + ④ 起点、60 / 60(脏框) / 80 / 100、断言 8
+// =====================================================================
+function tapeB() {
+  p.launch();
+  p.ensureHome();
+  if (!p.tapInList(TAPE_TITLE)) {
+    return false;
+  }
+  firstLabel = NUM_LABEL;
+  secondLabel = DEN_LABEL;
+
+  p.say('== T5. 手上动作做完(不碰滑杆)与 ④ 计数起点的承诺 ==');
+  press('开始');
+  press('接通／断开电源');
+  p.sleep(1600);
+  press('释放小车');
+  p.sleep(3200);
+  const dots = readout('纸带上的点数');
+  p.expectTrue('纸带打出了一串点', parseInt(dots, 10) > 60, `实得「${dots}」`);
+  const sld = readout2('计数起点：从第几个点量起（开头密着的点会自动舍掉）');
+  const slider = sld.value;
+  const eff = readout('有效计数起点');
+  p.say(`  ④ 滑杆那一格印「${slider}」,应用真用的起点印「${eff}」`);
+  p.expectTrue('④ 头上密着点时,有效起点确实不等于滑杆给的值', slider !== eff && eff.length > 0,
+    `滑杆 ${slider} vs 有效 ${eff}`);
+  const claims = sld.screen.filter((t) => /从第\s*\d+\s*个点量起/.test(t));
+  p.say(`  ④ 那一屏里提到"从第几个点量起"的句子:${claims.join(' / ') || '(只有滑杆 label 那一句)'}`);
+  p.expectTrue('④ 屏幕上没有任何一句把滑杆那个值说成"就从这里量起"(谎话检查)',
+    claims.every((t) => t.indexOf('舍掉') >= 0), claims.join(' / '));
+  p.expectTrue('④ 那句问话确实写了会自动舍掉',
+    sld.screen.some((t) => t.indexOf('计数起点') === 0 && t.indexOf('开头密着的点会自动舍掉') > 0),
+    '滑杆 label 不在那一屏,或那句承诺不见了');
+  const short = readout('最短计数段');
+  p.expectTrue('最短一段量得出来(否则 60 分的账就不止两格没交)', parseFloat(short) >= 2, `实得「${short}」`);
+
+  p.say('== T6. 一条都不填、手上动作做完后交卷 → 判词含"没交",得分 60(brief 断言 3) ==');
+  clearBox(NUM_LABEL);
+  clearBox(DEN_LABEL);
+  press('交卷评分');
+  const none = verdictBlob();
+  p.say('  判词:' + none.replace(/\n/g, ' ⏎ ').slice(0, 800));
+  p.expect('一条不填 → 60 分', scoreOf(none), 60);
+  p.expectTrue('判词里两格都写着"没交"', (none.match(/判定：没交/g) || []).length === 2,
+    none.slice(0, 300));
+  p.expectTrue('没交那一格印的是破折号而不是 0(空框不许被吞成 0)',
+    none.indexOf('你交的分子是 —') >= 0 && none.indexOf('你交的分子是 0') < 0, none.slice(0, 300));
+  p.shot('answer-none-60');
+  const mNum = none.match(/按逐差法应为\s*([\d.]+)\s*mm/);
+  const mSeg = none.match(/参与逐差的共\s*(\d+)\s*段/);
+  const mDen = none.match(/这条纸带该是\s*(\d+)/);
+  p.expectTrue('判词把应有分子/参与段数/应有倍数都报了(后面两格照着填)',
+    mNum !== null && mSeg !== null && mDen !== null, none.slice(0, 400));
+  if (mNum === null || mSeg === null || mDen === null) {
+    p.say('判词读不出应有值,后面的 80/100 两步无法进行');
+    return false;
+  }
+  const numTrue = parseFloat(mNum[1]);
+  const twoH = parseInt(mSeg[1], 10);
+  const denTrue = parseInt(mDen[1], 10);
+
+  p.say('== T6b. 打一个 Number() 认不出的字串:通道要读作没交,不许当成 0 ==');
+  p.expectTrue('往分子格只打一个小数点 .', typeInto(NUM_LABEL, '.'), 'typeInto 失败');
+  const lone = boxText(NUM_LABEL);
+  p.say(`  只打一个小数点 → 框里留下「${lone}」;Number('.') = ${Number(lone)}`);
+  press('交卷评分');
+  const dirtyRun = verdictBlob();
+  p.expect('脏框(或空框)照样 60 分,不是判成 0', scoreOf(dirtyRun), 60);
+  p.expectTrue('这一格的判词是"没交"而不是"算错了"',
+    dirtyRun.indexOf('判定：没交') >= 0, dirtyRun.slice(0, 300));
+  p.expectTrue('屏上不出现「你交的分子是 0」这种把脏值当零的说法',
+    dirtyRun.indexOf('你交的分子是 0') < 0 && dirtyRun.indexOf('你交的分子是 —') >= 0,
+    dirtyRun.slice(0, 400));
+  p.shot('answer-dirty-60');
+
+  // F1(只用首尾两段)= 末段 减 首段。窗口是等加速打出来的等差数列:
+  // 应有分子 = h²·d、倍数 = h²、参与段数 = 2h ⇒ F1 = (2h−1)·应有分子 ÷ 倍数。
+  // 离线用真 runner 试过 15 条窗口(通电 0.17~2.5 s × 放车 1~7 s),这条恒等式偏差 0.000000%。
+  const f1 = (twoH - 1) * numTrue / denTrue;
+  const f1Typed = f1.toFixed(1);
+  // 同一个数在两个屏上各按各的尺子印:判词 132、历史 131.70(两把尺子见上面注释)
+  const f1Shown = verdictNumber(parseFloat(f1Typed));
+  const f1Fact = historyNumber(parseFloat(f1Typed));
+  p.say(`  从判词推 F1:(${twoH}−1)×${numTrue}÷${denTrue} = ${f1Typed} mm`
+    + `(判词按 Judgment.text 会印成 ${f1Shown} mm,历史按 FactLabels.valueText 会印成 ${f1Fact} mm)`);
+
+  p.say('== T7. 分子填 F1(只吃首尾那个数)→ 判词点名,得分 80(brief 断言 4) ==');
+  // 这一轮的基线就地取:上一次交卷留下的判词本来就在屏上,闸门比的是"打字有没有新增东西"。
+  // 先把最后一格滚进视野,让基线快照与打字后的快照落在同一个滚动位置上。
+  locateCell(DEN_LABEL);
+  const preList = nodes();
+  const preRegion = regionOf(preList);
+  const preFp = fingerprint(preRegion);
+  const preRegionHits = echoHits(preRegion === null ? [] : preRegion);
+  const prePageHits = echoHits(preList);
+  p.expectTrue('分子格填 F1', typeInto(NUM_LABEL, f1Typed), 'typeInto 失败');
+  p.expect('分子格读回 F1', boxText(NUM_LABEL), f1Typed);
+  p.expectTrue('分母格照应有值填', typeInto(DEN_LABEL, String(denTrue)), 'typeInto 失败');
+  p.expect('分母格读回应有倍数', boxText(DEN_LABEL), String(denTrue));
+  const midList = nodes();
+  const midRegion = regionOf(midList);
+  p.expectTrue('交卷之前仍然没有回显:这一节结构原样(填数这一轮再查一次)',
+    echoDiff(preFp, fingerprint(midRegion)) === '', echoDiff(preFp, fingerprint(midRegion)));
+  p.expectTrue('交卷之前仍然没有回显:这一节没有新增判定词',
+    echoHits(midRegion === null ? [] : midRegion) === preRegionHits,
+    `${preRegionHits} → ${echoHits(midRegion === null ? [] : midRegion)}`);
+  p.expectTrue('交卷之前仍然没有回显:整屏判定词集合不比打字前多',
+    echoHits(midList) === prePageHits, `${prePageHits} → ${echoHits(midList)}`);
+  press('交卷评分');
+  const named = verdictBlob();
+  p.expect('只吃首尾那一种 → 80 分', scoreOf(named), 80);
+  p.expectTrue('判词点名"算错了"而不是"没交"',
+    named.indexOf('判定：算错了') >= 0 && named.indexOf('判定：没交') < 0, named.slice(0, 400));
+  p.expectTrue('判词说出他犯的是哪一种:只用首尾两段',
+    named.indexOf('只用首尾两段会把中间量出来的数全丢掉') >= 0, named.slice(0, 800));
+  p.expectTrue('分子那条响、分母那条不响',
+    named.indexOf('逐差法这一问没算对或没交') >= 0 && named.indexOf('分母这一问没算对或没交') < 0,
+    named.slice(0, 800));
+  p.expectTrue('判词里印着他填的那个数(ans 进判词,按判词那把尺子的格式精确匹配)',
+    named.indexOf('你交的分子是 ' + f1Shown + ' mm') >= 0, named.slice(0, 500));
+  // 加严:印的必须是他自己那个数,不能是把应有值原样回显(两者不同字才说明是两条不同的量)
+  p.expectTrue('判词印的是他填的数而不是应有值的回显(两个数必须不同)',
+    f1Shown !== mNum[1] && named.indexOf('你交的分子是 ' + mNum[1] + ' mm') < 0,
+    `他填的印成 ${f1Shown} / 应有值 ${mNum[1]} / ${named.slice(0, 300)}`);
+  p.shot('answer-f1-80');
+
+  p.say('== T8. 两格都照应有值填 → 得分 100(brief 断言 5) ==');
+  p.expectTrue('分子格改填应有值', typeInto(NUM_LABEL, mNum[1]), 'typeInto 失败');
+  p.expect('分子格读回应有值', boxText(NUM_LABEL), mNum[1]);
+  press('交卷评分');
+  const full = verdictBlob();
+  p.expect('照应有值交满 → 100 分', scoreOf(full), 100);
+  p.expectTrue('满分之上没有扣分句', full.indexOf('没算对或没交') < 0, full.slice(0, 500));
+  p.expectTrue('满分那句照样把来源说清(参考细则不伪装成官方标准)',
+    full.indexOf('没有扣分项') >= 0 && full.indexOf('参考细则') >= 0, full.slice(0, 500));
+  p.shot('answer-full-100');
+
+  p.say('== T9. 键盘弹起时那一格还在不在可视区(brief 断言 8) ==');
+  const kb = locateCell(NUM_LABEL);
+  const kc = Probe.center(kb.bounds);
+  p.shell(`uitest uiInput inputText ${kc[0]} ${kc[1]} 5`);
+  p.sleep(1500);
+  const upList = nodes();
+  const top = imeTop(upList);
+  const focusables = upList.filter((n) => n.type === 'TextInput');
+  let r = null;
+  for (const n of focusables) {
+    if ((n.text || '').length > 0) {
+      r = rectOf(n.bounds);
+    }
+  }
+  p.say(`  键盘实测:${top < 0 ? 'dumpLayout 里没有屏幕下半部另属窗口的节点(键盘不在可及树里)' : 'IME 窗口上沿 y=' + top};`
+    + `带着字的框 bounds=${JSON.stringify(r)}`);
+  p.expectTrue('打字之后框里有他打的字(这一格还没被清)', r !== null, '找不到带字的输入框');
+  p.expectTrue('断言 8:键盘弹起时那一格完整在屏幕内,没被顶出可视区',
+    r !== null && r[1] >= 0 && r[3] <= 2760 && (top < 0 || r[3] <= top),
+    `框 ${JSON.stringify(r)} / 键盘上沿 ${top}`);
+  p.shot('answer-keyboard');
+  hideKeyboard();
+  clearBox(NUM_LABEL);
+  return {
+    numShown: mNum[1], f1Typed: f1Typed, f1Shown: f1Shown, f1Fact: f1Fact, denTrue: String(denTrue)
+  };
+}
+
+// =====================================================================
+// 二、历史回看:ans.* 落盘(brief 断言 7)
+// =====================================================================
+function historyPart(info) {
+  p.say('== T10. 历史回看:报告页选这条记录,看得见他填的分子数值 ==');
+  p.launch();
+  p.ensureHome();
+  if (!p.tap('报告')) {
+    return false;
+  }
+  /**
+   * 逐行点开历史列表,找主段那一格印成 want 的记录,返回那一屏的文本表。
+   *
+   * 三处本轮实测出来的形状,少知道一条这步就找不到记录:
+   *   · 列表不在主段旁边 —— 它在主段下面好几屏远,scrollToTop 之后就地找一条也没有
+   *     (上一版就是这么找的,报「连着点开 0 行」);
+   *   · 认行用时刻那一格(HH:MM):一行一个、跨滚动稳定。摘要那一格认不了行 ——
+   *     ReportPage.factLineOf(ReportPage.ets:187)只印前三条事实(循环写死 `i < 3`),
+   *     分子那条不保证在前三里(本轮实测就不在),上一版拿摘要子串找,找不到时
+   *     Array.find 给的是 undefined 而守卫写的是 `=== null`,探针当场 TypeError 崩掉;
+   *   · 不许假设"最新那条一定排在最前"—— 单独跑 --only history 时最新的一条常常是
+   *     别的实验刚交的(本轮就被平抛那条占了),所以一律点开逐条读主段。
+   */
+  function pickRecord(want, cap) {
+    // 上限按"这台机器上历史已经攒了多少条"给:模拟器上跑过好几轮之后,
+    // 纸带那两条会排在平抛/别轮记录后面好几行,6 行不够走到(实测)。
+    const limit = cap === undefined ? 12 : cap;
+    const tried = new Set();
+    p.scrollToTop();
+    for (let step = 0; step < 90; step++) {
+      const rows = nodes().filter((n) => /^\d{2}:\d{2}$/.test(n.text || ''));
+      const row = rows.find((n) => !tried.has(n.text));
+      if (row === undefined) {
+        p.swipe(EDGE, 1900, EDGE, 1100);
+        continue;
+      }
+      if (tried.size >= limit) {
+        return null;
+      }
+      tried.add(row.text);
+      const c = Probe.center(row.bounds);
+      p.shell(`uitest uiInput click ${c[0]} ${c[1]}`);
+      p.sleep(1800);
+      p.scrollToTop();
+      const view = texts();
+      p.say(`  点开第 ${tried.size} 行(${row.text}):主段分子印「${rowOf('你交的逐差法分子', view)}」`);
+      if (rowOf('你交的逐差法分子', view) === want) {
+        return view;
+      }
+    }
+    return null;
+  }
+
+  p.say('  逐行点开历史列表找那条 100 分');
+  const full = pickRecord(info.numShown + ' mm');
+  if (full === null) {
+    p.fail('历史里点开 100 分那条记录',
+      `连着点开了几行,主段没有一行的分子印成「${info.numShown} mm」`);
+    return false;
+  }
+  p.expectTrue('报告页主段印得出「你交的逐差法分子」(ans.* 落盘)',
+    full.indexOf('你交的逐差法分子') >= 0, full.slice(0, 8).join(' / '));
+  p.expect('照应有值交满那条:他填的分子 = 应有值', rowOf('你交的逐差法分子', full), info.numShown + ' mm');
+  p.expect('同一条记录里他填的分母倍数', rowOf('你交的分母倍数', full), info.denTrue);
+  p.expect('分子判定印成人话', rowOf('逐差法分子判定', full), '算对了');
+  p.shot('answer-history-100');
+  /**
+   * 一条都没交的那次(60 分)在历史里必须还写"没交"那一格的破折号。
+   * 这一条是本轮应用缺陷的现场证据:SessionLedger 把事实里的 NaN 反序列化塌成 0,
+   * 于是实验页判词写着「你交的分子是 —」而历史行印着「你交的逐差法分子 0 mm」
+   * —— 同一个数两处不是一个说法,而"把没交读成 0"是本项目自己列的最不能有的错法。
+   * 修在 SessionLedger.factNumber(与 awardedText 同一条规矩),这里读屏。
+   */
+  p.say('  再找一条都没交那次(60 分):那一格在历史里不许塌成 0');
+  const none = pickRecord('—');
+  if (none === null) {
+    p.fail('历史里点开一条不填那次', '主段没有一行的分子是破折号(没交)');
+  } else {
+    p.expect('一条不填那次:历史里分子印破折号而不是 0', rowOf('你交的逐差法分子', none), '—');
+    p.expectTrue('一条不填那次:屏上不出现「你交的逐差法分子 0 mm」',
+      none.indexOf('你交的逐差法分子 0 mm') < 0, none.slice(0, 10).join(' / '));
+    p.expect('一条不填那次:判定仍印成没交', rowOf('逐差法分子判定', none), '没交');
+  }
+  p.shot('answer-history-none-dash');
+  p.say('  再找 F1 那一条(80 分)');
+  const sel = pickRecord(info.f1Fact + ' mm');
+  if (sel === null) {
+    p.fail('历史里点开 F1 那一条记录',
+      `连着点开了几行,主段没有一行的分子印成「${info.f1Fact} mm」`);
+    return false;
+  }
+  p.ok('历史里点开这一行,主段分子正是他填的那个数');
+  // 单独跑 --only history 时 --expect 只给历史那侧的串,判词那侧按应用自己的尺子折出来
+  const f1ShownHere = info.f1Shown === undefined ? verdictNumber(parseFloat(info.f1Fact)) : info.f1Shown;
+  p.say(`  同一个数在两个屏上印成两样:判词「${f1ShownHere} mm」(Judgment.text) vs`
+    + ` 历史「${info.f1Fact} mm」(FactLabels.valueText)—— 这条差异是应用的账,记进报告`);
+  p.expectTrue('点开那条记录后主段换成了它的数据(不是停在上一条)',
+    sel.indexOf('你交的逐差法分子') >= 0
+    && rowOf('你交的逐差法分子', sel) === info.f1Fact + ' mm',
+    `值=「${rowOf('你交的逐差法分子', sel)}」,期望「${info.f1Fact} mm」`);
+  p.expect('那条记录的分子判定印成"算错了"', rowOf('逐差法分子判定', sel), '算错了');
+  p.expect('落盘的错法码 = 1(只用首尾那一种)', rowOf('分子错法', sel), '1');
+  p.expect('分母那格判对', rowOf('逐差法分母判定', sel), '算对了');
+  /**
+   * 应有值这一格是 D2(两把尺子)的现场:判词把 562.35 收成「562 mm」(Judgment.text 的
+   * |v|>=100 → 整数),历史那一列印「562.35 mm」(FactLabels.valueText 一律两位小数)。
+   * 上一版拿判词那侧的串去比历史这一格,报了一条假红。
+   * 这里不降格成"有个数就行":读回历史那一格的精确串,按**判词那把尺子**折回来必须逐字等于
+   * 判词给的数 —— 两侧仍是精确匹配,只是把它们各自的格式算清楚了。
+   */
+  const trueOnScreen = rowOf('逐差法分子应有值', sel);
+  p.expectTrue('应有分子与他自己那条一起落盘(历史印到分位,折回判词那把尺子必须就是判词那个数)',
+    /^\d+(\.\d+)? mm$/.test(trueOnScreen) && verdictNumber(parseFloat(trueOnScreen)) === info.numShown,
+    `历史「${trueOnScreen}」/ 判词「${info.numShown} mm」`);
+  p.shot('answer-history-f1');
+  p.ensureHome();
+  return true;
+}
+
+// =====================================================================
+// 三、sr-007 平抛:按 key 逐格作废(①)与"早交了 g 的人不被判没交"
+// =====================================================================
+function pjPart() {
+  p.say('== P1. 打开平抛,做满手上动作 ==');
+  p.launch();
+  p.ensureHome();
+  if (!p.tapInList(PJ_TITLE)) {
+    return false;
+  }
+  firstLabel = PJ_G_LABEL;
+  secondLabel = PJ_SEG_LABEL;
+  p.expectTrue('两格问句都在(①要用的那两格)',
+    locateCell(PJ_G_LABEL) !== null && locateCell(PJ_SEG_LABEL) !== null, '定位不到');
+  press('挂重垂线定抛出点');
+  pressMany('卡片往里挪一格', 2);
+  for (let i = 0; i < 4; i++) {
+    press('静止释放钢球');
+    press('卡片往外挪一格');
+  }
+  p.expect('四个点描上了', readout('描下的点'), '4 个');
+
+  p.say('== P2. 两格都填上数,再描一个点:只该收回段比那一格(①) ==');
+  p.expectTrue('g 那格填 9.80', typeInto(PJ_G_LABEL, '9.80'), 'typeInto 失败');
+  p.expect('g 那格读回 9.80', boxText(PJ_G_LABEL), '9.80');
+  p.expectTrue('段比那格填 3.00', typeInto(PJ_SEG_LABEL, '3.00'), 'typeInto 失败');
+  p.expect('段比那格读回 3.00', boxText(PJ_SEG_LABEL), '3.00');
+  // 第五个点落在卡片第 5 格(上面那圈已经在 1/2/3/4 格各落过一个点,卡片此刻停在 5 格)。
+  // 上一版这里是「往里挪四格再放」,而 CARD_MIN=1(ProjectileRunner.ets:21)会把这四下全钳在
+  // 第 1 格上 —— 第五个点与第一个点分毫不动地重叠,段比窗口(离槽口最近那两个点)的
+  // 第二段 = y₂−y₁ = 0,ProjectileGProcedure.segmentRatio 于是返回 NaN(ProjectileGProcedure.ets:74),
+  // checkNumber 一个事实都不写、判据不响(ProjectileRunner 走 Physics2DRunner.ets:133)。
+  // 屏上于是「得分 100 / 没有扣分项」,而探针在等一句"没交" —— 那是探针把窗口做废了,
+  // 不是应用吞了扣分(三分之后定性为探针错,应用按 Ruling A/B「没出题不扣」做得对)。
+  // 现在只在 5 格落笔:点距仍然等间隔(水平间隔比 1.00,不牵连「忽近忽远」那 15 分),
+  // 窗口留在 1、2 格这两个不同的点上,段比这道题出得来,作废那一格才真的该判"没交"。
+  press('静止释放钢球');
+  p.sleep(2500);
+  p.expect('纸上又多了一个点(落笔才会作废)', readout('描下的点'), '5 个');
+  const kept = boxText(PJ_G_LABEL);
+  const voided = boxText(PJ_SEG_LABEL);
+  p.say(`  ① 落笔之后屏上:g 那格「${kept}」/ 段比那格「${voided}」`);
+  p.expectTrue('① 只有被作废的那一格空了(按 key 逐格镜像清)', voided === '',
+    `段比那格还留着「${voided}」`);
+  p.expect('① 另一格(g)的数字原样留着 —— 没有整框清', kept, '9.80');
+
+  p.say('== P3. 早交了 g、后来还在描点的人不该被判没交 ==');
+  press('交卷评分');
+  const pj = verdictBlob();
+  p.say('  判词:' + pj.replace(/\n/g, ' ⏎ ').slice(0, 800));
+  p.expectTrue('g 那一格没被读成没交(屏上不出现「你交的 g 是 —」)',
+    pj.indexOf('你交的 g 是 —') < 0, pj.slice(0, 500));
+  p.expectTrue('被作废的段比那一格老实写着没交',
+    pj.indexOf('你交的第二段与第一段之比是 —') >= 0 && pj.indexOf('判定：没交') >= 0,
+    pj.slice(0, 500));
+  p.expectTrue('g 那一格连"算错了"都没扣(9.80 在带宽内 → 判据不响)',
+    pj.indexOf('你交的 g 是') < 0, pj.slice(0, 500));
+  p.say('  这一趟得分:' + (pj.match(/得分\s+\d+/) || ['(没读到)'])[0]);
+  // 分数是这条的落点:段比那一格作废之后没交 → 只扣那 20 分,g 与四条手上功夫都不该响
+  p.expect('作废一格只扣那一格的 20 分(手上四条 + g 全过 → 80)', scoreOf(pj), 80);
+  p.expectTrue('扣分的正是段比那一条(不是 g、也不是手上四条)',
+    pj.indexOf('竖直方向相邻两段的比没算对或没交') >= 0
+    && pj.indexOf('反求的 g 没算对或没交') < 0 && pj.indexOf('忽近忽远') < 0,
+    pj.slice(0, 600));
+  p.shot('answer-pj-cell-void');
+  p.ensureHome();
+  return true;
+}
+
+/** --only history 单独跑时,要比对的那三个数从 --expect "应有分子,历史印的F1,应有倍数" 传进来 */
+function expectFromArgs() {
+  const i = process.argv.indexOf('--expect');
+  if (i < 0) {
+    return null;
+  }
+  const parts = String(process.argv[i + 1]).split(',');
+  if (parts.length !== 3) {
+    return null;
+  }
+  return { numShown: parts[0], f1Fact: parts[1], denTrue: parts[2] };
+}
+
+if (only === 'all' || only === 'a') {
+  if (!tapeA()) {
+    p.fail('纸带 A 段', '打不开这条实验');
+  }
+}
+if (only === 'all' || only === 'b') {
+  const info = tapeB();
+  if (info !== false) {
+    if (only !== 'all') {
+      p.say('把下面这行传给 --only history 就能单独跑落盘那一步:--expect '
+        + `${info.numShown},${info.f1Fact},${info.denTrue}(第二个是历史那一侧的格式)`);
+    }
+    if (only === 'all') {
+      historyPart(info);
+    }
+  } else {
+    p.fail('纸带 B 段', '没能跑到 100 分这一步');
+  }
+}
+if (only === 'history') {
+  const info = expectFromArgs();
+  if (info === null) {
+    p.fail('--only history', '要用 --expect "应有分子,屏上F1,应有倍数" 给出比对的三个数');
+  } else {
+    historyPart(info);
+  }
+}
+if (only === 'all' || only === 'pj') {
+  if (!pjPart()) {
+    p.fail('平抛段', '没能跑完逐格作废这一条');
+  }
+}
+p.back();
+const code = p.finish(`截图在 ${outDir}`);
+process.exit(code === 0 ? 0 : 1);

@@ -4,9 +4,11 @@ import { FactEntry, MomentEntry, SessionRecord } from '../model/SessionRecord';
 /**
  * 落盘用的线格式。
  *
- * 两个刻意的选择:
+ * 三个刻意的选择:
  * - `awardedText` 用字符串而不是数字。`JSON.stringify(NaN)` 会写出 `null`,反序列化端
  *   一个 `Number(null)` 就把「未评分」变成「考了零分」,而这正是最难发现的那类错误。
+ * - 事实的数值列走 `factNumber` 而不是 `number`:同一条坑,NaN 必须回 NaN。
+ *   塌成 0 之后历史会把「这一格没交」当着学生印成「你交的分子 0 mm」(见那里的注释)。
  * - `subject` 用字符串。枚举过 JSON 之后拿不回类型。
  */
 interface WireFact {
@@ -281,7 +283,7 @@ export class SessionLedger {
       for (const item of wire.facts) {
         const entry = new FactEntry();
         entry.key = SessionLedger.text(item.key);
-        entry.value = SessionLedger.number(item.value);
+        entry.value = SessionLedger.factNumber(item.value);
         facts.push(entry);
       }
     }
@@ -329,6 +331,21 @@ export class SessionLedger {
 
   private static number(value: number): number {
     return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+  }
+
+  /**
+   * 事实的数值列:NaN 必须原样回来,不许塌成 0。
+   *
+   * 上面那把 `number()` 是给时刻、用时、满分用的 —— 那些缺字段读成 0 是安全的。
+   * 事实不是:判定层用 NaN 表示「这一格压根没值」,塌成 0 之后报告页会当着学生印出
+   * 「你交的逐差法分子 0 mm」。模拟器实测:一条都不填那次交卷,实验页判词老实写着破折号
+   * (Judgment.text 对 NaN 给 —),历史行摘要却印成 0 —— 同一个数在两处不是一个说法,
+   * 而"把没交读成 0"正是本项目列在 ProjectileRunner.mark 注释里"最不能有的错法"。
+   * 本文件头为 awardedText 立过同一条规矩(JSON.stringify(NaN) 写 null,朴素反序列化
+   * 会把未评分读成零分),这里对事实照同一条办:字段缺失或 null 一律回 NaN。
+   */
+  private static factNumber(value: number): number {
+    return typeof value === 'number' ? value : Number.NaN;
   }
 
   private static awardedOf(value: string): number {

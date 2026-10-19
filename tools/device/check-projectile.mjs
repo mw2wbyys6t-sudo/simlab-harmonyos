@@ -5,12 +5,12 @@
  * 设备侧要量的就是这几下按下去之后留下的后果对不对 ——
  * ① 外壳不给自动图线,也不给一根滑杆(抛物线的形状是学生自己检验的东西);
  * ② 释放四次只描四个点(一次释放连描一串是这条最容易犯的引擎错);
- * ③ 槽口速度真的按 √格数 涨;认真描完交卷能拿的分要一分不少 —— 但**今天它是 60 不是 100**:
- *    反求 g 与竖直段比这两格要到 Task 7 才有输入框,在这台机器上永远读作"没交",各扣 20。
- *    第 4 步如实按 60 判;Task 7/10 两格真能交上数之后必须改回「得分 100」,
- *    那才是"细则能被满足"的正证(手上四条也从 25 重排成了 15,别按旧分值判这道题);
+ * ③ 槽口速度真的按 √格数 涨;认真描完交卷能拿的分要一分不少。两格填空(反求 g、竖直段比)
+ *    在 Task 7 之前没有输入口,这台机器上只能读作"没交",所以当年这条钉的是 60;
+ *    Task 10 打通填空框之后按实测钉成两个数:**空着交 60、照判词里的应有值交上去 100**
+ *    (那才是"细则能被满足"的正证;手上四条也从 25 重排成了 15,别按旧分值判这道题);
  * ④ 卡片摆到球飞不到的那一格,这一次什么都不该留下;
- * ⑤ 卡片忽近忽远时,扣分点名的是"忽近忽远"。
+ * ⑤ 卡片忽近忽远时,扣分点名的是"忽近忽远"(两格交上数之后,这条走法只剩这 15 分 = 85)。
  *
  * 运行:node tools/device/check-projectile.mjs [--install <hap 路径>] [--out <截图目录>]
  */
@@ -31,6 +31,10 @@ const DOWN_BTN = '释放位置往下一格';
 const FAR_BTN = '卡片往外挪一格';
 const NEAR_BTN = '卡片往里挪一格';
 const RELEASE_BTN = '静止释放钢球';
+// 两格填空的问句前缀:整句在 MechanicsScenes.projectileFrame 里定义,这里只认开头,
+// 改问句后半截不用回来改两处(填空框自己没有 text,只能靠上面那句问句定位)
+const PJ_G_LABEL = '由你描的第 1 个点反求';
+const PJ_RATIO_LABEL = '竖直方向第二段位移';
 
 const p = new Probe({ tag: 'projectile', outDir: outDir });
 
@@ -105,17 +109,14 @@ function pressMany(label, times) {
   }
 }
 
+/**
+ * 判词收成一整块。旧版这里"找到得分那一行就返回",可得分那一行和每条扣分句
+ * 是各一个节点(ExperimentPage.ets:278-285),而这一条探针现在要判的是跨节点的事:
+ * 「两条 判定：没交」「扣分点名叫忽近忽远」都不在得分那一行里。
+ * 收词的实现统一收在共用件 probe.verdictBlob,三条探针同一份。
+ */
 function verdict() {
-  p.scrollToTop();
-  for (let i = 0; i < 20; i++) {
-    if (texts().some((t) => t.indexOf('得分') === 0)) {
-      p.sleep(700);
-      return texts().find((t) => t.indexOf('得分') === 0) || '';
-    }
-    p.swipe(EDGE, 1900, EDGE, 1100);
-    p.sleep(500);
-  }
-  return '';
+  return p.verdictBlob(EDGE);
 }
 
 function scoreOf(text) {
@@ -147,7 +148,7 @@ press(UP_BTN);
 press(UP_BTN);
 p.expect('升到第 4 格后槽口速度 1.98 m/s(√2 关系)', readout('槽口速度 v0'), '1.98 m/s');
 
-p.say('== 3. 认真描完:四次释放四个点(两格填空今天还没处交,分只到 60) ==');
+p.say('== 3. 认真描完:四次释放四个点 ==');
 press(ORIGIN_BTN);
 pressMany(NEAR_BTN, 2);
 p.expect('卡片挪到第 1 格', readout('卡片离槽口'), '0.15 m');
@@ -162,17 +163,38 @@ p.expect('卡片等间隔:间隔最大/最小是 1.00', readout('水平间隔最
 p.expect('原点定对了、高度也没变:y/x² 的离散度 0.0 %', readout('y/x² 的离散度'), '0.0 %');
 p.shot('projectile-diligent');
 
-p.say('== 4. 认真描完交卷:今天口径下的满分必须一分不少 ==');
+p.say('== 4. 交卷:空着交 60 → 照应有值交上去 100(细则能被满足的正证) ==');
+// 这一条当年钉的是 60,因为反求 g 与竖直段比两格没有输入口,在这台机器上永远读作"没交"。
+// Task 10 打通填空框之后按实测钉成两个数(模拟器 127.0.0.1:5555):
+// 空交「得分 60 / 100」两条判定：没交;照着判词里那两个应有值交上去 → 「得分 100 / 100」零扣分。
 press('交卷评分');
-const graded = verdict();
-// 期望写的是今天的事实而不是愿望:反求 g 与竖直段比这两格到 Task 7 才有输入框,
-// 在这台机器上永远读作"没交",细则各扣 20 → 手上四条做满(每条 15)也只到 60。
-// Task 7/10 两格真能交上数之后,这条必须改回「得分 100」。
-p.expectTrue('判词出现,且是今天口径下的满分 60(两格数据处理还没开交)',
-  graded.indexOf('得分 60') === 0, graded || '没有判词');
+const blank = verdict();
+p.expectTrue('判词出现,两格都没交 → 60',
+  blank.indexOf('得分 60') === 0 && (blank.match(/判定：没交/g) || []).length === 2,
+  blank || '没有判词');
 p.expectTrue('参考细则来源必须露出(不得伪装成官方标准)',
-  texts().some((t) => t.indexOf('参考细则') >= 0), '');
-p.shot('projectile-graded');
+  blank.indexOf('参考细则') >= 0, blank.slice(0, 200) || '没有判词');
+p.shot('projectile-blank-60');
+const mG = blank.match(/按你描的第 1 个点应为\s*([\d.]+)\s*m\/s²/);
+const mRatio = blank.match(/按你描的最近那两个点应为\s*([\d.]+)/);
+if (mG === null || mRatio === null) {
+  p.fail('判词里读出两格的应有值', blank.slice(0, 400));
+} else {
+  p.ok(`判词给的应有值:g ${mG[1]} m/s²、段比 ${mRatio[1]}`);
+  p.expectTrue('g 那一格打得上字(填空框收得到键盘输入)',
+    p.typeIntoField(PJ_G_LABEL, mG[1], EDGE), 'typeIntoField 失败');
+  p.expect('框里就是打进去的 g', p.fieldText(PJ_G_LABEL), mG[1]);
+  p.expectTrue('段比那一格打得上字',
+    p.typeIntoField(PJ_RATIO_LABEL, mRatio[1], EDGE), 'typeIntoField 失败');
+  p.expect('框里就是打进去的段比', p.fieldText(PJ_RATIO_LABEL), mRatio[1]);
+  press('交卷评分');
+  const graded = verdict();
+  p.expectTrue('两格照应有值交上去 → 得分 100 一分不少',
+    graded.indexOf('得分 100') === 0, graded || '没有判词');
+  p.expectTrue('满分之上没有扣分句,来源照样露出',
+    graded.indexOf('没算对或没交') < 0 && graded.indexOf('参考细则') >= 0, graded.slice(0, 300));
+  p.shot('projectile-graded');
+}
 
 p.say('== 5. 卡片摆到球飞不到的那一格:这一次什么都不该留下 ==');
 press('重置');
@@ -212,9 +234,28 @@ p.expectTrue('这次真的扣分了', Number.isFinite(score) && score < 100, slo
 p.expectTrue('扣分理由点名「忽近忽远」', sloppy.indexOf('忽近忽远') >= 0, sloppy);
 // 今天是 45 而不是 75:忽近忽远那条从 25 重排成 15,再叠上两格没交的 2×20。
 // Task 7/10 两格交上数之后,这一趟应当回到 85(只扣忽近忽远那 15 分)。
-p.expectTrue('手上只扣"忽近忽远"这一条,再加两格没交(今天口径是 45 分)',
+p.expectTrue('手上只扣"忽近忽远"这一条,再加两格没交(空着交是 45 分)',
   score === 45, sloppy);
 p.shot('projectile-uneven-graded');
+// 两格能交数之后,这条走法真正的账是"只扣忽近忽远那 15 分"(旧注释里写的 85 就是这个)。
+// 本轮实测:照判词里的应有值把两格填上再交 → 「得分 85 / 100」,扣分句只剩忽近忽远那一条。
+const mG2 = sloppy.match(/按你描的第 1 个点应为\s*([\d.]+)\s*m\/s²/);
+const mR2 = sloppy.match(/按你描的最近那两个点应为\s*([\d.]+)/);
+if (mG2 === null || mR2 === null) {
+  p.fail('判词里读出两格的应有值', sloppy.slice(0, 400));
+} else {
+  p.expectTrue('g 那一格打得上字', p.typeIntoField(PJ_G_LABEL, mG2[1], EDGE), 'typeIntoField 失败');
+  p.expectTrue('段比那一格打得上字', p.typeIntoField(PJ_RATIO_LABEL, mR2[1], EDGE), 'typeIntoField 失败');
+  press('交卷评分');
+  const fixed = verdict();
+  const fixedScore = scoreOf(fixed);
+  p.expectTrue('两格交上之后只扣忽近忽远 → 得分 85', fixed.indexOf('得分 85') === 0, fixed || '没有判词');
+  p.expectTrue('剩下的那一条扣分点名的还是"忽近忽远"',
+    fixed.indexOf('忽近忽远') >= 0 && fixedScore === 85, fixed.slice(0, 300));
+  p.expectTrue('两格都不再是"没交"', (fixed.match(/判定：没交/g) || []).length === 0,
+    fixed.slice(0, 300));
+  p.shot('projectile-uneven-85');
+}
 
 const code = p.finish(`截图在 ${outDir}`);
 p.back();
