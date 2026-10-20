@@ -3531,7 +3531,7 @@ function findClampedStartRunners() {
      * 回放永远拿**当前**细则重算 —— SessionLedger.ets:252/276 只把版本当文本随记录走,
      * ReportPage.ets:165 递给 Judgment.score 的就是活细则。填数通道之前的 sr-003 事实集
      * 只有读纸带那四条(那两个数据结果码压根没写过),在 2026.10.1 下重算仍是 100,
-     * 靠的是 Judgment.ets:88-92 对非有限值跳过。这条断言钉的是这个实情,不是版本标签;
+     * 靠的是 Judgment.ets:89-92 对非有限值跳过。这条断言钉的是这个实情,不是版本标签;
      * 真要做版本化重算是另一次决定(Ruling AC,本轮不做)。
      */
     const PRE_CHANNEL_FACTS = [
@@ -9902,6 +9902,32 @@ function findClampedStartRunners() {
     check('C1 描了更近的点:只扣段比那一格的 20 分 → 80', after.card.awarded, 80, 1e-9);
     checkText('C1 描了更近的点:扣分清单里只有段比那一条(g 与手上四条都不许响)',
       after.card.deductions.map((d) => d.criterionId).join(','), 'pj-seg-ratio-value');
+
+    // 第三向:窗口**换了**但算出同一个数 —— 这是"相等推不出窗口没挪"的反例,也是
+    // 上面注释里那句"{2,4} 与 {1,2} 都给 3"的出处(卡片 2、4、5 描完,最近两点是 2 和 4,
+    // y ∝ 格数² → (16−4)/4 = 3;再描第 1 格,窗口换成 1 和 2 → (4−1)/1 = 3)。
+    // 判据看的是数,所以不作废是对的:交过的 3 对新窗口仍然成立。
+    // 少这一条,"作废判据"可以退化成"窗口没挪才作废"而全绿 —— 那是另一种假扣分。
+    // 变异实测(把 mark() 的判据换成 segRatioYmm().join('|') 前后不等就作废):
+    // 只有下面三条红(3 项失败 / 3562 通过),远点组与近点组都不响 —— 这一组是那个变异唯一的证人。
+    const sameNum = mk(true, 2, [2, 4, 5]);
+    sameNum.setAnswer('pjSegRatio', 3);
+    sameNum.setAnswer('pjG', 9.8);
+    const winBefore = scored(sameNum);
+    check('C1 第三向·基线:窗口是格 2、4 时应有值就是 3',
+      winBefore.sheet.num('pjSegRatioTrue'), 3, 1e-6);
+    check('C1 第三向·基线:交 3 → outcome 0', winBefore.sheet.num('pjSegRatioOutcome'), 0, 0);
+    traceCard(sameNum, 1);            // 窗口真的被换成格 1、2
+    const winAfter = scored(sameNum);
+    check('C1 第三向:窗口换成格 1、2 后 pjSegRatioTrue 仍是 3 —— 数没动',
+      winAfter.sheet.num('pjSegRatioTrue'), 3, 1e-6);
+    assertTrue('C1 第三向:窗口换了但数没换 → 不作废(答案还在 runner 里)',
+      winAfter.runner.answer('pjSegRatio') === 3, String(winAfter.runner.answer('pjSegRatio')));
+    check('C1 第三向:outcome 仍是 0,段比那 20 分照旧算给答对的人',
+      winAfter.sheet.num('pjSegRatioOutcome'), 0, 0);
+    checkText('C1 第三向:扣分清单不许因为"窗口挪了"冒出段比那条',
+      winAfter.card.deductions.filter((d) => d.criterionId === 'pj-seg-ratio-value')
+        .map((d) => d.criterionId).join(','), '');
   }
 
   // ---- 这道题出不出来:点数门槛(反求 g 一对数就够,段比要凑得出前两段) ----------------
