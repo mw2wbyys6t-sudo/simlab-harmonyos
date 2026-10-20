@@ -1135,7 +1135,8 @@ function historyPart(info) {
 }
 
 // =====================================================================
-// 三、sr-007 平抛:按 key 逐格作废(①)与"早交了 g 的人不被判没交"
+// 三、sr-007 平抛:按 key 逐格作废两个方向 —— 远点不作废(P2a)/近点换窗才作废(P2b),
+//      以及"早交了 g 的人不被判没交"
 // =====================================================================
 function pjPart() {
   p.say('== P1. 打开平抛,做满手上动作 ==');
@@ -1149,30 +1150,35 @@ function pjPart() {
   p.expectTrue('两格问句都在(①要用的那两格)',
     locateCell(PJ_G_LABEL) !== null && locateCell(PJ_SEG_LABEL) !== null, '定位不到');
   press('挂重垂线定抛出点');
-  pressMany('卡片往里挪一格', 2);
+  // 从第 2 格描到第 5 格(起点刻意留开第 1 格:P2b 的"近点换窗口"要有更近的格子可描)。
+  // 上一版把四点描满 1..4、第五点落在第 5 格 —— 那正是**不动窗口**的远点情形,
+  // 旧断言却管它叫"作废才真的该判没交"(最终评审 C1③:它一直在把一个假扣分当成功验收)。
+  press('卡片往里挪一格');
   for (let i = 0; i < 4; i++) {
     press('静止释放钢球');
     press('卡片往外挪一格');
   }
-  p.expect('四个点描上了', readout('描下的点'), '4 个');
+  p.expect('四个点描上了(第 2/3/4/5 格)', readout('描下的点'), '4 个');
 
-  p.say('== P2. 两格都填上数,再描一个点:只该收回段比那一格(①) ==');
+  p.say('== P2a. 两格填上数,再描一个**更远**的点:窗口没换,答案必须原样留着(C1 修复后的方向) ==');
   p.expectTrue('g 那格填 9.80', typeInto(PJ_G_LABEL, '9.80'), 'typeInto 失败');
   p.expect('g 那格读回 9.80', boxText(PJ_G_LABEL), '9.80');
-  p.expectTrue('段比那格填 3.00', typeInto(PJ_SEG_LABEL, '3.00'), 'typeInto 失败');
-  p.expect('段比那格读回 3.00', boxText(PJ_SEG_LABEL), '3.00');
-  // 第五个点落在卡片第 5 格(上面那圈已经在 1/2/3/4 格各落过一个点,卡片此刻停在 5 格)。
-  // 上一版这里是「往里挪四格再放」,而 CARD_MIN=1(ProjectileRunner.ets:21)会把这四下全钳在
-  // 第 1 格上 —— 第五个点与第一个点分毫不动地重叠,段比窗口(离槽口最近那两个点)的
-  // 第二段 = y₂−y₁ = 0,ProjectileGProcedure.segmentRatio 于是返回 NaN(ProjectileGProcedure.ets:74),
-  // checkNumber 一个事实都不写、判据不响(ProjectileRunner 走 Physics2DRunner.ets:133)。
-  // 屏上于是「得分 100 / 没有扣分项」,而探针在等一句"没交" —— 那是探针把窗口做废了,
-  // 不是应用吞了扣分(三分之后定性为探针错,应用按 Ruling A/B「没出题不扣」做得对)。
-  // 现在只在 5 格落笔:点距仍然等间隔(水平间隔比 1.00,不牵连「忽近忽远」那 15 分),
-  // 窗口留在 1、2 格这两个不同的点上,段比这道题出得来,作废那一格才真的该判"没交"。
+  // 段比窗口 = 离槽口最近的那两个点:此刻是第 2、3 格,等间隔下应有值 (3²−2²)/2² = 1.25。
+  p.expectTrue('段比那格填 1.25(窗口 2、3 格的应有值)', typeInto(PJ_SEG_LABEL, '1.25'), 'typeInto 失败');
+  p.expect('段比那格读回 1.25', boxText(PJ_SEG_LABEL), '1.25');
+  // 卡片此刻停在第 6 格,比窗口里那两个点都远 —— 这一笔不改变这一格问的那个数。
   press('静止释放钢球');
   p.sleep(2500);
-  p.expect('纸上又多了一个点(落笔才会作废)', readout('描下的点'), '5 个');
+  p.expect('纸上又多了一个点(mark() 确实走过作废判据)', readout('描下的点'), '5 个');
+  p.expect('远点不作废:段比那格的 1.25 原样留着(runner 没收回,页面也就不该清)',
+    boxText(PJ_SEG_LABEL), '1.25');
+  p.expect('远点不作废:g 那格同样留着 9.80', boxText(PJ_G_LABEL), '9.80');
+
+  p.say('== P2b. 再描一个**更近**的点:窗口真被换成第 1、2 格,这才该作废(按 key 作废的真覆盖) ==');
+  pressMany('卡片往里挪一格', 5);   // 第 6 格 → 第 1 格(CARD_MIN=1)
+  press('静止释放钢球');
+  p.sleep(2500);
+  p.expect('纸上又多了一个点(共 6 个,间隔仍然等距)', readout('描下的点'), '6 个');
   const kept = boxText(PJ_G_LABEL);
   const voided = boxText(PJ_SEG_LABEL);
   p.say(`  ① 落笔之后屏上:g 那格「${kept}」/ 段比那格「${voided}」`);

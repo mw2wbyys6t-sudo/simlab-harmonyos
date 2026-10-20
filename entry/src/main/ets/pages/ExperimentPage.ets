@@ -238,8 +238,11 @@ export struct ExperimentPage {
   /**
    * 交卷:把本次操作产生的事实交给判定层。
    *
-   * 记录里存事实、不存分数(与量取页同一条规矩):细则换版本后,历史仍按当期细则重算,
-   * 不会留下一堆和判据脱钩的死分数。
+   * 记录里存事实、不存分数(与量取页同一条规矩):回看时**永远拿当前细则**从事实重算 ——
+   * 记录身上的 `rubricVersion` 只是随数据落盘的标签,不参与选哪份细则。旧记录不被新分值
+   * 误伤,靠的是"事实缺失 ⇒ 判据跳过"(Judgment.ets:88-92):填数通道之前的 sr-003 事实集
+   * 没有那两个数据结果码,在 2026.10.1 下重算仍是 100。这条由 check.mjs 的 I1 断言钉住
+   * (最终评审 I1:旧注释把这份安全归给了版本标签,说反了)。
    */
   private submitRun(): void {
     const context: Context | undefined = this.getUIContext().getHostContext();

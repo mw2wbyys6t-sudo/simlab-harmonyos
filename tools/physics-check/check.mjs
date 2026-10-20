@@ -3524,6 +3524,44 @@ function findClampedStartRunners() {
     const ansEvidence = ansReplay.deductions.map((d) => d.evidence).join('\n');
     assertTrue('I2 合成变异:塌成 0 之后回放句里印出「你交的分子是 0」(= 上面那条破折号断言会红)',
       ansEvidence.indexOf('你交的分子是 0') >= 0, ansEvidence.slice(0, 320));
+
+    /**
+     * I1(最终评审):护住旧记录的不是 `rubricVersion`,是"事实缺失 ⇒ 判据跳过"。
+     *
+     * 回放永远拿**当前**细则重算 —— SessionLedger.ets:252/276 只把版本当文本随记录走,
+     * ReportPage.ets:165 递给 Judgment.score 的就是活细则。填数通道之前的 sr-003 事实集
+     * 只有读纸带那四条(那两个数据结果码压根没写过),在 2026.10.1 下重算仍是 100,
+     * 靠的是 Judgment.ets:88-92 对非有限值跳过。这条断言钉的是这个实情,不是版本标签;
+     * 真要做版本化重算是另一次决定(Ruling AC,本轮不做)。
+     */
+    const PRE_CHANNEL_FACTS = [
+      ['tapeDotCount', 120], ['tapeLostHead', 0], ['tapeShortestMm', 18], ['tapeSegments', 6]
+    ];
+    const preRec = tapeRecord('i1-pre-channel', PRE_CHANNEL_FACTS);
+    preRec.rubricVersion = '2026.10';  // 通道的旧记录身上写的是旧版本 —— 回放不看它
+    const preWire = new SessionLedger();
+    preWire.add(preRec);
+    const preReplay = Judgment.score(rubric,
+      Rubrics.factsFor(SessionLedger.fromJson(preWire.toJson()).all()[0]));
+    check('I1 通道前的旧事实集,拿当前细则重算仍是 100(缺失即跳过在护旧记录)',
+      preReplay.awarded, 100, 1e-12);
+    checkText('I1 重算出来的扣分清单是空的(数据那两条对缺失的结果码不响)',
+      preReplay.deductions.map((d) => d.criterionId).join(','), '');
+    // 负对照:证明那 100 是"缺失"挣来的,不是细则里根本没有数据判据 —— 同一批事实只要补上
+    // 两个结果码(2=没交),两条各扣 20,分立刻掉到 60。
+    const withCodes = PRE_CHANNEL_FACTS.concat(
+      [['tapeNumeratorOutcome', 2], ['tapeDenFactorOutcome', 2]]);
+    check('I1 负对照:同一批事实把结果码放上(没交)→ 60(上面那条 100 咬得住)',
+      Judgment.score(rubric, sheetOf(withCodes)).awarded, 60, 1e-12);
+    // 合成变异(与上面 I2 一节同一种做法,不改 .ets):往旧格式那条的**线上事实清单**里多塞
+    // 两个结果码 —— 那正是"哪天有代码替旧记录补写出'没交'"的现场。同一条反序列化路,
+    // 100 当场翻成 60:上面那条等式不是恒真,它真在盯"这两个码不在旧记录里"。
+    const polluted = preWire.toJson().replace('"facts":[',
+      '"facts":[{"key":"tapeNumeratorOutcome","value":2},{"key":"tapeDenFactorOutcome","value":2},');
+    const pollutedReplay = Judgment.score(rubric,
+      Rubrics.factsFor(SessionLedger.fromJson(polluted).all()[0]));
+    check('I1 合成变异:旧记录被多塞两个"没交"码后重算掉到 60(证明那条 100 有牙)',
+      pollutedReplay.awarded, 60, 1e-12);
   }
 
   // 脏数据不能把应用带崩
@@ -8741,8 +8779,11 @@ function findClampedStartRunners() {
   assertTrue('三段 → 倍数 NaN', !Number.isFinite(TapeChunkProcedure.denFactor([50, 70, 90])),
     String(TapeChunkProcedure.denFactor([50, 70, 90])));
   check('空纸带 → 没有指纹可点名', TapeChunkProcedure.fingerprints([]).length, 0, 0);
-  // 奇数段:只用前 2h 段,尾巴那段不参与(与 accelByChunking 的取窗一致)
-  check('七段时按前六段算,与 accelByChunking 同窗',
+  // 奇数段:只用前 2h 段,尾巴那段不参与 —— 这是 TapeChunkProcedure 自己的取窗口径。
+  // 最终评审 M1:旧注释这里写"与 accelByChunking 的取窗一致",那条一致性已被
+  // TapeChunkProcedure.ets:30-34 明文撤回(accelByChunking 从给定起点直接取前 2h 段,
+  // 碰上带死头的纸带会把死段当第一段用;实测同一条纸带两者反推的 a 是 0.8787 对 0.5503)。
+  check('七段时按前六段算(丢尾段;这是本模块口径,与 accelByChunking 同窗那条已撤回)',
     TapeChunkProcedure.numerator([50, 70, 90, 110, 130, 150, 999]), 180, 1e-9);
   // 没有死头时 liveFrom 不许动任何一段(样例表的全部数值都靠这条兜着)
   checkText('无死头的窗口原样给出',
@@ -9509,6 +9550,10 @@ function findClampedStartRunners() {
       'ans.tapeNumerator,tapeNumeratorTrue,tapeNumeratorOutcome,tapeChunkStart,tapeChunkSegments');
     assertTrue('判词把配对约定也说全(学生能从判词对回自己用的是哪几段)',
       NUM_EVID.includes('凑不满一对') && NUM_EVID.includes('tapeChunkSegments'), NUM_EVID);
+    // 最终评审 I2:分母那条的证据文案同样要报出"参与逐差的共几段"这个窗口口径 ——
+    // 它引用的是 {tapeChunkSegments},Task 5+6 起一直没断言钉过(删掉仍全绿)。
+    assertTrue('分母那条也点名窗口口径(证据模板里真的引用了 {tapeChunkSegments})',
+      DEN_EVID.includes('{tapeChunkSegments}'), DEN_EVID);
   }
   // 已经不在表里的错法不许再被承诺:sr-003 的 5 号「÷1000」与 sr-007 的 G2「把 x 当时间」都删了,
   // 板角基准那条(曾拟叫 G3)压根没进表 —— 点名一个表里都没有的错法 = 判词里写一句兑现不了的话。
@@ -9805,6 +9850,58 @@ function findClampedStartRunners() {
     // 同一条序列走到底之后再补交 g,也不该被"已经作废"卡住:答案不作废,直接判对
     runner.setAnswer('pjSegRatio', 3);
     check('补交段比之后满分', scored(runner).card.awarded, 100, 1e-9);
+  }
+
+  // ---- 最终评审 C1:作废的判据是"这一格问的那个数变了没有",不是"纸带动过没有" ----------
+  // 评审员在真树上实测:卡片 1..4 各描一点 → 交段比 3(outcome 0)→ 再释放一次,第五点落在
+  // 第 5 格。段比的窗口是"离槽口最近的那两个点",第五点比那两个远,窗口纹丝不动、
+  // pjSegRatioTrue 仍是 3 —— 而旧 mark() 无条件作废,答对的人被读成"没交",丢 20 分,
+  // 填空框当着他的面变空。两个方向必须成对钉住:
+  //   远点(窗口没换)不作废 —— 少了它,C1 等于没人验;
+  //   近点(窗口真换)必须作废 —— 少了它,"条件作废"可以悄悄改成"永不作废"照样全绿,
+  //   按 key 作废这条链就失去唯一的证人(上面 9745/9801 一带钉的是"该作废要作废",保留)。
+  {
+    const runner = mk(true, 2, [1, 2, 3, 4]);
+    runner.setAnswer('pjSegRatio', 3);
+    runner.setAnswer('pjG', 9.8);
+    const before = scored(runner);
+    check('C1 远点方向·基线:四格描完交段比 3 → outcome 0',
+      before.sheet.num('pjSegRatioOutcome'), 0, 0);
+    check('C1 远点方向·基线:这一趟满分(作废逻辑还没被牵连)', before.card.awarded, 100, 1e-9);
+    traceCard(runner, 5);            // 第五点落在更远的第 5 格:比窗口里那两个点都远,窗口不动
+    const far = scored(runner);
+    check('C1 描了第 5 个点:纸上确实多了点(证明 mark() 这一次真的走过作废判据)',
+      far.sheet.num('pjPointCount'), 5, 0);
+    check('C1 描了第 5 个点:pjSegRatioTrue 仍是 3 —— 窗口没换',
+      far.sheet.num('pjSegRatioTrue'), 3, 1e-6);
+    assertTrue('C1 描了第 5 个点:交过的答案原样留在 runner 里(仍是那个 3,没有被清成 NaN)',
+      far.runner.answer('pjSegRatio') === 3, String(far.runner.answer('pjSegRatio')));
+    check('C1 描了第 5 个点:outcome 仍是 0(没有因为"又描了一笔"被读成"没交")',
+      far.sheet.num('pjSegRatioOutcome'), 0, 0);
+    check('C1 描了第 5 个点:重算分仍是满分 —— 段比那 20 分照旧算给了答对的人',
+      far.card.awarded, 100, 1e-9);
+    checkText('C1 描了第 5 个点:一条扣分都没有(扣分清单里没冒出 pj-seg-ratio-value)',
+      far.card.deductions.map((d) => d.criterionId).join(','), '');
+
+    const near = mk(true, 2, [2, 3, 4, 5]);
+    near.setAnswer('pjSegRatio', 1.25);
+    near.setAnswer('pjG', 9.8);
+    const nearPre = scored(near);
+    check('C1 近点方向·基线:窗口是第 2、3 格 → 应有值 (9−4)/4 = 1.25',
+      nearPre.sheet.num('pjSegRatioTrue'), 1.25, 1e-6);
+    check('C1 近点方向·基线:照自己那批数据交 → outcome 0、满分',
+      nearPre.card.awarded, 100, 1e-9);
+    traceCard(near, 1);              // 新点比第 2、3 格更靠近槽口 → 窗口真的被换成第 1、2 格
+    const after = scored(near);
+    check('C1 描了更近的点:窗口换掉,应有值跟着变成 (4−1)/1 = 3',
+      after.sheet.num('pjSegRatioTrue'), 3, 1e-6);
+    assertTrue('C1 描了更近的点:旧答案真的被作废(按 key 这条路还活着,不是"永不作废")',
+      Number.isNaN(after.runner.answer('pjSegRatio')), String(after.runner.answer('pjSegRatio')));
+    check('C1 描了更近的点:该作废时读成"没交"而不是"算错了" → outcome 2',
+      after.sheet.num('pjSegRatioOutcome'), 2, 0);
+    check('C1 描了更近的点:只扣段比那一格的 20 分 → 80', after.card.awarded, 80, 1e-9);
+    checkText('C1 描了更近的点:扣分清单里只有段比那一条(g 与手上四条都不许响)',
+      after.card.deductions.map((d) => d.criterionId).join(','), 'pj-seg-ratio-value');
   }
 
   // ---- 这道题出不出来:点数门槛(反求 g 一对数就够,段比要凑得出前两段) ----------------

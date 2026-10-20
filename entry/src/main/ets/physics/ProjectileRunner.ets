@@ -77,9 +77,12 @@ class TracedPoint {
  * ① 改斜槽档位(`slot+`/`slot-`)、挪卡片(`card+`/`card-`)、挂重垂线(`origin`)都不作废 ——
  *    这三下只改世界的当前状态,不动已经描在纸上的点,而两格的应有值恰恰只由那些点带着的
  *    `drop`/`card`/`slot` 决定(描完之后再去升档位,拿新的 v0 配旧的点会假扣分);
- * ② 再描一个点(`release` 真的在纸上留下点时)**只作废段比那一格** —— 段比那一问的窗口是
- *    "离槽口最近的那两个点",新点可能比它们更靠近槽口,窗口一挪,上一次交的那个数就属于
- *    另一批数据了。g 那一格不在其列:它只读第 1 个点,而点只会追加,它的应有值纹丝不动,
+ * ② 再描一个点(`release` 真的在纸上留下点时)**只在段比那一问的数真的变了才作废那一格** ——
+ *    段比那一问的窗口是"离槽口最近的那两个点":新点落在更近处才会换掉窗口、数才跟着变;
+ *    落在更远处(第 5、6 格这类)窗口纹丝不动,交过的数就原样留着。判据是
+ *    "**这一格问的那个数变了没有**",不是"纸带动过没有" —— 描点落笔不等于作废(最终评审 C1:
+ *    旧写法每次落笔无条件作废,交对的人再描一个远点就被读成"没交",白丢 20 分)。
+ *    g 那一格不在其列:它只读第 1 个点,而点只会追加,它的应有值纹丝不动,
  *    作废一个没动的数就是把做对的人判成"没交"。
  *    这与 sr-003 声明的"power/release 不作废"不一样,是这条实验自己的事实逼出来的:
  *    那边纸带已经走完,再按键不改窗口;这边纸还在长。
@@ -172,10 +175,16 @@ export class ProjectileRunner extends Physics2DRunner {
   /**
    * 把此刻球的位置按当前原点设定记到纸上;真实下落另存一份(drop)。
    *
-   * 落笔这一刻**只作废段比那一格**:段比那一问的窗口是"离槽口最近的那两个点",而这个新点
-   * 完全可能比它们更靠近槽口 —— 窗口一挪,应有值就换了一批数据,留着旧数只会被判"算错了"
-   * (Controller Ruling D 的原话)。作废只在这一笔落笔发生:`release` 空放(球先落地、纸上
-   * 什么都没添)不进这里,也就不牵连作废 —— 触发点是"纸上多了一个点",不是那颗按钮。
+   * 落笔这一刻**只在段比那一格问的数真的变了才作废它**。段比那一问的窗口是"离槽口最近的
+   * 那两个点":落笔前后各取一次 `segRatio()`(窗口化出来的那个数),两次都是有限值且相等,
+   * 说明这一笔点落在更远的位置、窗口纹丝不动 —— 交过的数仍属于这批数据,**不作废**;
+   * 任一侧是 NaN(窗口从"凑不出两段"变成"能算了",或反过来)或两个数不等(新点更近、
+   * 把窗口换掉了)→ 作废。Controller Ruling D 的原话仍然成立:窗口一挪,上一次交的那个数
+   * 就属于另一批数据了;但最终评审 C1 补了另一半 —— 判据是"这一格问的那个数变了没有",
+   * 不是"纸带动过没有":无条件作废会把交对的人判成"没交"(评审在真树上实测:1..4 格描点、
+   * 交段比 3、再描第 5 格,应有值仍是 3,答案却被清、outcome 变 2、白丢 20 分)。
+   * 作废只在这一笔落笔发生:`release` 空放(球先落地、纸上什么都没添)不进这里,也就不牵连
+   * 作废 —— 触发点是"纸上多了一个点",不是那颗按钮。
    *
    * g 那一格**不作废**,因为它的应有值根本不会移动:`firstPointArgs()` 只读 `points[0]`,
    * 而 `points` 在 setup/reset 之间只会追加(评审把 240 010 个动作序列穷举过一遍证明了这点)。
@@ -184,6 +193,7 @@ export class ProjectileRunner extends Physics2DRunner {
    * Task 7 的页面要按 key 镜像清空(只清段比那一框),不许整框清(Ruling F)。
    */
   private mark(): void {
+    const ratioBefore = this.segRatio();
     const d = this.cardDistance();
     const drop = 0.5 * G * (d / this.v0()) * (d / this.v0());
     const point = new TracedPoint();
@@ -200,7 +210,10 @@ export class ProjectileRunner extends Physics2DRunner {
       point.y = EXIT_Y - drop - CORNER_Y;
     }
     this.points.push(point);
-    this.dropAnswer('pjSegRatio');
+    const ratioAfter = this.segRatio();
+    if (!(Number.isFinite(ratioBefore) && Number.isFinite(ratioAfter) && ratioBefore === ratioAfter)) {
+      this.dropAnswer('pjSegRatio');
+    }
   }
 
   readObservable(key: string): number {
