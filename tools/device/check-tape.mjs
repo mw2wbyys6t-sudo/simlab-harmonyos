@@ -27,14 +27,17 @@ const EDGE = 60;
 const TITLE = '测量匀变速直线运动物体的加速度';
 const p = new Probe({ tag: 'tape', outDir: outDir });
 
+/** 一次快照的带字文本表(共用件里那份,三条探针同一口径) */
 function texts() {
-  return p.dumpNodes().map((a) => a.text || '').filter((t) => t.length > 0);
+  return p.textList();
 }
 
+/**
+ * 读一行:值就是 label 后面那条文本。同一份表里取,不自己再 dump(I6:共用件那一份)。
+ * 这一条不滚:滚动由 scrollToText 负责,调用方必须先把它滚到那一格再读。
+ */
 function readout(label) {
-  const list = texts();
-  const at = list.indexOf(label);
-  return at >= 0 && at + 1 < list.length ? list[at + 1] : '';
+  return Probe.rowOf(label, texts());
 }
 
 function scrollToText(label, tries) {
@@ -111,11 +114,16 @@ p.launch();
 p.say('== 1. 通电与释放是两个按钮 ==');
 p.ensureHome();
 if (!p.tapInList(TITLE)) process.exit(1);
-p.expectTrue('标题出现在实验页', texts().filter((t) => t === TITLE).length >= 1, texts().slice(0, 3).join(' / '));
+// I6:条件与详情串必须取自**同一次快照**。旧写法在这里连着调 texts() 两三次,
+// 每次都是一整趟 dumpLayout —— 判的是 A 屏、说的是 B 屏。
+const home = texts();
+p.expectTrue('标题出现在实验页', home.filter((t) => t === TITLE).length >= 1,
+  home.slice(0, 3).join(' / '));
 scrollToText('接通／断开电源');
+const opsScreen = texts();
 p.expectTrue('「接通／断开电源」与「释放小车」都在',
-  texts().some((t) => t === '接通／断开电源') && texts().some((t) => t === '释放小车'),
-  texts().filter((t) => t.indexOf('电源') >= 0 || t.indexOf('释放') >= 0).join(' / '));
+  opsScreen.some((t) => t === '接通／断开电源') && opsScreen.some((t) => t === '释放小车'),
+  opsScreen.filter((t) => t.indexOf('电源') >= 0 || t.indexOf('释放') >= 0).join(' / '));
 
 p.say('== 2. 按正确顺序做一遍:先通电,再放车 ==');
 p.tap('开始');
@@ -126,8 +134,9 @@ p.sleep(3500);
 scrollToText('纸带上的点数');
 const dots = readout('纸带上的点数');
 p.expectTrue('纸带上打出了一串点', Number.parseInt(dots, 10) > 60, `实得「${dots}」`);
+const segs = readout('切出的计数段数');
 p.expectTrue('逐差法用得起来的段数(≥4 段)',
-  Number.parseInt(readout('切出的计数段数'), 10) >= 4, `实得「${readout('切出的计数段数')}」`);
+  Number.parseInt(segs, 10) >= 4, `实得「${segs}」`);
 const shortest = readout('最短计数段');
 p.expectTrue('最短一段在毫米级读得出来', parseFloat(shortest) >= 2, `实得「${shortest}」`);
 scrollToText('头一段漏打的点数');
@@ -156,10 +165,10 @@ if (mNum === null || mDen === null) {
   p.ok(`判词给的应有值:分子 ${mNum[1]} mm、倍数 ${mDen[1]}`);
   p.expectTrue('分子那一格打得上字(填空框收得到键盘输入)',
     p.typeIntoField('逐差法的分子', mNum[1], EDGE), 'typeIntoField 失败');
-  p.expect('框里就是打进去的应有值', p.fieldText('逐差法的分子'), mNum[1]);
+  p.expect('框里就是打进去的应有值', p.fieldText('逐差法的分子', EDGE), mNum[1]);
   p.expectTrue('倍数那一格打得上字',
     p.typeIntoField('分母里 T² 的倍数', mDen[1], EDGE), 'typeIntoField 失败');
-  p.expect('框里就是打进去的倍数', p.fieldText('分母里 T² 的倍数'), mDen[1]);
+  p.expect('框里就是打进去的倍数', p.fieldText('分母里 T² 的倍数', EDGE), mDen[1]);
   tapByWalk('交卷评分');
   const graded = p.verdictBlob(EDGE);
   p.expectTrue('两格照应有值交上去 → 得分 100 一分不少',
@@ -175,8 +184,9 @@ p.tap('开始');
 tapPairInOneGo('释放小车', '接通／断开电源');
 p.sleep(3000);
 scrollToText('头一段漏打的点数');
-const lost = Number.parseInt(readout('头一段漏打的点数'), 10);
-p.expectTrue('先放车确实漏了头一段', lost > 5, `实得「${readout('头一段漏打的点数')}」`);
+const lostRaw = readout('头一段漏打的点数');
+const lost = Number.parseInt(lostRaw, 10);
+p.expectTrue('先放车确实漏了头一段', lost > 5, `实得「${lostRaw}」`);
 p.shot('tape-lost-head');
 
 const code = p.finish(`截图在 ${outDir}`);

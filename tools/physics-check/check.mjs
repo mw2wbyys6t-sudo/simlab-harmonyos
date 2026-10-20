@@ -3421,6 +3421,111 @@ function findClampedStartRunners() {
   assertTrue('事实的 value 字段整个缺失时读成 NaN 而不是 0',
     Number.isNaN(noVal.all()[0].facts[0].value), `实得 ${noVal.all()[0].facts[0].value}`);
 
+  /**
+   * I2(Task 10 修复轮 1):「factNumber 只影响显示」这句话,以前没有钉住**回放**这条路。
+   *
+   * 回放只有一条链(ReportPage.ets:165 → Rubrics.factsFor(record) → Judgment.score),
+   * 而 Judgment.ets:89-92 对非有限值是**跳过判据**。所以旧记录里存成 NaN 的事实,
+   * 以前回播放成 0 参与比较、现在 NaN 被跳过 —— 分数可以变,方向是变高(宁漏不误,方向对)。
+   * 今天真会写 NaN 的只有 `ans.*`,而判据不许拿 `ans.` 当 metric(第 15 把尺子与它的负对照钉着),
+   * 所以实际不变 —— 但 3531 全绿是「没人钉」,不是「没变化」。
+   *
+   * 这一条刻意走 toJson→fromJson 的**线格式**:上面 ohm 那一节(:7013-7023 那段)用的
+   * `new SessionRecord(); record.facts = [...]` 直接喂 factsFor,压根不经过 JSON,
+   * NaN 那条坑它看不见 —— 评审点出的就是这个洞。
+   */
+  {
+    const { RubricTape } = require(join(OUT, 'bench/RubricTape.cjs'));
+    const { Rubrics } = require(join(OUT, 'bench/RubricMeasure.cjs'));
+    const { Judgment } = require(join(OUT, 'bench/Judgment.cjs'));
+    const { FactSheet } = require(join(OUT, 'model/FactSheet.cjs'));
+    const rubric = RubricTape.create();
+    /** 交卷当时屏上那一条:手上四条全过、两格都没交(ans.* = NaN,结果码 2 = 没交) */
+    const SUBMIT_FACTS = [
+      ['tapeDotCount', 120], ['tapeLostHead', 0], ['tapeShortestMm', 18],
+      ['tapeSegments', 6], ['tapeChunkStart', 20], ['tapeChunkSegments', 6],
+      ['tapeNumeratorTrue', 562.35], ['tapeDenFactorTrue', 36],
+      ['tapeNumeratorOutcome', 2], ['tapeNumeratorWrongKind', 0],
+      ['tapeDenFactorOutcome', 2], ['tapeDenFactorWrongKind', 0],
+      ['ans.tapeNumerator', Number.NaN], ['ans.tapeDenFactor', Number.NaN]
+    ];
+    function sheetOf(pairs) {
+      const s = new FactSheet();
+      for (const pair of pairs) {
+        s.set(pair[0], pair[1]);
+      }
+      return s;
+    }
+    function tapeRecord(id, pairs) {
+      const r = new SessionRecord();
+      r.id = id;
+      r.experimentId = 'tape-1';
+      r.title = '交卷当时那一条';
+      r.subject = Subject.PHYSICS_MECHANICS;
+      r.endedAtMs = 9000;
+      r.durationSec = 60;
+      r.rubricId = rubric.id;
+      r.rubricVersion = rubric.version;
+      r.rubricSource = rubric.source;
+      r.total = rubric.totalPoints;
+      const atSubmit = Judgment.score(rubric, sheetOf(pairs));
+      r.awarded = atSubmit.awarded;
+      r.deductionTitles = atSubmit.deductions.map((d) => d.title);
+      r.facts = pairs.map((pair) => fact(pair[0], pair[1]));
+      r.moments = [];
+      return r;
+    }
+
+    const submitCard = Judgment.score(rubric, sheetOf(SUBMIT_FACTS));
+    const wire = new SessionLedger();
+    wire.add(tapeRecord('i2-nan', SUBMIT_FACTS));
+    const json = wire.toJson();
+    assertTrue('含 NaN 事实的记录过线写出来是 null(证明这条真走了线格式,不是内存对象)',
+      json.indexOf('"value":null') > 0, json.slice(0, 260));
+    const replay = Judgment.score(rubric, Rubrics.factsFor(SessionLedger.fromJson(json).all()[0]));
+    check('I2 线格式 → 重算分:等于交卷当时那一分', replay.awarded, submitCard.awarded, 1e-12);
+    checkText('I2 线格式 → 重算分:扣的是哪几条也不许变',
+      replay.deductions.map((d) => d.criterionId).join(','),
+      submitCard.deductions.map((d) => d.criterionId).join(','));
+    // 上面两条**单独**咬不住 factNumber:ans.* 不是任何判据的 metric,分数本来就不动。
+    // 被 factNumber 决定的其实是那条扣分句里印出来的数 —— D1 在模拟器上实测到的就是它。
+    const replayEvidence = replay.deductions.map((d) => d.evidence).join('\n');
+    assertTrue('I2 回放那条扣分句里「你交的分子」仍是破折号,不是被读成 0',
+      replayEvidence.indexOf('你交的分子是 —') >= 0 && replayEvidence.indexOf('你交的分子是 0') < 0,
+      replayEvidence.slice(0, 320));
+
+    // 负对照:上面那条等式到底有没有牙。把 NaN 放到**是 metric 的那一头**(tapeShortestMm,
+    // 判据 tape-crowded-start 是 LT 2):今天没人这么写,但这正是「NaN 被塌成 0」时分数会变的那一头
+    // —— 跳过 → 不扣,当 0 → 多扣 15。不钉住这一头,"等于交卷当时那一分"就可能是条恒等式。
+    const metricNaN = SUBMIT_FACTS.map((pair) => (pair[0] === 'tapeShortestMm'
+      ? ['tapeShortestMm', Number.NaN] : pair));
+    const mSubmit = Judgment.score(rubric, sheetOf(metricNaN));
+    const mWire = new SessionLedger();
+    mWire.add(tapeRecord('i2-metric-nan', metricNaN));
+    const mJson = mWire.toJson();
+    const mReplay = Judgment.score(rubric, Rubrics.factsFor(SessionLedger.fromJson(mJson).all()[0]));
+    check('I2 负对照:metric 那一头是 NaN 时,回放的分仍等于交卷当时那一分(NaN 被跳过)',
+      mReplay.awarded, mSubmit.awarded, 1e-12);
+    // 合成变异(不改 .ets):把线上那份 `"value":null` 改写成 `"value":0` ——
+    // 那正是 factNumber 塌成 0 时 fromJson 会交回来的东西。本轮硬 scope 不许动行为源码,
+    // 真去改一次 SessionLedger.factNumber 再跑归 Task 11 的变异测试片子;
+    // 这里用**同一条反序列化路**把红演出来,免得后人以为上面那条等式是恒等式。
+    const collapsedJson = mJson.replace(/"value":null/g, '"value":0');
+    assertTrue('I2 合成变异:null 写成 0 之后确实从同一条反序列化里读出 0(变异走的就是那条路)',
+      collapsedJson !== mJson && collapsedJson.indexOf('"value":0') > 0, collapsedJson.slice(0, 200));
+    const mCollapsed = Judgment.score(rubric,
+      Rubrics.factsFor(SessionLedger.fromJson(collapsedJson).all()[0]));
+    check('I2 合成变异:同一份线格式把那个 NaN 当 0 会多扣 15 分(所以等式那条真的能咬)',
+      mCollapsed.awarded, mSubmit.awarded - 15, 1e-12);
+    // ans.* 那一头同理:塌成 0 之后那句扣分句就印成「你交的分子是 0」—— D1 在屏幕上的现场
+    const ansCollapsed = json.replace(/"value":null/g, '"value":0');
+    const ansReplay = Judgment.score(rubric,
+      Rubrics.factsFor(SessionLedger.fromJson(ansCollapsed).all()[0]));
+    const ansEvidence = ansReplay.deductions.map((d) => d.evidence).join('\n');
+    assertTrue('I2 合成变异:塌成 0 之后回放句里印出「你交的分子是 0」(= 上面那条破折号断言会红)',
+      ansEvidence.indexOf('你交的分子是 0') >= 0, ansEvidence.slice(0, 320));
+  }
+
   // 脏数据不能把应用带崩
   for (const bad of ['', '   ', 'not json', 'null', '[]', '{}', '{"records":null}', '{"records":[]}']) {
     const dirty = SessionLedger.fromJson(bad);

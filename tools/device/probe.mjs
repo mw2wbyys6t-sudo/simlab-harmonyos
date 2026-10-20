@@ -22,6 +22,10 @@ const DEFAULT_HDC = 'F:/DevEco/DevEco Studio/sdk/default/openharmony/toolchains/
 const BUNDLE = 'com.simlab.edu';
 const ABILITY = 'EntryAbility';
 
+/** 设备 token 的形状:IP:端口(模拟器走 TCP)或一段序列号(真机走 USB) */
+const IP_PORT = /^(\d{1,3}\.){3}\d{1,3}:\d{2,5}$/;
+const SERIAL = /^[A-Za-z0-9][A-Za-z0-9._-]{4,}$/;
+
 export class Probe {
   constructor(opts) {
     this.hdc = process.env.SIMLAB_HDC || DEFAULT_HDC;
@@ -29,6 +33,8 @@ export class Probe {
     this.outDir = opts.outDir || null;
     this.target = opts.target || process.env.SIMLAB_TARGET || null;
     this.env = { ...process.env, MSYS_NO_PATHCONV: '1' };
+    // 自检用的注入点(check-probe.mjs 要看真 argv 判"带没带 -t")。默认 null → 走 execFileSync。
+    this.spawn = opts.spawn || null;
     this.lines = [];
     this.failures = 0;
     if (this.outDir) {
@@ -43,16 +49,22 @@ export class Probe {
    * 全部变成"need connect-key?",探针当场抛异常退出 —— 那既不是应用缺陷也不是判据判得对,
    * 是一台没人看着的机器把另一台挡住了。自动取 lines[0] 更糟:它会把探针安到错的模拟器上,
    * 测出来的一切都是假的。
+   *
+   * 「在线几台」这个数本轮才真的算得出来。旧版按 `/\d/` 挑行,而 hdc 的告警行自己就带数字
+   * (实测 `[Fail][E001005] Device not found or connected`、`[F][2026-10-19 19:43:57] open path...`),
+   * 一条失败调用能把"设备数"抬成 2 台 —— 于是"两台在线不许猜"这条闸门数的是告警而不是机器。
+   * 现在只认 token 形状:IP:端口 或序列号,`[` 开头的行(告警/错误码/时间戳)一律不算设备。
    */
   assertDevice() {
     const out = this.shellExec(['list', 'targets']);
-    const lines = out.split('\n').map((s) => s.trim()).filter((s) => /\d/.test(s));
+    const lines = Probe.deviceLines(out);
     if (lines.length === 0) {
       throw new Error(`没有设备在线(hdc list targets = ${out.trim()})。先起模拟器再继续。`);
     }
     if (this.target === null) {
       if (lines.length > 1) {
-        throw new Error(`有 ${lines.length} 台设备在线(${lines.join('、')}),探针不许猜是哪台。`
+        throw new Error(`有 ${lines.length} 台设备在线(${lines.join('、')}),探针不许猜是哪台 —— `
+          + '装包、dumpLayout、点击全都会落到第一台匹配上的机器上,那测的就不是你看着的这一台。'
           + '设 SIMLAB_TARGET=127.0.0.1:5555(或构造参数 target)再跑。');
       }
       this.target = lines[0];
@@ -62,11 +74,41 @@ export class Probe {
     return this.target;
   }
 
-  shellExec(args) {
+  /**
+   * 从 `hdc list targets` 的原始输出里挑出真设备。
+   *
+   * 单独成一个静态口,是因为"什么算一台设备"这件事必须有能被合成输入验一遍的地方:
+   * 拿真机没法当场造出"两台在线",而这条判据一旦数错,后面所有"点名设备"的闸门都白设。
+   */
+  static deviceLines(out) {
+    const hit = [];
+    for (const raw of String(out).split(/\r?\n/)) {
+      const token = raw.trim().split(/\s+/)[0];
+      if (token === '' || token.charAt(0) === '[') {
+        continue;
+      }
+      if (!/\d/.test(token)) {
+        continue;
+      }
+      if (IP_PORT.test(token) || SERIAL.test(token)) {
+        hit.push(token);
+      }
+    }
+    return hit;
+  }
+
+  shellExec(args, opts) {
     // 除了 list targets,每一条 hdc 都得带着 -t:没有它,两台在线时命令会被拒或落到错的机器上
     const full = (this.target !== null && args[0] !== 'list' && args[0] !== '-t')
       ? ['-t', this.target].concat(args) : args;
-    return execFileSync(this.hdc, full, { env: this.env, encoding: 'utf8' });
+    const o = opts || {};
+    const cwd = o.cwd === undefined ? process.cwd() : o.cwd;
+    // Windows 上 execFileSync 起不了 .cmd 假二进制(EINVAL),所以自检用 spawn 注入点看真 argv;
+    // 生产路径默认仍是 execFileSync,一行没变。
+    if (this.spawn !== null) {
+      return this.spawn(this.hdc, full, { env: this.env, encoding: 'utf8', cwd });
+    }
+    return execFileSync(this.hdc, full, { env: this.env, encoding: 'utf8', cwd });
   }
 
   shell(cmd) {
@@ -77,11 +119,22 @@ export class Probe {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
   }
 
-  /** 装包。必须看到 install bundle successfully 才算装上(否则测的是上一个构建) */
+  /**
+   * 装包。必须看到 install bundle successfully 才算装上(否则测的是上一个构建)。
+   *
+   * 本轮 I1:旧版这里是全文件**唯一一条绕过 shellExec 的 hdc 调用** —— 它自己 execFileSync,
+   * 于是 `install` 不带 -t。两台在线时它能把包装到另一台模拟器上而照样回
+   * "install bundle successfully",那测的就不是这个构建,正是 :66 那条注释自己要避免的事
+   * (9 条带 --install 的脚本都受影响)。现在走同一条 target 逻辑,并且没点名就拒装。
+   */
   install(hapPath) {
+    if (this.target === null) {
+      throw new Error('装包之前必须先 assertDevice():不带 -t 的 `hdc install` 在两台在线时可能装到另一台机器,'
+        + '而它的回显一模一样。设 SIMLAB_TARGET 或先调 assertDevice()。');
+    }
     const dir = hapPath.slice(0, hapPath.lastIndexOf('/'));
     const file = hapPath.slice(hapPath.lastIndexOf('/') + 1);
-    const out = execFileSync(this.hdc, ['install', '-r', file], { env: this.env, encoding: 'utf8', cwd: dir });
+    const out = this.shellExec(['install', '-r', file], { cwd: dir });
     if (!out.includes('install bundle successfully')) {
       throw new Error(`安装没成功,后面测的就不是这个构建:\n${out}`);
     }
@@ -173,23 +226,79 @@ export class Probe {
    *
    * 实测:uitest 的 dumpLayout 默认合窗口,软键盘是单独一个窗口(47 个节点,键帽是 Image),
    * 但那个窗口的 root 顶到 y=137(整屏容器),所以只能按键帽尺寸筛,不能直接取窗口上沿。
+   *
+   * 这个口只回答"上沿在哪",答不了"键盘到底在不在" —— 后者是 imeState 的三态。
    */
   imeTop(nodes) {
-    const field = nodes.find((n) => n.type === 'TextInput');
-    if (field === undefined) {
-      return -1;
+    const s = this.imeState(nodes);
+    return s.top;
+  }
+
+  /** 应用自己那个窗口的 hostWindowId(root 那一支);拿不到就返回 null */
+  appWindow(nodes) {
+    const root = nodes.find((n) => n.type === 'root');
+    if (root === undefined || root.hostWindowId === undefined || root.hostWindowId === '') {
+      return null;
     }
-    const keys = [];
+    return String(root.hostWindowId);
+  }
+
+  /**
+   * 键盘在不在,三态:`up` / `down` / `unknown`。
+   *
+   * 旧版只有一个 `imeTop() < 0`,于是"键盘收好了"和"键盘在不在我看不出来"是同一种说法。
+   * 本轮实测这台机器的树里常驻**三个**窗口(空 hostWindowId 一个、应用 root=185、
+   * 状态栏 27 的 37 个节点全在 y 0..136),再叠上键盘时多出 228(47 个节点)与 29(12 个)
+   * —— 所以"树里有没有第二个窗口"根本不能当键盘信号(状态栏自己就是一个)。
+   * 认键盘只看一件事:**有没有别的窗口的节点压在屏幕下半部**。
+   *   · 一个都没有                     → `down`(键盘确实没支起来)
+   *   · 压在下半部、键帽数得出 ≥3 颗   → `up`,top 就是键帽上沿
+   *   · 压在下半部、键帽数不出来       → `unknown` —— 这一档旧版报的是"已收起",那是假绿:
+   *     依赖"快照前键盘已收起"的断言(②的回显结构闸门、⑤ 的量窗)会被键盘位移污染而没人喊。
+   */
+  imeState(nodes) {
+    const app = this.appWindow(nodes);
+    if (app === null) {
+      return { state: 'unknown', top: -1, why: '树里没有带 hostWindowId 的 root,认不出哪个窗口是应用' };
+    }
+    const overlay = [];
     for (const n of nodes) {
-      if (n.hostWindowId === field.hostWindowId || n.type === 'root' || n.type === 'WindowScene') {
+      if (n.type === 'root' || n.type === 'WindowScene') {
+        continue;
+      }
+      if (n.hostWindowId === undefined || n.hostWindowId === '' || String(n.hostWindowId) === app) {
         continue;
       }
       const r = Probe.rect(n.bounds);
-      if (r[3] - r[1] <= 600 && r[2] - r[0] <= 700 && r[1] > 600) {
+      // 只算**压在屏幕下半部**的外来节点:状态栏/导航条那类常驻窗口(实测 hostWindowId 27,
+      // 37 个节点全在 y 0..136)也在别的窗口里,拿"有没有第二个窗口"当键盘信号会永远判不出 down
+      if (r[1] > 600) {
+        overlay.push(r);
+      }
+    }
+    if (overlay.length === 0) {
+      return { state: 'down', top: -1, why: '屏幕下半部没有外来窗口的节点(状态栏那类常驻在上沿)' };
+    }
+    const keys = [];
+    for (const r of overlay) {
+      if (r[3] - r[1] <= 600 && r[2] - r[0] <= 700) {
         keys.push(r[1]);
       }
     }
-    return keys.length < 3 ? -1 : Math.min(...keys);
+    if (keys.length < 3) {
+      return { state: 'unknown', top: -1, why: '屏幕下半部有 ' + overlay.length + ' 个外来节点,却数不出 ≥3 颗键帽' };
+    }
+    return { state: 'up', top: Math.min(...keys), why: '键帽 ' + keys.length + ' 颗' };
+  }
+
+  /** 窗口分布(失败详情里要说清"树里有几个窗口",否则 unknown 没法三分) */
+  winHist(nodes) {
+    const at = new Map();
+    for (const n of nodes) {
+      const k = (n.hostWindowId === undefined || n.hostWindowId === '') ? '(空)' : String(n.hostWindowId);
+      at.set(k, (at.get(k) || 0) + 1);
+    }
+    return [...at].map(([k, v]) => k + ':' + v).join(' ');
   }
 
   /**
@@ -197,16 +306,21 @@ export class Probe {
    *
    * 实测点问句、点画布都收不掉(那个键盘窗口原样留着),Escape 才干净;
    * 而 keyEvent Back 在键盘已经收起的那一次会把实验页整个弹出栈(实测页面没了),所以不用它。
+   *
+   * 返回值本轮从布尔改成三态字串:`down` 才算收好了,`unknown` 表示**看不见键盘所以没法确认**。
+   * 调用方拿到不是 `down` 的结果必须红,不许当"已收起"继续往下测(I7)。
    */
   hideKeyboard() {
     for (let round = 0; round < 3; round++) {
-      if (this.imeTop(this.dumpNodes()) < 0) {
-        return true;
+      const s = this.imeState(this.dumpNodes());
+      if (s.state !== 'up') {
+        return s.state === 'down' ? 'down' : 'unknown';
       }
       this.shell('uitest uiInput keyEvent 2');
       this.sleep(900);
     }
-    return this.imeTop(this.dumpNodes()) < 0;
+    const left = this.imeState(this.dumpNodes());
+    return left.state === 'down' ? 'down' : 'unknown';
   }
 
   /**
@@ -271,6 +385,9 @@ export class Probe {
   /**
    * 清框:uitest 的 inputText 只会往后追加,不清就是把两次内容叠进同一条断言
    * (实测:同一格连打两次 9.80 → 屏上 9.809.80)。退格用 keyEvent 2055,先点那一格交焦点。
+   *
+   * 收键盘那一步现在要结果:I7 —— 认不出键盘时不许当"已收起"接着往下测,
+   * 否则调用方拿到的快照可能被键盘位移污染,而 ②/⑤ 那两条闸门会静悄悄地在比两屏不同的东西。
    */
   clearField(prefix, edgeX) {
     for (let round = 0; round < 6; round++) {
@@ -280,7 +397,11 @@ export class Probe {
       }
       const len = (f.text || '').length;
       if (len === 0) {
-        this.hideKeyboard();
+        const st = this.hideKeyboard();
+        if (st !== 'down') {
+          this.fail(`收键盘(清完「${prefix}」之后)`, `键盘状态认不出来(${st}),不许当已收起继续测`);
+          return false;
+        }
         return true;
       }
       const c = Probe.center(f.bounds);
@@ -299,6 +420,7 @@ export class Probe {
    * 往一格填空里打字:先清框,再定位那一格(坐标必须现取),然后用 inputText 打进去。
    * edgeX 一路透传给 locateField —— 三条探针都把自己的滚动留白 x 传进来,
    * 少了这一笔就是「调用点写了 EDGE、实现里静默用默认 60」(tap 的注释里记过同一形状的坑)。
+   * 打完必须确认键盘真的收掉了(I7):认不出状态就返回 false,让调用方那条断言红。
    */
   typeIntoField(prefix, text, edgeX) {
     if (!this.clearField(prefix, edgeX)) {
@@ -311,7 +433,11 @@ export class Probe {
     const c = Probe.center(f.bounds);
     this.shell(`uitest uiInput inputText ${c[0]} ${c[1]} ${text}`);
     this.sleep(1200);
-    this.hideKeyboard();
+    const st = this.hideKeyboard();
+    if (st !== 'down') {
+      this.fail(`收键盘(往「${prefix}」打完字之后)`, `键盘状态认不出来(${st}),这一格的快照会被键盘位移污染`);
+      return false;
+    }
     return true;
   }
 
@@ -428,6 +554,62 @@ export class Probe {
   back(wait) {
     this.shell('uitest uiInput keyEvent Back');
     this.sleep(wait || 1300);
+  }
+
+  /** 同一次快照里的带字文本表(读行的前提:表必须来自一次 dumpLayout,不许每读一格重取一次) */
+  textList(nodes) {
+    return (nodes === undefined ? this.dumpNodes() : nodes)
+      .map((a) => a.text || '').filter((t) => t.length > 0);
+  }
+
+  /**
+   * 一次快照读一行:label 下面紧挨着的那条文本就是它的值。
+   *
+   * 三条探针原来各写了一份读法,而 check-projectile 那份每判一轮要 dump **两次** ——
+   * `rowOf(label).length > 0` 与 `return rowOf(label)` 取自不同快照,中间那一屏可能已经滚了
+   * (读到空 → 再滚一下 → 拿回来的可能是另一格)。check-answer 的 readout2 本轮之前已经修掉
+   * 这一点,但修好的那份没共享出去,这就是共用件漂移。现在把它下沉到这里,三条探针同一份。
+   * 接的是**文本表**而不是自己去 dump:调用方必须把同一份表传给条件与详情串,
+   * 否则 `p.expectTrue(..., readout(x) === y, \`实得「${readout(x)}」\`)` 又会变成两次快照。
+   */
+  static rowOf(label, list) {
+    const at = list.indexOf(label);
+    return at >= 0 && at + 1 < list.length ? list[at + 1] : '';
+  }
+
+  /**
+   * 滚到某一格读数再读:九格读数一屏放不下。
+   *
+   * 一次尝试 = 一次快照(值与"值非空"这个条件取自同一份表)。edgeX 一路透传 ——
+   * 每条探针的滚动留白 x 不一样,少了这一笔就是「调用点写了 EDGE、实现里静默用默认 60」
+   * (tap 的注释里记过同一形状的坑,probe.mjs:299-302 自己立的规矩)。
+   */
+  readRow(label, opts) {
+    const o = opts || {};
+    const x = o.edgeX === undefined ? 60 : o.edgeX;
+    const tries = o.tries === undefined ? 18 : o.tries;
+    const settle = o.settle === undefined ? 600 : o.settle;
+    const from = o.swipeFrom === undefined ? 1900 : o.swipeFrom;
+    const to = o.swipeTo === undefined ? 900 : o.swipeTo;
+    const swipeWait = o.swipeWait === undefined ? 400 : o.swipeWait;
+    this.scrollToTop();
+    for (let i = 0; i < tries; i++) {
+      const list = this.textList();
+      const value = Probe.rowOf(label, list);
+      if (list.indexOf(label) >= 0 && value.length > 0) {
+        this.sleep(settle);
+        return { value: value, screen: list };
+      }
+      this.swipe(x, from, x, to);
+      this.sleep(swipeWait);
+    }
+    this.fail(`读到「${label}」`, '滚到底也没出现这一格读数');
+    return { value: '', screen: [] };
+  }
+
+  /** 只要值本身(readRow 的薄口);详情串要复用同一个值时请直接用 readRow 的返回 */
+  readout(label, opts) {
+    return this.readRow(label, opts).value;
   }
 
   /**

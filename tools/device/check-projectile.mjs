@@ -39,28 +39,17 @@ const PJ_RATIO_LABEL = '竖直方向第二段位移';
 const p = new Probe({ tag: 'projectile', outDir: outDir });
 
 function texts() {
-  return p.dumpNodes().map((a) => a.text || '').filter((t) => t.length > 0);
+  return p.textList();
 }
 
-function rowOf(label) {
-  const list = texts();
-  const at = list.indexOf(label);
-  return at >= 0 && at + 1 < list.length ? list[at + 1] : '';
-}
-
-/** 滚到某一格读数再读:九格读数一屏放不下 */
+/**
+ * 读一行统一走共用件(I6):旧版这里自己写了一份 `rowOf(label)`,每次调用都 dump 一遍,
+ * 而 readout() 的判断条件调一次、返回值再调一次 —— 每判一轮要 dump **两次**,
+ * 两下取自**不同快照**,中间那一屏可能已经滚了(读到空 → 再甩一下 → 拿回来的可能是另一格)。
+ * check-answer 早就修掉了这一点,但那份没共享出来,于是三条探针里两份是对的、一份是漂的。
+ */
 function readout(label) {
-  p.scrollToTop();
-  for (let i = 0; i < 16; i++) {
-    if (rowOf(label).length > 0) {
-      p.sleep(900);
-      return rowOf(label);
-    }
-    p.swipe(EDGE, 1900, EDGE, 900);
-    p.sleep(600);
-  }
-  p.fail(`读到「${label}」`, '滚到底也没出现这一格读数');
-  return '';
+  return p.readout(label, { edgeX: EDGE, tries: 16, settle: 900, swipeWait: 600 });
 }
 
 function numOf(label) {
@@ -183,10 +172,10 @@ if (mG === null || mRatio === null) {
   p.ok(`判词给的应有值:g ${mG[1]} m/s²、段比 ${mRatio[1]}`);
   p.expectTrue('g 那一格打得上字(填空框收得到键盘输入)',
     p.typeIntoField(PJ_G_LABEL, mG[1], EDGE), 'typeIntoField 失败');
-  p.expect('框里就是打进去的 g', p.fieldText(PJ_G_LABEL), mG[1]);
+  p.expect('框里就是打进去的 g', p.fieldText(PJ_G_LABEL, EDGE), mG[1]);
   p.expectTrue('段比那一格打得上字',
     p.typeIntoField(PJ_RATIO_LABEL, mRatio[1], EDGE), 'typeIntoField 失败');
-  p.expect('框里就是打进去的段比', p.fieldText(PJ_RATIO_LABEL), mRatio[1]);
+  p.expect('框里就是打进去的段比', p.fieldText(PJ_RATIO_LABEL, EDGE), mRatio[1]);
   press('交卷评分');
   const graded = verdict();
   p.expectTrue('两格照应有值交上去 → 得分 100 一分不少',
