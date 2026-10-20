@@ -4,7 +4,9 @@
  * 为什么要有这个文件:修复轮 1 要求证明"两台在线时不许猜设备""认不出键盘时不许报成功"。
  * 这两件事在只有一台模拟器的机器上没法用真设备证明(5557 今天没在监听,内存也不够再起一台),
  * 而"复现不了的测量不许写进报告"是本项目自己的规矩。所以做成合成输入的检查:
- * 输入的形状与字段全部抄自本轮实测的 hdc/uitest 输出(见 task10-logs/fix1-*.log)。
+ * 输入的形状与字段全部抄自本轮真设备上跑出来的日志(`task10-logs/f1-*.log` 与
+ * `task10-logs/stage-*.log`:窗口分布、键帽 bounds、hdc 的告警行都是实测形状),
+ * 但**这是合成输入,不是真设备证明** —— 两件事别混着说。
  *
  * 运行:node tools/device/check-probe.mjs
  */
@@ -79,7 +81,8 @@ const counted = Probe.deviceLines([
   '127.0.0.1:5557\t\tTCP\tOffline\tlocalhost\thdc'
 ].join('\r\n'));
 expectTrue('告警行不算设备(旧版按 /\\d/ 挑行,把这两条告警也数成了机器)',
-  counted.join(',') === '127.0.0.1:5555,FMR0224407000269,127.0.0.1:5557',
+  // 5557 那一行在同一份输出里写着 Offline,所以它也不算一台(见下面第 3 段)
+  counted.join(',') === '127.0.0.1:5555,FMR0224407000269',
   '实得:' + counted.join(','));
 const onlyWarn = Probe.deviceLines('[Fail][E001005] Device not found or connected\r\n[Empty]\r\n');
 expectTrue('全是告警时算出 0 台(而不是"有一台在线,就用它")', onlyWarn.length === 0,
@@ -108,3 +111,55 @@ try {
 }
 expectTrue('点名的那台不在清单里 → 报清楚,不静默换一台',
   offlineThrew !== null && offlineThrew.indexOf('不在线') > 0, '实得:' + String(offlineThrew));
+
+console.log('== 3. 带状态的行:Offline 那一台不算在线 ==');
+const withOffline = Probe.deviceLines('127.0.0.1:5555\r\n127.0.0.1:5557\t\tTCP\tOffline\tlocalhost\thdc\r\n');
+expectTrue('Offline 的那一行不算一台在线设备(否则单台在线会被逼着点名)',
+  withOffline.join(',') === '127.0.0.1:5555', '实得:' + withOffline.join(','));
+const allOffline = Probe.deviceLines('127.0.0.1:5557\t\tTCP\tOffline\tlocalhost\thdc\r\n');
+expectTrue('只剩 Offline 时算出 0 台(报"没有设备在线",而不是拿一台休眠的去测)',
+  allOffline.length === 0, '实得:' + allOffline.join(','));
+
+console.log('== 4. 键盘三态(I7):认不出来不许报"已收起" ==');
+// 窗口分布抄自 f1-b.log 的实测形状:应用 root=185,状态栏 27 的节点全在 y 0..136,
+// 键盘支起来时多一个 228(几十上百个节点压在屏幕下半部)。
+const APP = (b) => ({ type: 'Text', hostWindowId: '185', bounds: b });
+const root = { type: 'root', hostWindowId: '185', bounds: '[0,0][1260,2760]' };
+const scene = { type: 'WindowScene', hostWindowId: '185', bounds: '[0,0][1260,2760]' };
+const statusBar = { type: 'Text', hostWindowId: '27', bounds: '[40,60][200,136]' };
+const appNodes = [root, scene, statusBar, APP('[98,1468][1052,1608]'), APP('[98,2413][1052,2553]')];
+const down = mkProbe({ tag: 'selftest-5' }).imeState(appNodes);
+expectTrue('屏幕下半部没有外来节点 → down(真收起了)',
+  down.state === 'down', JSON.stringify(down));
+const keycaps = [228, 228, 228, 228, 228].map((w, i) => ({
+  type: 'Text', hostWindowId: String(w), bounds: `[${60 + i * 200},2620][${200 + i * 200},2700]`
+}));
+const up = mkProbe({ tag: 'selftest-6' }).imeState(appNodes.concat(keycaps));
+expectTrue('压在下半部、键帽数得出 ≥3 颗 → up,top 是键帽上沿',
+  up.state === 'up' && up.top === 2620, JSON.stringify(up));
+const blob = { type: 'Image', hostWindowId: '228', bounds: '[0,1700][1260,2760]' };
+const unknown = mkProbe({ tag: 'selftest-7' }).imeState(appNodes.concat([blob]));
+expectTrue('压在下半部却数不出键帽 → unknown(旧版这一档报的是"已收起",那是假绿)',
+  unknown.state === 'unknown', JSON.stringify(unknown));
+const noRoot = mkProbe({ tag: 'selftest-8' }).imeState([APP('[98,1468][1052,1608]')]);
+expectTrue('树里连应用 root 都没有 → unknown,不猜',
+  noRoot.state === 'unknown', JSON.stringify(noRoot));
+
+console.log('== 5. hideKeyboard 在认不出键盘时不许报"收好了" ==');
+// 只把"读设备树"这一件事桩掉(它要真模拟器),hideKeyboard 自己的判定逻辑一行没换。
+const pUnknown = mkProbe({ tag: 'selftest-9' });
+pUnknown.dumpNodes = () => appNodes.concat([blob]);
+const rUnknown = pUnknown.hideKeyboard();
+expectTrue('数不出键帽 → 返回 unknown,不是 down(I7 的整条理由就在这)',
+  rUnknown === 'unknown', '实得:' + String(rUnknown));
+const pDown = mkProbe({ tag: 'selftest-10' });
+pDown.dumpNodes = () => appNodes;
+expectTrue('屏幕下半部干净 → 返回 down', pDown.hideKeyboard() === 'down', '实得:非 down');
+const pUp = mkProbe({ tag: 'selftest-11' });
+let pUpReads = 0;
+pUp.dumpNodes = () => (pUpReads++ === 0 ? appNodes.concat(keycaps) : appNodes);
+expectTrue('键盘在、Escape 之后干净 → down(它确实会重试,不是一把就放弃)',
+  pUp.hideKeyboard() === 'down' && pUpReads >= 2, '实得读树次数:' + pUpReads);
+
+console.log(fails === 0 ? '\n全部通过' : `\n${fails} 项失败`);
+process.exit(fails === 0 ? 0 : 1);

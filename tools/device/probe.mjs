@@ -90,6 +90,11 @@ export class Probe {
       if (!/\d/.test(token)) {
         continue;
       }
+      // 带状态列的输出(`hdc list targets -v` 那一形:序列号 TCP Offline ...)里,Offline 那一台
+      // 不算在线:数成一台会把单设备的路径逼成"必须点名",而拿一台休眠的机器去测更是假结果。
+      if (/\boffline\b/i.test(raw.slice(raw.indexOf(token) + token.length))) {
+        continue;
+      }
       if (IP_PORT.test(token) || SERIAL.test(token)) {
         hit.push(token);
       }
