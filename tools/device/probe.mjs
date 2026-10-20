@@ -239,13 +239,45 @@ export class Probe {
     return s.top;
   }
 
-  /** 应用自己那个窗口的 hostWindowId(root 那一支);拿不到就返回 null */
+  /**
+   * 应用自己那个窗口的 hostWindowId。
+   *
+   * 旧版取"树里第一个 root",而 root 的先后顺序会随键盘支起/收起变 —— 本轮实测就是这么咬的:
+   * 打完字之后第一遍判成 unknown,连带 typeInto 失败。退一步取"节点最多的 root"也不够稳:
+   * 实测那一屏的分布是 `185:48 280:47 27:37`,应用与输入法只差一颗节点。
+   * 所以按**谁持有输入框**认:填空框一定在应用窗口里,键盘窗口里不会有 TextInput。
+   * 两条都不成立时返回 null,让调用方判 unknown —— 猜错窗口比承认看不见坏得多。
+   */
   appWindow(nodes) {
-    const root = nodes.find((n) => n.type === 'root');
-    if (root === undefined || root.hostWindowId === undefined || root.hostWindowId === '') {
-      return null;
+    for (const n of nodes) {
+      if (n.type === 'TextInput') {
+        const id = n.hostWindowId === undefined || n.hostWindowId === '' ? null : String(n.hostWindowId);
+        if (id !== null) {
+          return id;
+        }
+      }
     }
-    return String(root.hostWindowId);
+    const counts = new Map();
+    for (const n of nodes) {
+      if (n.hostWindowId === undefined || n.hostWindowId === '') {
+        continue;
+      }
+      const k = String(n.hostWindowId);
+      counts.set(k, (counts.get(k) || 0) + 1);
+    }
+    let best = null;
+    let bestN = 0;
+    for (const n of nodes) {
+      if (n.type !== 'root' || n.hostWindowId === undefined || n.hostWindowId === '') {
+        continue;
+      }
+      const c = counts.get(String(n.hostWindowId)) || 0;
+      if (c > bestN) {
+        best = String(n.hostWindowId);
+        bestN = c;
+      }
+    }
+    return best;
   }
 
   /**

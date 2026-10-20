@@ -365,7 +365,7 @@ function insideBand(r, band) {
  */
 function shiftBetween(prev, cur, band) {
   if (band === null) {
-    return { med: -1, pairs: 0, spread: 0 };
+    return { med: -1, pairs: 0, spread: 0, agree: 0 };
   }
   const at = new Map();
   for (const n of cur) {
@@ -397,15 +397,25 @@ function shiftBetween(prev, cur, band) {
     }
   }
   if (deltas.length < 2) {
-    return { med: -1, pairs: deltas.length, spread: 0 };
+    return { med: -1, pairs: deltas.length, spread: 0, agree: 0 };
   }
   deltas.sort((a, b) => a - b);
   const spread = deltas[deltas.length - 1] - deltas[0];
-  if (spread > 120) {
-    // 配出来的几条彼此差上百 px = 有粘顶/被裁的节点混进来了,这一段的数不能用
-    return { med: -1, pairs: deltas.length, spread: spread };
+  const med = deltas[Math.floor(deltas.length / 2)];
+  // 一两个粘顶/被裁的节点就能把极差拉到上百 px,那是**离群点**,不是"这一段整个不能用"。
+  // 本轮实测:配到 6~8 条、极差 129~135 的段被旧判据整段否掉,重跑两次都复现 ——
+  // 于是一条关于版面的测量变成在赌模拟器的动画。改判**多数一致**:
+  // 落在中位数 ±60 px 以内的节点有 ≥3 个,这一段就算量到了。
+  let agree = 0;
+  for (const d of deltas) {
+    if (Math.abs(d - med) <= 60) {
+      agree += 1;
+    }
   }
-  return { med: deltas[Math.floor(deltas.length / 2)], pairs: deltas.length, spread: spread };
+  if (agree < 3) {
+    return { med: -1, pairs: deltas.length, spread: spread, agree: agree };
+  }
+  return { med: med, pairs: deltas.length, spread: spread, agree: agree };
 }
 
 p.say(`设备:${p.assertDevice()}`);
@@ -473,71 +483,120 @@ function tapeA() {
    * 改成 380 px 一小段之后同一份配对就能数出重叠节点:实测 3 段配对给中位 465/483/484,
    * 行程 300 px 给 5 段配对中位 344 —— 所以"量不到"是甩太长,不是这块屏量不了。
    */
-  const band = panelBand(prev);
-  const viewport = band === null ? 0 : band[3] - band[1];
-  p.expectTrue('⑤ 面板可视窗口高度量到了(取不到就 FAIL,不许 Math.max(viewport,1) 把除法兜过去)',
-    viewport > 0, `这一屏的树里没有 Scroll 节点(快照 ${prev.length} 个节点)`);
-  // 行程取视口的四成(实测 1035 × 0.4 ≈ 414):300 px 那档能配 5 条、500 px 只配 3 条、
-  // 700 px 掉到 2 条、1100 px 一条都配不上 —— 留 414 是既配得多、又不把趟数拖太长
-  const stroke = viewport > 0 ? Math.round(viewport * 0.4) : 400;
-  const strokeFrom = band === null ? 1900 : band[3] - 40;
-  const strokeTo = strokeFrom - stroke;
-  p.say(`  ⑤ 面板横条 y ${band === null ? '(没量到)' : band[1] + '..' + band[3]},视口高 ${viewport} px;`
-    + `每一甩按 ${stroke} px(${strokeFrom}→${strokeTo}),必须小于视口才配得上`);
-  let acc = 0;
-  let measuredPx = 0;
-  let measuredSegs = 0;
-  let assumedSegs = 0;
-  const assumedAt = [];
-  const segLog = [];
-  let btnBottom = -1;
-  let btnTop = -1;
-  let boxTop = -1;
-  let boxBottom = -1;
-  let swipes = 0;
-  let sameScreen = false;
-  for (let i = 0; i < 32; i++) {
-    const btn = prev.find((n) => (n.text || '') === '交卷评分');
-    if (btn !== undefined && btnBottom < 0) {
-      btnBottom = rectOf(btn.bounds)[3] + acc;
-      btnTop = rectOf(btn.bounds)[1] + acc;
-    }
-    const bs = prev.filter((n) => n.type === 'TextInput');
-    if (bs.length >= 2) {
-      let last = bs[0];
-      for (const b of bs) {
-        if (rectOf(b.bounds)[3] > rectOf(last.bounds)[3]) {
-          last = b;
+  /**
+   * ⑤ 的一趟扫描:从当前这一屏往下甩,逐段配对累计位移,直到最后一格填空进屏。
+   *
+   * 为什么提成函数:一段配不上(动画中途取帧 → 面板里没有重叠节点)是这台机器的常态,
+   * 而"掺假计数必须为 0"这条闸门要的是**一个能引用的数**,不是"一次都不许失手"。
+   * 所以整趟最多量三遍,任何一遍干净就采用那一遍;三遍都不干净才红 ——
+   * 那时报的是"这块屏今天量不出可引用的数",而不是把假设数当实测交给 #67。
+   */
+  function sweepOnce(startPrev) {
+    let prev = startPrev;
+    const band = panelBand(prev);
+    const viewport = band === null ? 0 : band[3] - band[1];
+    p.expectTrue('⑤ 面板可视窗口高度量到了(取不到就 FAIL,不许 Math.max(viewport,1) 把除法兜过去)',
+      viewport > 0, `这一屏的树里没有 Scroll 节点(快照 ${prev.length} 个节点)`);
+    // 行程取视口的四成(实测 1035 × 0.4 ≈ 414):300 px 那档能配 5 条、500 px 只配 3 条、
+    // 700 px 掉到 2 条、1100 px 一条都配不上 —— 留 414 是既配得多、又不把趟数拖太长
+    const stroke = viewport > 0 ? Math.round(viewport * 0.4) : 400;
+    const strokeFrom = band === null ? 1900 : band[3] - 40;
+    const strokeTo = strokeFrom - stroke;
+    p.say(`  ⑤ 面板横条 y ${band === null ? '(没量到)' : band[1] + '..' + band[3]},视口高 ${viewport} px;`
+      + `每一甩按 ${stroke} px(${strokeFrom}→${strokeTo}),必须小于视口才配得上`);
+    let acc = 0;
+    let measuredPx = 0;
+    let measuredSegs = 0;
+    let assumedSegs = 0;
+    let settledSegs = 0;
+    const assumedAt = [];
+    const segLog = [];
+    let btnBottom = -1;
+    let btnTop = -1;
+    let boxTop = -1;
+    let boxBottom = -1;
+    let swipes = 0;
+    let sameScreen = false;
+    for (let i = 0; i < 32; i++) {
+      const btn = prev.find((n) => (n.text || '') === '交卷评分');
+      if (btn !== undefined && btnBottom < 0) {
+        btnBottom = rectOf(btn.bounds)[3] + acc;
+        btnTop = rectOf(btn.bounds)[1] + acc;
+      }
+      const bs = prev.filter((n) => n.type === 'TextInput');
+      if (bs.length >= 2) {
+        let last = bs[0];
+        for (const b of bs) {
+          if (rectOf(b.bounds)[3] > rectOf(last.bounds)[3]) {
+            last = b;
+          }
+        }
+        boxTop = rectOf(last.bounds)[1] + acc;
+        boxBottom = rectOf(last.bounds)[3] + acc;
+        sameScreen = btn !== undefined;
+        break;
+      }
+      p.swipe(EDGE, strokeFrom, EDGE, strokeTo);
+      swipes += 1;
+      let cur = nodes();
+      let s = shiftBetween(prev, cur, band);
+      // 配不上对绝大多数不是"没挪",是惯性/动画还没停就取了第二帧(本轮实测:第 6 下配到 7 条、
+      // 极差 128 > 120 就被判没配上)。多等一拍重取一帧再判 —— 但**等过才配上也要记进出处**,
+      // 不然读日志的人以为这是一次干净的配对。
+      let settled = 0;
+      while (s.med <= 0 && settled < 2) {
+        settled += 1;
+        p.sleep(900);
+        cur = nodes();
+        const again = shiftBetween(prev, cur, band);
+        if (again.med > 0) {
+          s = again;
         }
       }
-      boxTop = rectOf(last.bounds)[1] + acc;
-      boxBottom = rectOf(last.bounds)[3] + acc;
-      sameScreen = btn !== undefined;
+      if (s.med > 0) {
+        acc += s.med;
+        measuredPx += s.med;
+        measuredSegs += 1;
+        if (settled > 0) {
+          settledSegs += 1;
+        }
+        segLog.push(`${swipes}:${s.med}(配${s.pairs}条/一致${s.agree}条/极差${s.spread}${settled > 0 ? `/等${settled}拍` : ''})`);
+      } else {
+        // Ruling AA:兜底留着(惯性/动画让某一下配不上是常态),但这一段**单独记账**,
+        // 不许混进"实测"那一行 —— 屏幕上那一行必须写成「实测 X px + 假设 Y 段(不算数)」
+        acc += ASSUMED_PX;
+        assumedSegs += 1;
+        assumedAt.push(swipes);
+        segLog.push(`${swipes}:假设(配${s.pairs}条/一致${s.agree}条/极差${s.spread}/等${settled}拍仍没配上)`);
+      }
+      prev = cur;
+    }
+    return { band: band, viewport: viewport, acc: acc, measuredPx: measuredPx,
+      measuredSegs: measuredSegs, assumedSegs: assumedSegs, settledSegs: settledSegs,
+      assumedAt: assumedAt, segLog: segLog, btnBottom: btnBottom, btnTop: btnTop,
+      boxTop: boxTop, boxBottom: boxBottom, swipes: swipes, sameScreen: sameScreen };
+  }
+
+  let sweep = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    sweep = sweepOnce(prev);
+    if (sweep.assumedSegs === 0) {
       break;
     }
-    p.swipe(EDGE, strokeFrom, EDGE, strokeTo);
-    swipes += 1;
-    const cur = nodes();
-    const s = shiftBetween(prev, cur, band);
-    if (s.med > 0) {
-      acc += s.med;
-      measuredPx += s.med;
-      measuredSegs += 1;
-      segLog.push(`${swipes}:${s.med}(配${s.pairs}条/极差${s.spread})`);
-    } else {
-      // Ruling AA:兜底留着(惯性/动画让某一下配不上是常态),但这一段**单独记账**,
-      // 不许混进"实测"那一行 —— 屏幕上那一行必须写成「实测 X px + 假设 Y 段(不算数)」
-      acc += ASSUMED_PX;
-      assumedSegs += 1;
-      assumedAt.push(swipes);
-      segLog.push(`${swipes}:假设(配${s.pairs}条/极差${s.spread})`);
+    if (attempt < 3) {
+      p.say(`  ⑤ 第 ${attempt} 趟有 ${sweep.assumedSegs} 段没配上,回到页顶重量一遍(不采用这一趟的数)`);
+      p.scrollToTop();
+      p.sleep(600);
+      prev = nodes();
     }
-    prev = cur;
   }
+  const { band, viewport, acc, measuredPx, measuredSegs, assumedSegs, settledSegs, assumedAt,
+    segLog, btnBottom, btnTop, boxTop, boxBottom, swipes, sameScreen } = sweep;
   p.expectTrue('⑤ 量到了:交卷按钮与最后一格填空的内容坐标都取到',
     btnBottom > 0 && boxTop > 0, `按钮下沿 ${btnBottom} / 框上沿 ${boxTop}`);
   const gap = boxTop - btnBottom;
-  p.say(`  ⑤ 从页顶甩到最后一格共 ${swipes} 下:配对成功 ${measuredSegs} 段(实测累计 ${measuredPx} px)、`
+  p.say(`  ⑤ 从页顶甩到最后一格共 ${swipes} 下:配对成功 ${measuredSegs} 段(实测累计 ${measuredPx} px,`
+    + `其中 ${settledSegs} 段是多等一拍才配上的)、`
     + `没配上 ${assumedSegs} 段(第 ${assumedAt.join(',') || '—'} 下,每段按 ${ASSUMED_PX} px 记账,不算数)`);
   p.say(`  ⑤ 逐段账:${segLog.join(' / ')}`);
   if (assumedSegs === 0) {

@@ -161,5 +161,43 @@ pUp.dumpNodes = () => (pUpReads++ === 0 ? appNodes.concat(keycaps) : appNodes);
 expectTrue('键盘在、Escape 之后干净 → down(它确实会重试,不是一把就放弃)',
   pUp.hideKeyboard() === 'down' && pUpReads >= 2, '实得读树次数:' + pUpReads);
 
+console.log('== 6. 哪个窗口是应用:按输入框认,不按 root 的先后、也不按节点数 ==');
+// 本轮实测的窗口分布:`185:48 280:47 27:37` —— 应用与输入法只差一颗节点,而 root 的先后顺序
+// 会随键盘支起/收起变。旧版取"第一个 root",取错就把应用的节点全当成外来窗口,
+// 键盘状态判 unknown,连带 typeInto 失败(今天真在设备上是这么咬的)。
+function many(id, n, yFrom) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    out.push({ type: 'Text', hostWindowId: id, bounds: `[40,${yFrom + i * 8}][300,${yFrom + i * 8 + 6}]` });
+  }
+  return out;
+}
+const imeFirst = [
+  { type: 'root', hostWindowId: '280', bounds: '[0,1700][1260,2760]' },
+  { type: 'root', hostWindowId: '185', bounds: '[0,0][1260,2760]' },
+  { type: 'WindowScene', hostWindowId: '280', bounds: '[0,1700][1260,2760]' }
+].concat(many('280', 46, 1720)).concat(many('185', 47, 200)).concat([
+  { type: 'TextInput', hostWindowId: '185', bounds: '[98,1468][1052,1608]' }
+]);
+const win = mkProbe({ tag: 'selftest-12' });
+expectTrue('输入法那一支的 root 排在前面,也不许把应用窗口认错(按 TextInput 归属认)',
+  win.appWindow(imeFirst) === '185', '实得:' + String(win.appWindow(imeFirst)));
+const imeState6 = win.imeState(imeFirst);
+expectTrue('同一份树里键盘判 up,不是 unknown(旧版在这里判 unknown,连带打字失败)',
+  imeState6.state === 'up', JSON.stringify(imeState6));
+// 退回路径要单独一份树:上面那份去掉 TextInput 之后,输入法那一支节点数真的更多(49 vs 48),
+// 拿它验"按节点数退回"验不出东西 —— 换一份应用明显更大、而 root 仍排在后面的。
+const noFieldTree = [
+  { type: 'root', hostWindowId: '280', bounds: '[0,1700][1260,2760]' },
+  { type: 'root', hostWindowId: '185', bounds: '[0,0][1260,2760]' }
+].concat(many('280', 20, 1720)).concat(many('185', 40, 200));
+const fallbackWin = mkProbe({ tag: 'selftest-13' });
+expectTrue('树里没有输入框时退回"节点最多的一支",而不是第一个 root',
+  fallbackWin.appWindow(noFieldTree) === '185',
+  '实得:' + String(fallbackWin.appWindow(noFieldTree)));
+expectTrue('两份树都拿不到输入框、也没有 root 归属时 → null(宁可 unknown,不猜)',
+  mkProbe({ tag: 'selftest-14' }).appWindow([{ type: 'Text', bounds: '[0,0][10,10]' }]) === null,
+  '实得不为 null');
+
 console.log(fails === 0 ? '\n全部通过' : `\n${fails} 项失败`);
 process.exit(fails === 0 ? 0 : 1);
