@@ -12,6 +12,11 @@
  *   5. classify 不看高度 → 档位那条(横屏手机掉回平板)
  *   6. 阅读列不收窄 → 阅读列上限那组
  *   7. 矮屏画布抬到 210 → 画布下限那组
+ *   8. 内容区预算放宽到 300 → "放不下两排操作区"那条(放宽了就不再逼着搬走倍速行)
+ *   9. 画面列空隙 8 改 40 → "画面 + 空隙 + 一排按钮 ≤ 内容区"那条
+ *  10. 矮屏器皿高度 112 改 150 → "器皿卡最坏情况放得进内容区"那条
+ *  11. 矮屏器皿栏宽 264 改 180 → "器皿栏放得下三只卡"那条
+ *  12. 矮屏卡内边距不收窄 → "器皿卡最坏情况放得进内容区"那条
  *
  * 用法: node tools/physics-check/mut-landscape.mjs
  */
@@ -67,6 +72,31 @@ const MUTATIONS = [
     name: 'minSceneHeight compact raised to 210',
     from: '    if (compact) {\n      return 150;\n    }',
     to: '    if (compact) {\n      return 210;\n    }'
+  },
+  {
+    name: 'compact content budget widened to 300',
+    from: '  static readonly COMPACT_CONTENT_HEIGHT: number = 220;',
+    to: '  static readonly COMPACT_CONTENT_HEIGHT: number = 300;'
+  },
+  {
+    name: 'compact column gap 8 -> 40',
+    from: '  static readonly COMPACT_COLUMN_GAP: number = 8;',
+    to: '  static readonly COMPACT_COLUMN_GAP: number = 40;'
+  },
+  {
+    name: 'compact vessel height 112 -> 150 (portrait height)',
+    from: '  static readonly COMPACT_VESSEL_HEIGHT: number = 112;',
+    to: '  static readonly COMPACT_VESSEL_HEIGHT: number = 150;'
+  },
+  {
+    name: 'compact vessel column width 264 -> 180',
+    from: '  static readonly COMPACT_VESSEL_COLUMN_WIDTH: number = 264;',
+    to: '  static readonly COMPACT_VESSEL_COLUMN_WIDTH: number = 180;'
+  },
+  {
+    name: 'compact vessel card padding not narrowed (8 -> 12)',
+    from: '    return compact ? 8 : Layout.cardPadding(cls);',
+    to: '    return Layout.cardPadding(cls);'
   }
 ];
 

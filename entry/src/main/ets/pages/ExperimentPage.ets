@@ -356,48 +356,65 @@ export struct ExperimentPage {
     this.refreshReadouts();
   }
 
+  /**
+   * 三颗传输按钮。单独成一个件:矮屏(横屏)那一列放不下两排操作区,
+   * 倍速那行要搬去右栏,按钮行留下。
+   */
+  @Builder
+  transportButtons() {
+    Row({ space: 10 }) {
+      this.transportButton(0)
+
+      this.transportButton(1)
+
+      if (this.meta.charts.length > 0) {
+        this.transportButton(2)
+      }
+    }
+    .width('100%')
+  }
+
+  /**
+   * 倍速与仿真钟这一行。
+   *
+   * 倍速单独一行:和三个按钮挤在同一行时,手机档会把后两颗推出屏幕,
+   * 而推出去的控件既看不见也点不着。
+   * 靠左并给「倍速」二字:原来整行右对齐,左边 636px 空着,
+   * 谁也不知道这四颗是干什么的
+   */
+  @Builder
+  speedRow() {
+    Row({ space: 8 }) {
+      Text('倍速')
+        .fontSize(Layout.captionSize(this.cls()))
+        .fontColor(Theme.TEXT_SECONDARY)
+
+      AppChips({
+        labels: this.speedLabels(),
+        selected: this.speedIndex,
+        onPick: (index: number): void => {
+          this.speedIndex = index;
+          this.controller.timeScale = SPEEDS[index];
+        }
+      })
+        .layoutWeight(1)
+
+      // 仿真钟从传输行挪到这里:三颗按钮 + 时钟挤一行时,时钟被右边界裁掉(实测 t=0.00 s 顶到 1256),
+      // 而这一行右侧本来就空着 400 多像素
+      Text('t = ' + this.simTime.toFixed(2) + ' s')
+        .fontSize(Layout.sectionSize(this.cls()))
+        .fontColor(Theme.TEXT_PRIMARY)
+        .fontFamily('HarmonyOS Sans')
+    }
+    .width('100%')
+    .justifyContent(FlexAlign.Start)
+  }
+
   @Builder
   transportBar() {
     Column({ space: 8 }) {
-      Row({ space: 10 }) {
-        this.transportButton(0)
-
-        this.transportButton(1)
-
-        if (this.meta.charts.length > 0) {
-          this.transportButton(2)
-        }
-      }
-      .width('100%')
-
-      // 倍速单独一行:和三个按钮挤在同一行时,手机档会把后两颗推出屏幕,
-      // 而推出去的控件既看不见也点不着。
-      // 靠左并给「倍速」二字:原来整行右对齐,左边 636px 空着,
-      // 谁也不知道这四颗是干什么的
-      Row({ space: 8 }) {
-        Text('倍速')
-          .fontSize(Layout.captionSize(this.cls()))
-          .fontColor(Theme.TEXT_SECONDARY)
-
-        AppChips({
-          labels: this.speedLabels(),
-          selected: this.speedIndex,
-          onPick: (index: number): void => {
-            this.speedIndex = index;
-            this.controller.timeScale = SPEEDS[index];
-          }
-        })
-          .layoutWeight(1)
-
-        // 仿真钟从传输行挪到这里:三颗按钮 + 时钟挤一行时,时钟被右边界裁掉(实测 t=0.00 s 顶到 1256),
-        // 而这一行右侧本来就空着 400 多像素
-        Text('t = ' + this.simTime.toFixed(2) + ' s')
-          .fontSize(Layout.sectionSize(this.cls()))
-          .fontColor(Theme.TEXT_PRIMARY)
-          .fontFamily('HarmonyOS Sans')
-      }
-      .width('100%')
-      .justifyContent(FlexAlign.Start)
+      this.transportButtons()
+      this.speedRow()
     }
     .width('100%')
   }
@@ -674,20 +691,37 @@ export struct ExperimentPage {
    * 图线搬进侧栏,不留在画面下面:横屏只剩约 300vp 高,画面再让出 150vp 给图线,
    * 世界就被压到读不出来(按算术 36.7 → 27.8 px/vp,小了约三成)。
    * 侧栏本来就带滚动,图线挪进去只是多了几屏滚动。
+   *
+   * 倍速与仿真钟也搬进来,而且放在**滚动区之外**:调参时眼睛盯着时钟,
+   * 塞进滚动区的话往下滑看图线时它就没了。画面列因此只放得下一排按钮。
    */
   @Builder
   compactPanel() {
-    Scroll() {
-      Column({ space: 10 }) {
-        if (this.chartsVisible && this.meta.charts.length > 0) {
-          this.chartStrip()
-        }
-        this.panelContent()
+    Column({ space: 8 }) {
+      Column() {
+        this.speedRow()
       }
       .width('100%')
-      .alignItems(HorizontalAlign.Start)
+      .padding({
+        left: Layout.cardPadding(this.cls()),
+        right: Layout.cardPadding(this.cls())
+      })
+
+      Scroll() {
+        Column({ space: 10 }) {
+          if (this.chartsVisible && this.meta.charts.length > 0) {
+            this.chartStrip()
+          }
+          this.panelContent()
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
+      }
+      .scrollBar(BarState.Auto)
+      .layoutWeight(1)
+      .width('100%')
+      .align(Alignment.TopStart)
     }
-    .scrollBar(BarState.Auto)
     .backgroundColor(Theme.BG_CARD)
     .borderRadius(Layout.cardRadius(this.cls()))
     .width(Layout.panelWidth(this.cls()))
@@ -747,8 +781,12 @@ export struct ExperimentPage {
         // 横屏:画面在左,图线与参数在右。
         // 竖着排会同时要一块 240vp 的画面和一整窗图线,而横屏只剩约 250vp 高 ——
         // 画面被挤没、按钮掉到屏外(这正是横着拿手机时最难受的地方)。
+        //
+        // 画面列只留三颗按钮:横屏的应用内容区实得 220vp(Layout.COMPACT_CONTENT_HEIGHT),
+        // 画面下限 150vp + 空隙 8vp + 按钮 44vp 已经占掉 202vp,再塞一排倍速就要溢出 ——
+        // 实测整排掉到系统导航条上(多出 126px)。倍速与仿真钟因此搬进右栏。
         Row({ space: 12 }) {
-          Column({ space: 8 }) {
+          Column({ space: Layout.COMPACT_COLUMN_GAP }) {
             SimCanvas({
               controller: this.controller,
               scene: this.scene,
@@ -758,7 +796,7 @@ export struct ExperimentPage {
             })
               .layoutWeight(1)
               .constraintSize({ minHeight: Layout.minSceneHeight(this.cls(), this.compact()) })
-            this.transportBar()
+            this.transportButtons()
           }
           .layoutWeight(1)
           .height('100%')

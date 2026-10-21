@@ -4873,23 +4873,107 @@ function findClampedStartRunners() {
   }
 
   // 六、横屏下画布与操作条必须放得下
-  const vh = 360;
+  //
+  // 这里量的是**应用内容区**实得高度,不是屏高。横屏的一屏还要分给状态栏、
+  // 标题栏和底部手势区:模拟器横屏实测(2760x1256,3.5 px/vp)屏高 359vp,
+  // 扣掉那三块只剩 236vp,再去上下各 8vp 页边距,留给画面的只有 220vp。
+  // 按屏高 360vp 算预算,横屏时操作条整排掉到系统导航条上(实测多出 126px)。
+  const budget = Layout.COMPACT_CONTENT_HEIGHT;
   const scene = Layout.minSceneHeight(DeviceClass.PHONE, true);
-  const insetY = hasInsetY
-    ? Layout.pageInsetY(DeviceClass.PHONE, true)
-    : Layout.pageInset(DeviceClass.PHONE);
+  const gap = Layout.COMPACT_COLUMN_GAP;
   assertTrue('紧凑档画布比竖屏矮', scene < Layout.minSceneHeight(DeviceClass.PHONE, false),
     `紧凑 ${scene} 不小于竖屏 ${Layout.minSceneHeight(DeviceClass.PHONE, false)}`);
-  // 画布 + 传输按钮 + 上下边距:这三样是刚性的,剩下的高度才留给「倍速」那一行。
-  // 这里只算令牌能算的账;倍速行的实际像素高度由设备探针量。
-  const fixed = scene + Layout.buttonHeight(DeviceClass.PHONE) + 2 * insetY;
-  assertTrue('紧凑档画布 + 按钮 + 上下边距 ≤ 屏高', fixed <= vh, `合计 ${fixed} > ${vh}`);
-  assertTrue('紧凑档画布 + 按钮 + 上下边距之后还留得下一行倍速(≥24vp)', vh - fixed >= 24,
-    `只剩 ${vh - fixed}vp`);
+  assertTrue('紧凑档内容区高度预算钉在 220vp', budget === 220, `实得 ${budget}`);
+  assertTrue('紧凑档画面列空隙在阶梯上', Layout.onLadder(gap), `实得 ${gap}`);
+  // 画面 + 空隙 + 一排传输按钮:这三样是刚性的,占满就是画面列的全部固定开销。
+  const oneRow = scene + gap + Layout.buttonHeight(DeviceClass.PHONE);
+  assertTrue('紧凑档:画面 + 空隙 + 一排按钮 ≤ 应用内容区实得高度', oneRow <= budget,
+    `合计 ${oneRow} > ${budget}`);
   assertTrue('紧凑档画布不低于 120vp(否则世界缩到读不出)', scene >= 120, `实得 ${scene}`);
+  // 反过来钉住"放不下两排":这就是「倍速」那一行必须搬进右栏的理由
+  const twoRows = oneRow + gap + Layout.buttonHeight(DeviceClass.PHONE);
+  assertTrue('紧凑档放不下两排操作区(倍速那行必须搬进侧栏)', twoRows > budget,
+    `两排合计 ${twoRows} ≤ ${budget}`);
   // 两栏:画布那一列不能被参数面板挤没
   const column = 791 - 2 * Layout.pageInset(DeviceClass.PHONE) - 12 - Layout.panelWidth(DeviceClass.PHONE);
   assertTrue('横屏两栏里画布列仍有 300vp 以上', column >= 300, `实得 ${column}`);
+}
+
+// ---- 横屏那一支不许再把两排操作区塞进画面列 ------------------------------
+// 上面那条算术只钉住"画面 + 一排按钮"放得下;真正把「倍速」那行搬进右栏的是这一条:
+// 整条操作区(按钮行 + 倍速行)只准出现在竖屏单栏与大屏两栏这两处。
+{
+  const src = readFileSync(join(SRC, 'pages/ExperimentPage.ets'), 'utf8').replace(/\r\n/g, '\n');
+  const barCalls = (src.match(/this\.transportBar\(\)/g) || []).length;
+  assertTrue('整条操作区只出现在竖屏单栏与大屏两栏(横屏只用拆开的一排)',
+    barCalls === 2, `this.transportBar() 出现 ${barCalls} 次`);
+  const panelAt = src.indexOf('compactPanel()');
+  const buildAt = src.indexOf('\n  build()', panelAt);
+  const panelBody = src.slice(panelAt, buildAt < 0 ? src.length : buildAt);
+  assertTrue('横屏右栏里有倍速与仿真钟那一行', panelBody.indexOf('this.speedRow()') >= 0,
+    'compactPanel 里没有 speedRow');
+}
+
+// ---- 矮屏的化学实验台:器皿、按钮、日志必须分栏 ----------------------------
+// 设备实测(横屏 2760x1256,3.5 px/vp):两栏时右栏要 204~228vp 的器皿卡
+// + 44vp 的动作按钮 + 一行说明,合计 260vp 以上,而应用内容区实得只有 220vp ——
+// 两颗动作按钮被画在 [1401,1130,1782,1256],压在系统手势条(1158..1256)上,
+// 屏幕下沿把按钮切掉半截。拆成三栏(药柜 | 器皿 | 操作与日志)才放得下。
+{
+  const { Layout, DeviceClass } = require(join(OUT, 'common/Layout.cjs'));
+  const hasHeight = typeof Layout.COMPACT_VESSEL_HEIGHT === 'number';
+  const hasWidth = typeof Layout.COMPACT_VESSEL_COLUMN_WIDTH === 'number';
+  assertTrue('Layout 有矮屏器皿高度令牌', hasHeight, '缺 Layout.COMPACT_VESSEL_HEIGHT');
+  assertTrue('Layout 有矮屏器皿栏宽令牌', hasWidth, '缺 Layout.COMPACT_VESSEL_COLUMN_WIDTH');
+  assertTrue('Layout 有容器卡内边距访问器', typeof Layout.vesselCardPadding === 'function',
+    '缺 Layout.vesselCardPadding');
+  assertTrue('Layout 有容器卡行距访问器', typeof Layout.vesselCardGap === 'function',
+    '缺 Layout.vesselCardGap');
+  if (hasHeight && hasWidth) {
+    const budget = Layout.COMPACT_CONTENT_HEIGHT;
+    const pad = Layout.vesselCardPadding(DeviceClass.PHONE, true);
+    const gap = Layout.vesselCardGap(true);
+    // 卡里最坏情况有四行字:标题 + 加热中 + 沉底 + 质量。
+    // 行高按字号的 1.5 倍算 —— 比 ArkUI 的实际行高保守,宁可多留余量。
+    const lines = Layout.labelSize(DeviceClass.PHONE)
+      + Layout.captionSize(DeviceClass.PHONE) * 2
+      + Layout.microSize(DeviceClass.PHONE);
+    const card = Layout.COMPACT_VESSEL_HEIGHT + 2 * pad + 4 * gap + lines * 1.5;
+    assertTrue('矮屏器皿卡最坏情况(四行字)放得进应用内容区', card <= budget,
+      `合计 ${card.toFixed(1)} > ${budget}`);
+    assertTrue('矮屏器皿不低于 90vp(否则器皿缩到读不出)', Layout.COMPACT_VESSEL_HEIGHT >= 90,
+      `实得 ${Layout.COMPACT_VESSEL_HEIGHT}`);
+    assertTrue('矮屏容器卡内边距在阶梯上', Layout.onLadder(pad), `实得 ${pad}`);
+    assertTrue('矮屏容器卡行距在阶梯上', Layout.onLadder(gap), `实得 ${gap}`);
+    // 器皿那一栏要放得下三只卡
+    const cardW = Layout.vesselCardWidth(DeviceClass.PHONE) + 2 * pad;
+    assertTrue('矮屏器皿栏放得下三只容器卡', 3 * cardW <= Layout.COMPACT_VESSEL_COLUMN_WIDTH,
+      `实得 ${3 * cardW} > ${Layout.COMPACT_VESSEL_COLUMN_WIDTH}`);
+    // 剩下的两栏:药柜与操作。两颗动作按钮按「点燃酒精灯」5 字 +「倒掉洗净」4 字算,
+    // 按钮宽 = 文字 + 左右各 16vp 内边距,字宽按字号的 1.1 倍算(汉字实测量着偏大)。
+    // 横屏实测视口 2760 px ÷ 3.5 px/vp = 788vp。
+    const contentW = 788 - 2 * Layout.pageInset(DeviceClass.PHONE);
+    const flex = contentW - 2 * 12 - Layout.COMPACT_VESSEL_COLUMN_WIDTH;
+    const need = 9 * Layout.bodySize(DeviceClass.PHONE) * 1.1 + 2 * 32 + 8;
+    assertTrue('矮屏操作栏放得下两颗动作按钮', flex / 2.2 * 1.2 >= need,
+      `实得 ${(flex / 2.2 * 1.2).toFixed(1)} < 需要 ${need.toFixed(1)}`);
+    assertTrue('矮屏药柜栏还剩得下一列瓶子', flex / 2.2 >= 160, `实得 ${(flex / 2.2).toFixed(1)}`);
+  }
+  // 源码层:矮屏那一支必须三栏,器皿不与按钮同栏
+  const src = readFileSync(join(SRC, 'pages/BenchPage.ets'), 'utf8').replace(/\r\n/g, '\n');
+  const compactAt = src.indexOf('if (this.compact()) {');
+  const elseAt = src.indexOf('} else {', compactAt);
+  const compactBody = src.slice(compactAt, elseAt < 0 ? src.length : elseAt);
+  assertTrue('矮屏那一支有器皿专列', compactBody.indexOf('COMPACT_VESSEL_COLUMN_WIDTH') >= 0,
+    '矮屏那一支没有 COMPACT_VESSEL_COLUMN_WIDTH');
+  assertTrue('矮屏那一支的操作按钮不在器皿栏里',
+    compactBody.indexOf('this.actionRow()') > compactBody.indexOf('COMPACT_VESSEL_COLUMN_WIDTH'),
+    '操作按钮排在器皿栏之前');
+  const heightAt = src.indexOf('private vesselHeight(): number {');
+  assertTrue('台架有 vesselHeight() 区分矮屏与竖屏', heightAt >= 0, '没有 vesselHeight()');
+  const heightBody = src.slice(heightAt, heightAt + 400);
+  assertTrue('vesselHeight() 矮屏用 COMPACT_VESSEL_HEIGHT',
+    heightBody.indexOf('Layout.COMPACT_VESSEL_HEIGHT') >= 0, '矮屏没走 COMPACT_VESSEL_HEIGHT');
 }
 
 // ---- 页面问 Layout 时必须把高度一起给 ----------------------------------------

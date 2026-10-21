@@ -24,6 +24,40 @@ export class Layout {
   static readonly COMPACT_CONTENT_WIDTH: number = 640;
 
   /**
+   * 矮屏(横屏手机)时,应用内容区实得的高度预算。
+   *
+   * 不是屏高。横屏的一屏还要分给状态栏、标题栏和底部手势区:模拟器横屏实测
+   * (2760x1256,3.5 px/vp)屏高 359vp,扣掉状态栏 39vp、标题栏 56vp、底部 28vp,
+   * 应用只剩 236vp;再去上下各 8vp 页边距,留给画面的只有 220vp。
+   *
+   * 按屏高 360vp 算预算的话,横屏时操作条整排掉到系统导航条上(实测多出 126px)。
+   */
+  static readonly COMPACT_CONTENT_HEIGHT: number = 220;
+
+  /**
+   * 矮屏画面列内部的空隙:画面与操作条之间。
+   *
+   * 单列一档,是因为矮屏这一列的高度是刚性的:多空 8vp 就少 8vp 的画面。
+   */
+  static readonly COMPACT_COLUMN_GAP: number = 8;
+
+  /**
+   * 矮屏时容器卡里器皿的绘制高度。
+   *
+   * 竖屏 150vp 是给一整摞内容让路的;矮屏那一列要和别的东西抢高度,只能把器皿画矮一档。
+   * 最坏情况(标题 + 加热中 + 沉底 + 质量四行字)按行高是字号的 1.5 倍算:
+   * 112 + 16(内边距) + 16(四段行距) + 71(字) = 215 ≤ 220,还留得住。
+   */
+  static readonly COMPACT_VESSEL_HEIGHT: number = 112;
+
+  /**
+   * 矮屏时器皿那一栏的宽度。
+   *
+   * 三只容器卡并排:3 × (66 器皿宽 + 16 内边距) = 246,余下 18 给卡之间的空隙。
+   */
+  static readonly COMPACT_VESSEL_COLUMN_WIDTH: number = 264;
+
+  /**
    * 设备档位。宽度与高度都要看。
    *
    * 只看宽度会出事:手机横屏的宽度是 791vp,落在平板区间(600..1100)里,
@@ -214,6 +248,26 @@ export class Layout {
       return 210;
     }
     return cls === DeviceClass.PAD ? 180 : 150;
+  }
+
+  /**
+   * 容器卡的内边距。矮屏收窄一档。
+   *
+   * 卡里那几行字(标题/加热中/沉底/质量)在矮屏是刚性开销:内容区只有 220vp,
+   * 内边距每多 4vp,器皿就少画 4vp。
+   */
+  static vesselCardPadding(cls: DeviceClass, compact: boolean): number {
+    return compact ? 8 : Layout.cardPadding(cls);
+  }
+
+  /**
+   * 容器卡里各行之间的行距。矮屏收一档。
+   *
+   * 竖屏原来是 6 —— 6 不在间距阶梯上,而 Layout 里的间距型令牌必须落在阶梯上,
+   * 所以搬进令牌时一并改成 8。竖屏卡片因此长高 8vp(4 段行距 × 2vp)。
+   */
+  static vesselCardGap(compact: boolean): number {
+    return compact ? 4 : 8;
   }
 
   /** 开关的宽度。高度由 touchMin 定,宽度按外形比例给一档 */

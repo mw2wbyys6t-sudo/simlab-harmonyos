@@ -64,9 +64,18 @@ export struct BenchPage {
     return Layout.classify(this.hostWidth, this.hostHeight);
   }
 
-  /** 矮屏(横屏手机):一屏放不下"药柜 + 器皿 + 按钮 + 日志",要分两栏 */
+  /** 矮屏(横屏手机):一屏放不下"药柜 + 器皿 + 按钮 + 日志",要分栏 */
   private compact(): boolean {
     return Layout.isCompact(this.hostHeight);
+  }
+
+  /**
+   * 器皿的绘制高度。
+   *
+   * 矮屏矮一档:那一列要和操作按钮、日志抢 220vp 的高度,器皿画满了按钮就没处站。
+   */
+  private vesselHeight(): number {
+    return this.compact() ? Layout.COMPACT_VESSEL_HEIGHT : Layout.vesselCardHeight(this.cls());
   }
 
   /** 越界时回一张空卡:重绘与数组替换之间总有一瞬对不齐,不该崩 */
@@ -203,7 +212,8 @@ export struct BenchPage {
    */
   @Builder
   vesselCard(index: number) {
-    Column({ space: 6 }) {
+    // 矮屏收一档:四行字 + 器皿是刚性开销,行距每多 2vp 就少 2vp 的器皿
+    Column({ space: Layout.vesselCardGap(this.compact()) }) {
       Stack({ alignContent: Alignment.Bottom }) {
         VesselView({
           kind: this.cardAt(index).kind,
@@ -220,7 +230,7 @@ export struct BenchPage {
         }
       }
       .width(Layout.vesselCardWidth(this.cls()))
-      .height(Layout.vesselCardHeight(this.cls()))
+      .height(this.vesselHeight())
       .borderRadius(Layout.cardRadius(this.cls()))
       .border({ width: 2, color: index === this.selected ? Theme.ACCENT : Theme.VESSEL_BORDER })
 
@@ -243,7 +253,7 @@ export struct BenchPage {
         .fontSize(Layout.captionSize(this.cls()))
         .fontColor(Theme.ACCENT)
     }
-    .padding(Layout.cardPadding(this.cls()))
+    .padding(Layout.vesselCardPadding(this.cls(), this.compact()))
     .borderRadius(Layout.cardRadius(this.cls()))
     .backgroundColor(index === this.selected ? Theme.BAND_BG : Theme.BG_CARD)
     .onClick(() => {
@@ -310,12 +320,18 @@ export struct BenchPage {
     })
   }
 
-  /** 空器不能只印「现存：」后面挂零:得说清这只容器现在是空的、下一步做什么 */
+  /**
+   * 空器不能只印「现存：」后面挂零:得说清这只容器现在是空的、下一步做什么。
+   *
+   * 方位随排布变:竖屏药柜在上方,矮屏药柜在左栏。指错方向等于让学生找半天。
+   */
   private contentsLabel(): string {
     const card = this.cardAt(this.selected);
-    return card.contentsText.length > 0
-      ? '现存：' + card.contentsText
-      : '「' + card.title + '」里还没有药品，从上方药品柜把试剂拖进来。';
+    if (card.contentsText.length > 0) {
+      return '现存：' + card.contentsText;
+    }
+    const where = this.compact() ? '左侧' : '上方';
+    return '「' + card.title + '」里还没有药品，从' + where + '药品柜把试剂拖进来。';
   }
 
   /** 药品柜:试剂瓶排成能拖动的格子 */
@@ -387,10 +403,15 @@ export struct BenchPage {
   build() {
     NavDestination() {
       if (this.compact()) {
-        // 横屏:药柜在左、器皿与日志在右。
-        // 竖屏那一摞(药柜 130 + 器皿 150 + 按钮 44 + 日志)在 300vp 高的屏上根本放不下,
-        // 而把容器拖到药柜那一侧反而更顺手:目标就在手边。
+        // 横屏:药柜、器皿、操作与日志各占一栏。
+        //
+        // 为什么不是两栏:器皿卡最坏情况 204~228vp(标题 + 加热中 + 沉底 + 质量四行字),
+        // 再加一排 44vp 的按钮和一行说明,两栏时右栏要 260vp 以上,
+        // 而矮屏的应用内容区实得只有 220vp —— 两颗动作按钮被画在
+        // [1401,1130,1782,1256],压在系统手势条上,屏幕下沿切掉半截(设备实测)。
+        // 把器皿单独拆成一栏,卡片长高就不再牵连按钮;顺带把药柜的拖放目标放在手边。
         Row({ space: 12 }) {
+          // 一、药柜:试剂的来源
           Column({ space: 4 }) {
             Text('药品柜').fontSize(Layout.labelSize(this.cls())).fontColor(Theme.TEXT_SECONDARY)
             Scroll() {
@@ -407,8 +428,15 @@ export struct BenchPage {
           .alignItems(HorizontalAlign.Start)
           .layoutWeight(1)
 
-          Column({ space: 8 }) {
+          // 二、器皿:拖放的目标
+          Column() {
             this.vesselRow()
+          }
+          .width(Layout.COMPACT_VESSEL_COLUMN_WIDTH)
+          .height('100%')
+
+          // 三、操作与日志
+          Column({ space: 8 }) {
             this.actionRow()
             if (this.cards.length > this.selected) {
               Text(this.contentsLabel())
@@ -418,12 +446,17 @@ export struct BenchPage {
             }
             this.logPanel()
           }
-          .layoutWeight(1)
+          .layoutWeight(1.2)
           .height('100%')
         }
         .width('100%')
         .height('100%')
-        .padding(Layout.pageInset(this.cls()))
+        .padding({
+          left: Layout.pageInset(this.cls()),
+          right: Layout.pageInset(this.cls()),
+          top: Layout.pageInsetY(this.cls(), this.compact()),
+          bottom: Layout.pageInsetY(this.cls(), this.compact())
+        })
       } else {
         Column({ space: 12 }) {
           this.shelfPanel()
