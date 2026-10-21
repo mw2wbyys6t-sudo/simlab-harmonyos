@@ -37,6 +37,8 @@ export class Probe {
     this.spawn = opts.spawn || null;
     this.lines = [];
     this.failures = 0;
+    // 视口缓存。转屏之后要 refreshViewport(),否则滚动坐标会拿着旧方向去算。
+    this.vp = null;
     if (this.outDir) {
       mkdirSync(this.outDir, { recursive: true });
     }
@@ -175,6 +177,8 @@ export class Probe {
       const out = this.shell(`aa start -a ${ABILITY} -b ${BUNDLE}`);
       if (out.includes('successfully')) {
         this.sleep(3500);
+        // 应用重新起来,视口可能已经不是上次那个方向了
+        this.refreshViewport();
         return;
       }
       if (out.includes('10106102')) {
@@ -224,6 +228,120 @@ export class Probe {
       if (m && +m[3] > max) max = +m[3];
     }
     return max;
+  }
+
+  /**
+   * 应用窗口的矩形(视口)。
+   *
+   * 探针原来的滚动坐标全是按竖屏写死的像素:2000→800、1600→2400、1900→900。
+   * 屏一转横,高度只剩 1256,这些起讫点整个落到屏外 —— 手势按了个寂寞,页面纹丝不动,
+   * 于是报"目标没出现在视口里"。那不是应用的毛病,是探针按着一块 2760 高的屏
+   * 去一块 1256 高的屏上找东西。所以坐标必须按视口算,不写死。
+   *
+   * 结果缓存住:一次探针运行里方向不变,每次重新 dump 要 1~2 秒,滚动循环里扛不住。
+   * 转屏之后要调 refreshViewport()。
+   */
+  viewport(nodes) {
+    if (this.vp !== null && nodes === undefined) {
+      return this.vp;
+    }
+    const list = nodes === undefined ? this.dumpNodes() : nodes;
+    let best = null;
+    let bestArea = 0;
+    for (const n of list) {
+      if (n.type !== 'root') {
+        continue;
+      }
+      const r = Probe.rect(n.bounds);
+      const area = (r[2] - r[0]) * (r[3] - r[1]);
+      if (area > bestArea) {
+        bestArea = area;
+        best = r;
+      }
+    }
+    if (best === null) {
+      // 没有 root 就退到整棵树的外接框
+      let l = 1e9;
+      let t = 1e9;
+      let r = -1;
+      let b = -1;
+      for (const n of list) {
+        const m = (n.bounds || '').match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/);
+        if (!m) {
+          continue;
+        }
+        l = Math.min(l, +m[1]);
+        t = Math.min(t, +m[2]);
+        r = Math.max(r, +m[3]);
+        b = Math.max(b, +m[4]);
+      }
+      best = r < 0 ? [0, 0, 0, 0] : [l, t, r, b];
+    }
+    this.vp = { l: best[0], t: best[1], r: best[2], b: best[3], w: best[2] - best[0], h: best[3] - best[1] };
+    return this.vp;
+  }
+
+  /** 转屏之后调用:丢掉缓存的视口,下一次 viewport() 重新量 */
+  refreshViewport() {
+    this.vp = null;
+  }
+
+  /**
+   * 一次滚动手势的坐标。
+   *
+   * x 要在**当前这一屏**里现取,不能写死:
+   *   · 竖屏时约定是"左侧留白 60" —— 参数滑杆占满 x 98..1158,手势落在轨道上时
+   *     Slider 会抢下这次拖拽,把值跳到起点那个 x(实测:滚一下,电阻箱从 20 Ω 变成 51 Ω);
+   *   · 横屏时列表收窄居中,60 落在页边距里、不在列表上,列表纹丝不动;
+   *   · 所以优先用调用点给的 x,不在任何可滚动容器里就换成最大 List/Scroll 的水平中心,
+   *     压在滑杆轨道上就挪到该滑杆左边。
+   *
+   * 起讫点按视口高度的比例算:手势向上 = 内容往下看,手势向下 = 回到上面。
+   */
+  scrollGesture(gesture, opts) {
+    const o = opts || {};
+    const nodes = o.nodes === undefined ? this.dumpNodes() : o.nodes;
+    const vp = this.viewport(nodes);
+    const sliders = nodes.filter((n) => n.type === 'Slider').map((n) => Probe.rect(n.bounds));
+    const containers = nodes
+      .filter((n) => n.type === 'List' || n.type === 'Scroll')
+      .map((n) => Probe.rect(n.bounds))
+      .sort((a, b) => ((b[2] - b[0]) * (b[3] - b[1])) - ((a[2] - a[0]) * (a[3] - a[1])));
+    const c = containers.length > 0 ? containers[0] : null;
+
+    let x = o.x;
+    if (x === undefined) {
+      x = c !== null ? Math.round((c[0] + c[2]) / 2) : 60;
+    }
+    if (c !== null) {
+      x = Math.max(c[0] + 8, Math.min(x, c[2] - 8));
+    }
+    for (const s of sliders) {
+      if (x >= s[0] && x <= s[2]) {
+        x = s[0] - 30;
+        break;
+      }
+    }
+    if (c !== null && (x < c[0] || x > c[2])) {
+      x = c[0] + 8;
+    }
+
+    // 起讫点按视口高度的比例算:手势向上 = 内容往下看,手势向下 = 回到上面。
+    // span 是一次手势走过的屏高比例。默认 0.5(半个屏)对"滚到哪儿是哪儿"的场合够用;
+    // 但"逐张卡找"这种场合必须调小 —— 横屏一屏只装得下两张卡,甩半屏等于跳过两张,
+    // 目标卡在两次快照之间被甩过去了(实测:八次之后停在第七张卡上,第三张被越过)。
+    const span = o.span === undefined ? 0.5 : o.span;
+    const base = vp.t + vp.h * (o.center === undefined ? 0.55 : o.center);
+    const half = Math.round(vp.h * span / 2);
+    const y1 = gesture === 'down' ? base - half : base + half;
+    const y2 = gesture === 'down' ? base + half : base - half;
+    return { x: Math.round(x), y1: y1, y2: y2 };
+  }
+  /** 按 scrollGesture 的坐标甩一下 */
+  scroll(gesture, opts) {
+    const g = this.scrollGesture(gesture, opts);
+    this.swipe(g.x, g.y1, g.x, g.y2);
+    return g;
   }
 
   static center(bounds) {
@@ -377,8 +495,16 @@ export class Probe {
    */
   locateField(prefix, edgeX, swipeFrom, swipeTo) {
     const x = edgeX === undefined ? 60 : edgeX;
-    const from = swipeFrom === undefined ? 1900 : swipeFrom;
-    const to = swipeTo === undefined ? 900 : swipeTo;
+    // 起讫点没给就按视口算:写死 1900→900 的话,横屏(高 1256)上两个点都在屏外,
+    // 甩了个寂寞,于是报"滚到底也没把问句与输入框凑进同一屏"
+    const scroll = () => {
+      if (swipeFrom !== undefined && swipeTo !== undefined) {
+        this.swipe(x, swipeFrom, x, swipeTo);
+        return;
+      }
+      const g = this.scrollGesture('up', { x: x });
+      this.swipe(g.x, g.y1, g.x, g.y2);
+    };
     const pick = (list) => {
       const label = list.find((n) => (n.text || '').indexOf(prefix) === 0);
       if (label === undefined) {
@@ -405,7 +531,7 @@ export class Probe {
       return hit;
     }
     for (let i = 0; i < 8; i++) {
-      this.swipe(x, from, x, to);
+      scroll();
       hit = pick(this.dumpNodes());
       if (hit !== null) {
         return hit;
@@ -417,7 +543,7 @@ export class Probe {
       if (hit !== null) {
         return hit;
       }
-      this.swipe(x, from, x, to);
+      scroll();
     }
     this.fail(`定位填空「${prefix}」`, '滚到底也没把问句与输入框凑进同一屏');
     return null;
@@ -540,7 +666,11 @@ export class Probe {
         this.sleep(2600);
         return true;
       }
-      this.swipe(628, 2000, 628, 800);
+      // 坐标按视口算:写死 628/2000→800 的话,横屏(2760x1256)上起讫点全在屏外,
+      // 列表纹丝不动,最后报成"这张卡不存在"(实测:甩了八下,画面没变过)。
+      // span 也要小:横屏一屏只装两张卡,甩半屏会越过目标卡,两次快照之间就跳过去了
+      this.scroll('up', { span: 0.16 });
+      this.sleep(600);
     }
     this.fail(`点开「${text}」`, `滚动 ${limit} 次仍没出现在视口里`);
     return false;
@@ -558,6 +688,10 @@ export class Probe {
    * 落在画布上,于是"回顶"对实验页完全没作用(实测滚了四次位置纹丝不动)。
    * x 走左侧留白 60:参数滑杆占满 x 98..1158,手势起点落在轨道上时 Slider 会抢下
    * 这次拖拽并把值跳到起点那个 x(实测:滚一下,电阻箱从 20 Ω 变成 51 Ω)。
+   *
+   * 起讫点的**像素**按视口高度算:写死 1600→2400 的话,横屏(高 1256)上两个点
+   * 都在屏外,回顶等于没做。x 也一起交给 scrollGesture:横屏时列表收窄居中,
+   * 60 落在页边距里、不在列表上,那一甩就白甩。
    */
   scrollToTop() {
     /*
@@ -569,7 +703,7 @@ export class Probe {
      */
     let mark = this.screenMark();
     for (let i = 0; i < 12; i++) {
-      this.swipe(60, 1600, 60, 2400);
+      this.scroll('down', { x: 60 });
       const next = this.screenMark();
       if (next.length > 0 && next === mark) {
         break;
@@ -636,9 +770,16 @@ export class Probe {
     const x = o.edgeX === undefined ? 60 : o.edgeX;
     const tries = o.tries === undefined ? 18 : o.tries;
     const settle = o.settle === undefined ? 600 : o.settle;
-    const from = o.swipeFrom === undefined ? 1900 : o.swipeFrom;
-    const to = o.swipeTo === undefined ? 900 : o.swipeTo;
     const swipeWait = o.swipeWait === undefined ? 400 : o.swipeWait;
+    // 起讫点没给就按视口算:写死 1900→900 的话,横屏(高 1256)上两个点都在屏外
+    const scroll = () => {
+      if (o.swipeFrom !== undefined && o.swipeTo !== undefined) {
+        this.swipe(x, o.swipeFrom, x, o.swipeTo);
+        return;
+      }
+      const g = this.scrollGesture('up', { x: x });
+      this.swipe(g.x, g.y1, g.x, g.y2);
+    };
     this.scrollToTop();
     for (let i = 0; i < tries; i++) {
       const list = this.textList();
@@ -647,7 +788,7 @@ export class Probe {
         this.sleep(settle);
         return { value: value, screen: list };
       }
-      this.swipe(x, from, x, to);
+      scroll();
       this.sleep(swipeWait);
     }
     this.fail(`读到「${label}」`, '滚到底也没出现这一格读数');
@@ -689,7 +830,10 @@ export class Probe {
         || blob.indexOf('（扣 ') >= 0 || blob.indexOf('没有扣分项') >= 0)) {
         return blob;
       }
-      this.swipe(x, 1900, x, 1000);
+      // 起讫点按视口算:写死 1900→1000 的话,横屏(高 1256)上两个点都在屏外,
+      // 判词在屏外也读不到,于是收回来一个只有得分那一行的空壳
+      const g = this.scrollGesture('up', { x: x });
+      this.swipe(g.x, g.y1, g.x, g.y2);
       this.sleep(500);
     }
     return [...seen].join('\n');
