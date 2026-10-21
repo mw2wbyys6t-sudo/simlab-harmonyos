@@ -56,6 +56,7 @@ const MODULES = [
   'content/map/KnowledgeElectronicsJunior',
   'content/map/KnowledgeElectronicsSenior',
   'content/map/PeriodicTable',
+  'content/map/PeriodicGrid',
   'content/map/KnowledgeChemistry',
   'content/map/KnowledgeChemistryJunior',
   'content/map/KnowledgeChemistrySenior',
@@ -1560,6 +1561,8 @@ function findClampedStartRunners() {
     need('次要文字压页面底', pal.get('text_secondary'), pal.get('bg_page'), 4.5);
     need('判定文字压判定卡', pal.get('text_primary'), pal.get('verdict_bg'), 4.5);
     need('学科标签压标签底', pal.get('accent'), pal.get('band_bg'), 4.5);
+    // 周期表里那两个标记格(「57～71」「89～103」)就是学科色压标签底,同一组色
+    need('周期表标记格压标签底', pal.get('subject_chemistry'), pal.get('band_bg'), 4.5);
     if (new Set(SUBJECTS.map((k) => pal.get(k))).size !== SUBJECTS.length) {
       bad.push(`${mode}·七个学科辅色出现重色`);
     }
@@ -4710,7 +4713,7 @@ function findClampedStartRunners() {
   // 角色阶本身:三档必须单调不减,且都在可读区间内
   const { Layout, DeviceClass } = require(join(OUT, 'common/Layout.cjs'));
   const roles = ['displaySize', 'readoutSize', 'pageTitleSize', 'sectionSize', 'bodySize',
-    'labelSize', 'captionSize', 'cardTitleSize', 'microSize', 'bubbleSize'];
+    'labelSize', 'captionSize', 'cardTitleSize', 'microSize', 'bubbleSize', 'periodicSymbolSize'];
   const classes = [DeviceClass.PHONE, DeviceClass.PAD, DeviceClass.LARGE];
   for (const role of roles) {
     if (typeof Layout[role] !== 'function') {
@@ -4775,7 +4778,8 @@ function findClampedStartRunners() {
   const { Layout, DeviceClass } = require(join(OUT, 'common/Layout.cjs'));
   const classes = [DeviceClass.PHONE, DeviceClass.PAD, DeviceClass.LARGE];
   const controls = ['gaugeWidth', 'gaugeHeight', 'vesselCardWidth', 'vesselCardHeight',
-    'toggleWidth', 'toggleHeight', 'buttonHeight', 'shelfMaxHeight', 'chartHeight', 'minSceneHeight', 'panelWidth'];
+    'toggleWidth', 'toggleHeight', 'buttonHeight', 'shelfMaxHeight', 'chartHeight', 'minSceneHeight',
+    'panelWidth', 'periodicCellSize'];
   for (const name of controls) {
     if (typeof Layout[name] !== 'function') {
       assertTrue(`控件尺寸 ${name} 存在`, false, 'Layout 里没有这个访问器');
@@ -5539,6 +5543,275 @@ function findClampedStartRunners() {
   // 记在 spec 里当扩充依据;断言只守「用到的必须有」这条不会过期的规则。
   assertTrue('反应库用到的元素符号都在周期表里', usedSymbols.size >= 12 && missing.length === 0,
     `比到 ${usedSymbols.size} 种,缺 ${missing.join(',')}`);
+}
+
+// ---- 标准长式周期表 --------------------------------------------------------
+// 「周期表要以标准的表形式出来」不是排版口味,是几条可核对的结构事实:
+// 18 族 × 7 周期;顶端族号 1–18、左侧周期号 1–7;镧系(57–71)与锕系(89–103)
+// 各 15 个,另起两行排在主表下方;主表第 6/7 周期第 3 族放「57～71」「89～103」标记格。
+// 每条都钉成断言,并各配一个变异负对照 —— 只在真表上跑一次的断言等于没跑。
+{
+  const { PeriodicGrid } = require(join(OUT, 'content/map/PeriodicGrid.cjs'));
+  const { Layout, DeviceClass } = require(join(OUT, 'common/Layout.cjs'));
+  const { PeriodicTable } = require(join(OUT, 'content/map/PeriodicTable.cjs'));
+  const allElements = PeriodicTable.all();
+  const byNumber = new Map();
+  for (const e of allElements) {
+    byNumber.set(e.number, e);
+  }
+  const rows = PeriodicGrid.rows();
+
+  // ---- 判定函数:断言与负对照共用同一套判定,不做两套 ----
+  /** 列数不是 18 的行 */
+  function shortRows(rs) {
+    return rs.filter((r) => r.cells.length !== 18).map((r) => `${r.key}:${r.cells.length}`);
+  }
+  /** 出现多于一次的元素格 */
+  function duplicateNumbers(rs) {
+    const counted = new Map();
+    for (const r of rs) {
+      for (const c of r.cells) {
+        if (c.kind !== 'element') {
+          continue;
+        }
+        counted.set(c.atomicNumber, (counted.get(c.atomicNumber) || 0) + 1);
+      }
+    }
+    return [...counted.entries()].filter(([, n]) => n > 1).map(([num]) => num);
+  }
+  /** 落在主表(周期行)里的 f 区元素 —— 主表放不下它们,放进去就与下方两行重复 */
+  function fBlockInMainTable(rs) {
+    const bad = [];
+    for (const r of rs) {
+      if (r.kind !== 'period') {
+        continue;
+      }
+      for (const c of r.cells) {
+        if (c.kind !== 'element') {
+          continue;
+        }
+        const el = byNumber.get(c.atomicNumber);
+        if (el !== undefined && el.block === 'f') {
+          bad.push(`${r.key}/${c.key}=${el.symbol}`);
+        }
+      }
+    }
+    return bad;
+  }
+  /** 标记格不符合人教版标准表的清单 */
+  function markerProblems(rs) {
+    const problems = [];
+    const want = [
+      { period: 6, group: 3, top: '57～71', bottom: '镧系' },
+      { period: 7, group: 3, top: '89～103', bottom: '锕系' }
+    ];
+    for (const w of want) {
+      const row = rs.find((r) => r.kind === 'period' && r.label === String(w.period));
+      if (row === undefined) {
+        problems.push(`没有第 ${w.period} 周期行`);
+        continue;
+      }
+      const cell = row.cells[w.group - 1];
+      if (cell === undefined || cell.kind !== 'marker') {
+        problems.push(`第 ${w.period} 周期第 ${w.group} 族不是标记格`);
+        continue;
+      }
+      if (cell.top !== w.top) {
+        problems.push(`第 ${w.period} 周期标记格上行是「${cell.top}」,期望「${w.top}」`);
+      }
+      if (cell.bottom !== w.bottom) {
+        problems.push(`第 ${w.period} 周期标记格下行是「${cell.bottom}」,期望「${w.bottom}」`);
+      }
+    }
+    const total = rs.filter((r) => r.kind === 'period')
+      .reduce((n, r) => n + r.cells.filter((c) => c.kind === 'marker').length, 0);
+    if (total !== want.length) {
+      problems.push(`标记格共 ${total} 个,期望 ${want.length} 个`);
+    }
+    return problems;
+  }
+  /** 深拷贝一份行表供变异用:PeriodicGrid.rows() 返回的是缓存,改它会污染后面的断言 */
+  function cloneRows(rs) {
+    return rs.map((r) => {
+      const copy = Object.assign(Object.create(Object.getPrototypeOf(r)), r);
+      copy.cells = r.cells.map((c) => Object.assign(Object.create(Object.getPrototypeOf(c)), c));
+      return copy;
+    });
+  }
+  /** 找周期行 */
+  function periodRowOf(rs, label) {
+    return rs.find((r) => r.kind === 'period' && r.label === String(label));
+  }
+
+  // ---- 真表上的断言 ----
+  check('长式表共 10 行(表头 + 7 周期行 + 2 个 f 区行)', rows.length, 10, 0);
+  assertTrue('每一行都是 18 列', shortRows(rows).length === 0, shortRows(rows).join(' '));
+
+  const header = rows[0];
+  assertTrue('第一行是族号表头', header.kind === 'header', header.kind);
+  checkText('表头族号是 1..18', header.cells.map((c) => c.top).join(','),
+    Array.from({ length: 18 }, (_, i) => String(i + 1)).join(','));
+  assertTrue('表头每一格都是族号格', header.cells.every((c) => c.kind === 'group'),
+    header.cells.filter((c) => c.kind !== 'group').map((c) => c.key).join(' '));
+
+  const periodRows = rows.filter((r) => r.kind === 'period');
+  check('周期行有 7 行', periodRows.length, 7, 0);
+  checkText('左侧周期号是 1..7', periodRows.map((r) => r.label).join(','), '1,2,3,4,5,6,7');
+  // 第 6/7 周期比满行少两格:镧系与锕系被摘到表下方
+  const perPeriod = periodRows.map((r) => r.cells.filter((c) => c.kind === 'element').length);
+  checkText('主表每周期元素数 2/8/8/18/18/17/17', perPeriod.join('/'), '2/8/8/18/18/17/17');
+  check('主表元素总数 88', perPeriod.reduce((a, b) => a + b, 0), 88, 0);
+  check('整张表的元素格总数 118',
+    rows.reduce((n, r) => n + r.cells.filter((c) => c.kind === 'element').length, 0), 118, 0);
+
+  assertTrue('主表里没有 f 区元素', fBlockInMainTable(rows).length === 0, fBlockInMainTable(rows).join(' '));
+  assertTrue('整张表没有重复的元素格', duplicateNumbers(rows).length === 0, duplicateNumbers(rows).join(','));
+
+  // 每个元素的格子必须落在它自己的(周期,族)上;f 区元素的格子必须在表下方那两行
+  const placed = new Map();
+  for (const r of rows) {
+    for (let gi = 0; gi < r.cells.length; gi++) {
+      const c = r.cells[gi];
+      if (c.kind !== 'element') {
+        continue;
+      }
+      placed.set(c.atomicNumber, { row: r, group: gi + 1 });
+    }
+  }
+  const misplaced = [];
+  for (const e of allElements) {
+    const at = placed.get(e.number);
+    if (at === undefined) {
+      misplaced.push(`${e.symbol} 没出现在表上`);
+      continue;
+    }
+    if (e.block === 'f') {
+      if (at.row.kind !== 'series') {
+        misplaced.push(`${e.symbol} 出现在主表行里`);
+      }
+      continue;
+    }
+    if (at.row.kind !== 'period' || Number(at.row.label) !== e.period || at.group !== e.group) {
+      misplaced.push(`${e.symbol} 落在 ${at.row.key} 第 ${at.group} 族,应是第 ${e.period} 周期第 ${e.group} 族`);
+    }
+  }
+  assertTrue('每个元素都在它自己的(周期,族)格上', misplaced.length === 0, misplaced.slice(0, 8).join(' | '));
+  // f 区两行:各 15 个,前面空两格、末尾空一格
+  const seriesRows = rows.filter((r) => r.kind === 'series');
+  check('f 区行有两行', seriesRows.length, 2, 0);
+  const seriesExpect = [
+    { label: '镧系', first: 57, last: 71 },
+    { label: '锕系', first: 89, last: 103 }
+  ];
+  for (let i = 0; i < seriesRows.length; i++) {
+    const r = seriesRows[i];
+    const want = seriesExpect[i];
+    checkText(`f 区第 ${i + 1} 行是${want.label}`, r.label, want.label);
+    const els = r.cells.filter((c) => c.kind === 'element');
+    check(`${want.label} 15 个元素`, els.length, 15, 0);
+    checkText(`${want.label} 原子序数 ${want.first}..${want.last}`,
+      els.map((c) => c.atomicNumber).join(','),
+      Array.from({ length: 15 }, (_, k) => String(want.first + k)).join(','));
+    assertTrue(`${want.label} 行前面空两格`,
+      r.cells[0].kind === 'empty' && r.cells[1].kind === 'empty', `${r.cells[0].kind}/${r.cells[1].kind}`);
+    assertTrue(`${want.label} 行末尾空一格`, r.cells[17].kind === 'empty', r.cells[17].kind);
+  }
+
+  assertTrue('两个标记格与标准表一致', markerProblems(rows).length === 0, markerProblems(rows).join(' | '));
+
+  // ---- 第二条独立路径:从格子查询层重算一遍 ----
+  // 渲染层与格子查询层是两条独立的路,必须给出同一个答案。只查渲染层会漏:
+  // 主表第 6/7 周期第 3 族那个标记格会把底下的元素格挡住 —— 实测把 ensureSlots 里
+  // 排除 f 区的那一行去掉,渲染层看不出任何变化,只有查询层露馅。
+  const viaLookup = [];
+  for (let p = 1; p <= 7; p++) {
+    const one = [];
+    for (let g = 1; g <= 18; g++) {
+      const el = PeriodicGrid.cellAt(p, g);
+      one.push(el === null ? 0 : el.number);
+    }
+    viaLookup.push(one);
+  }
+  const lookupCounts = viaLookup.map((one) => one.filter((n) => n > 0).length);
+  checkText('格子查询层数出的每周期元素数同样是 2/8/8/18/18/17/17', lookupCounts.join('/'),
+    '2/8/8/18/18/17/17');
+  assertTrue('主表第 6 周期第 3 族格子里没有元素(镧系被摘出去了)',
+    PeriodicGrid.cellAt(6, 3) === null, '有元素');
+  assertTrue('主表第 7 周期第 3 族格子里没有元素(锕系被摘出去了)',
+    PeriodicGrid.cellAt(7, 3) === null, '有元素');
+  // 负对照:查询层不是恒返回 null 的空函数
+  check('格子查询层确实查得到元素(不是恒空的函数)',
+    PeriodicGrid.cellAt(1, 1) === null ? 0 : 1, 1, 0);
+  check('第 1 周期第 1 族是氢', PeriodicGrid.cellAt(1, 1).number, 1, 0);
+  const disagree = [];
+  periodRows.forEach((row, pi) => {
+    row.cells.forEach((cell, gi) => {
+      const rendered = cell.kind === 'element' ? cell.atomicNumber : 0;
+      const looked = viaLookup[pi][gi];
+      if (rendered !== looked) {
+        disagree.push(`${row.key} 第 ${gi + 1} 族:渲染 ${rendered} 查询 ${looked}`);
+      }
+    });
+  });
+  assertTrue('渲染层与格子查询层给出的答案一致', disagree.length === 0, disagree.slice(0, 6).join(' | '));
+
+  // ---- 名字显示策略:缺字的名字宁可不显示,也不显示成方框 ----
+  checkText('氢的名字正常显示', PeriodicGrid.safeName(byNumber.get(1)), '氢');
+  checkText('104 号元素没录名字,退回空串', PeriodicGrid.safeName(byNumber.get(104)), '');
+  checkText('105 号元素的名字在 CJK 扩展区,退回空串', PeriodicGrid.safeName(byNumber.get(105)), '');
+  checkText('115 号元素的名字在常用区,照常显示', PeriodicGrid.safeName(byNumber.get(115)), '镆');
+  // ---- 尺寸:手机档一格必须点得中,18 列放不下所以整表横向滚动 ----
+  const classes = [DeviceClass.PHONE, DeviceClass.PAD, DeviceClass.LARGE];
+  const cells = classes.map((c) => Layout.periodicCellSize(c));
+  assertTrue('格子边长三档单调不减', cells[0] <= cells[1] && cells[1] <= cells[2], cells.join('/'));
+  for (let i = 0; i < classes.length; i++) {
+    assertTrue(`${classes[i]} 格子边长不低于触控下限`,
+      Layout.periodicCellSize(classes[i]) >= Layout.touchMin(classes[i]),
+      `${Layout.periodicCellSize(classes[i])} < ${Layout.touchMin(classes[i])}`);
+  }
+  // 常见手机屏宽 360vp:18 列在手机档放不下,这就是整表横向滚动的理由
+  assertTrue('手机档 18 列确实放不进一屏(所以要横向滚动)',
+    Layout.periodicGutter(DeviceClass.PHONE) + 18 * Layout.periodicCellSize(DeviceClass.PHONE) > 360,
+    `${Layout.periodicGutter(DeviceClass.PHONE) + 18 * Layout.periodicCellSize(DeviceClass.PHONE)} <= 360`);
+  const symbols = classes.map((c) => Layout.periodicSymbolSize(c));
+  assertTrue('元素符号字号三档单调不减', symbols[0] <= symbols[1] && symbols[1] <= symbols[2], symbols.join('/'));
+  assertTrue('元素符号字号落在可读区间 10..46', symbols[0] >= 10 && symbols[2] <= 46, symbols.join('/'));
+  // ---- 变异负对照:改了表,上面的判定必须报出来 ----
+  {
+    const dup = cloneRows(rows);
+    // 把第 1 周期第 2 族那个空位塞一个氢 —— 氢就出现两次
+    const p1 = periodRowOf(dup, 1);
+    p1.cells[1].kind = 'element';
+    p1.cells[1].atomicNumber = 1;
+    p1.cells[1].top = '1';
+    p1.cells[1].bottom = 'H';
+    check('负对照:同一个元素出现两次会被重复检查认出', duplicateNumbers(dup).length, 1, 0);
+    check('负对照:重复检查认出的是那个元素', duplicateNumbers(dup)[0], 1, 0);
+    check('真表本身没有重复元素格', duplicateNumbers(rows).length, 0, 0);
+  }
+  {
+    const withF = cloneRows(rows);
+    // 把镧(57)塞进第 3 周期第 3 族那个空位 —— 主表里出现 f 区元素
+    const p3 = periodRowOf(withF, 3);
+    p3.cells[2].kind = 'element';
+    p3.cells[2].atomicNumber = 57;
+    p3.cells[2].top = '57';
+    p3.cells[2].bottom = 'La';
+    check('负对照:f 区元素混进主表会被 f 区检查认出', fBlockInMainTable(withF).length, 1, 0);
+    check('真表主表里没有 f 区元素', fBlockInMainTable(rows).length, 0, 0);
+  }
+  {
+    const short = cloneRows(rows);
+    short[0].cells.pop();
+    check('负对照:少一列会被列数检查认出', shortRows(short).length, 1, 0);
+    check('真表每行都是 18 列', shortRows(rows).length, 0, 0);
+  }
+  {
+    const badMarker = cloneRows(rows);
+    periodRowOf(badMarker, 6).cells[2].top = '57-71';
+    check('负对照:标记格写错会被标记格检查认出', markerProblems(badMarker).length, 1, 0);
+    check('真表的两个标记格没问题', markerProblems(rows).length, 0, 0);
+  }
 }
 
 // ---- 实验台事件必须带着配平好的方程式 ----

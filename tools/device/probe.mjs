@@ -137,8 +137,18 @@ export class Probe {
       throw new Error('装包之前必须先 assertDevice():不带 -t 的 `hdc install` 在两台在线时可能装到另一台机器,'
         + '而它的回显一模一样。设 SIMLAB_TARGET 或先调 assertDevice()。');
     }
-    const dir = hapPath.slice(0, hapPath.lastIndexOf('/'));
-    const file = hapPath.slice(hapPath.lastIndexOf('/') + 1);
+    // 路径先统一成正斜杠。Windows 上 hdc 只认正斜杠的 cwd:给反斜杠的 cwd,
+    // node 的 spawnSync 直接报 ENOENT(实测:F:\...\outputs\default 报 ENOENT,
+    // 同一个目录写成 F:/.../outputs/default 就装上了)。而 hdc 自己也不吃带盘符的绝对路径 ——
+    // 它会把反斜杠当转义符吃掉,拼成 "F:DevEcoProjectsSimLabentry..." 这种路径然后找不到文件。
+    // 所以这里只把文件名交给它,cwd 指到它所在的目录。
+    const slashPath = String(hapPath).replace(/\\/g, '/');
+    const cut = slashPath.lastIndexOf('/');
+    if (cut <= 0) {
+      throw new Error(`装包路径不完整,看不出目录:${hapPath}`);
+    }
+    const dir = slashPath.slice(0, cut);
+    const file = slashPath.slice(cut + 1);
     const out = this.shellExec(['install', '-r', file], { cwd: dir });
     if (!out.includes('install bundle successfully')) {
       throw new Error(`安装没成功,后面测的就不是这个构建:\n${out}`);

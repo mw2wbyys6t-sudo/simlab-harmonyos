@@ -29,8 +29,8 @@ writeFileSync(LOG, '');
  * `execFileSync` 根本起不了 .cmd(直接 EINVAL,整份自检崩在半路)。所以 probe.mjs 留了
  * `spawn` 这个注入点,默认仍是 execFileSync —— 生产路径一行没变,变的只是这里能看着真 argv 判。
  */
-function fakeHdc(bin, args) {
-  appendFileSync(LOG, args.join(' ') + '\n');
+function fakeHdc(bin, args, opts) {
+  appendFileSync(LOG, args.join(' ') + ' | cwd=' + ((opts && opts.cwd) || '') + '\n');
   if (args[0] === 'list') {
     return '[Fail][E001005] Device not found or connected\r\n127.0.0.1:5555\r\n127.0.0.1:5557\r\n';
   }
@@ -102,6 +102,17 @@ try {
 }
 expectTrue('没先点名就不装(装到另一台上也照样回 install bundle successfully,那测的就不是这个构建)',
   noTargetThrew !== null && noTargetThrew.indexOf('assertDevice') > 0, '实得:' + String(noTargetThrew));
+
+// Windows 的反斜杠路径:真设备上实测 node 的 spawnSync 遇到反斜杠 cwd 直接 ENOENT,
+// 正斜杠的同一个目录就装得上。所以 install() 必须自己把路径统一成正斜杠 ——
+// 以前靠每个调用点自己 replace(/\\/g,'/'),忘一处就装不上,而且报错是 spawnSync ENOENT,
+// 看不出跟路径写法有关。
+const winPath = 'F:\\DevEco\\SimLab\\entry-default-unsigned.hap';
+mkProbe({ tag: 'selftest-3b', target: '127.0.0.1:5555' }).install(winPath);
+const winArgv = readFileSync(LOG, 'utf8');
+expectTrue('反斜杠路径也能装:cwd 是正斜杠、文件名单独给',
+  winArgv.indexOf('-t 127.0.0.1:5555 install -r entry-default-unsigned.hap | cwd=F:/DevEco/SimLab') > 0,
+  'argv.log:' + winArgv.trim().split('\n').pop());
 
 let offlineThrew = null;
 try {
