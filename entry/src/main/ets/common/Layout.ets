@@ -249,6 +249,44 @@ export class Layout {
     return cls === DeviceClass.PAD ? 240 : 210;
   }
 
+  /**
+   * 周期表单格的边长(正方格)。
+   *
+   * 手机档取 44,正好是触控下限 —— 18 列硬塞进手机屏宽只有 17vp 一列,元素符号根本看不清,
+   * 那种"看得见形状点不中"的表比没有更糟。所以手机档不缩表,改成整表横向滚动,
+   * 一屏露出七八列,点哪一格都是 44vp 的目标。
+   */
+  static periodicCellSize(cls: DeviceClass): number {
+    if (cls === DeviceClass.LARGE) {
+      return 64;
+    }
+    return cls === DeviceClass.PAD ? 52 : 44;
+  }
+
+  /** 周期表左侧那一栏:周期号,以及表下方两行的「镧系」「锕系」标签 */
+  static periodicGutter(cls: DeviceClass): number {
+    if (cls === DeviceClass.LARGE) {
+      return 38;
+    }
+    return cls === DeviceClass.PAD ? 34 : 32;
+  }
+
+  /** 族号表头那一行的高 */
+  static periodicHeaderHeight(cls: DeviceClass): number {
+    if (cls === DeviceClass.LARGE) {
+      return 32;
+    }
+    return cls === DeviceClass.PAD ? 28 : 24;
+  }
+
+  /** 格子里的元素符号。序数走 microSize,符号要压得住序数,单独给一档 */
+  static periodicSymbolSize(cls: DeviceClass): number {
+    if (cls === DeviceClass.LARGE) {
+      return 24;
+    }
+    return cls === DeviceClass.PAD ? 20 : 16;
+  }
+
   static isStacked(cls: DeviceClass): boolean {
     return cls === DeviceClass.PHONE;
   }

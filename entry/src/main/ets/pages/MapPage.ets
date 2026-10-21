@@ -3,8 +3,10 @@ import { Theme } from '../common/Theme';
 import { CurriculumIndex } from '../content/map/CurriculumIndex';
 import { ExperimentEntry, Feasibility, MapSubject, SchoolStage } from '../content/map/CurriculumTypes';
 import { ChemicalElement } from '../content/map/PeriodicTable';
+import { PeriodicGrid, SeriesInfo } from '../content/map/PeriodicGrid';
 import { KnowledgeLevel, KnowledgePoint } from '../content/map/KnowledgeTypes';
 import { AppChips } from '../view/AppChips';
+import { PeriodicTableView } from '../view/PeriodicTableView';
 
 /**
  * 课程地图页:只读浏览。
@@ -24,8 +26,6 @@ class MapRow {
   badge: string = '';
   /** 出处没核查过:逐行标出来,不能只靠顶栏那个总数 */
   unverified: boolean = false;
-  /** 周期表视图下的原子序数,另两个视图恒为 0 */
-  elementNumber: number = 0;
 }
 
 @Component
@@ -39,6 +39,10 @@ export struct MapPage {
   @State mode: number = 0;
   @State rows: MapRow[] = [];
   @State selected: number = -1;
+  /** 周期表视图:选中的元素原子序数,-1 表示没选 */
+  @State selectedNumber: number = -1;
+  /** 周期表视图:选中的系列下标(0 镧系 / 1 锕系),-1 表示没选 */
+  @State selectedSeries: number = -1;
   /** 列表滚动控制器:展开详情时把这一行顶到视口上沿,不然正文可能全在屏幕外 */
   private listScroller: Scroller = new Scroller();
 
@@ -156,21 +160,9 @@ export struct MapPage {
         lastCourse = k.chapter;
       }
     } else {
-      const list = CurriculumIndex.elements();
-      let lastPeriod = 0;
-      for (let i = 0; i < list.length; i++) {
-        const el: ChemicalElement = list[i];
-        const row = new MapRow();
-        row.id = 'el-' + el.number;
-        row.elementNumber = el.number;
-        row.title = el.name + ' (' + el.symbol + ')';
-        row.course = '第 ' + el.period + ' 周期';
-        row.showCourse = el.period !== lastPeriod;
-        row.badge = el.mass + ' · ' + el.block + ' 区 · ' + el.state;
-        row.unverified = !el.verified;
-        rows.push(row);
-        lastPeriod = el.period;
-      }
+      // 周期表这一档不再铺 118 行清单:它现在是一张标准长式表,行由 PeriodicGrid 提供
+      this.selectedNumber = -1;
+      this.selectedSeries = -1;
     }
     this.rows = rows;
     this.selected = -1;
@@ -212,7 +204,7 @@ export struct MapPage {
         ? where + ' · 这里还没有知识点'
         : where + ' · 共 ' + list.length + ' 条知识点';
     }
-    return '共 ' + CurriculumIndex.elements().length + ' 种元素 · ' +
+    return '共 ' + CurriculumIndex.elements().length + ' 种元素 · 18 族 × 7 周期的长式表 · ' +
       '相对原子质量取教学常用值';
   }
 
@@ -220,19 +212,6 @@ export struct MapPage {
   private detailBody(): string {
     if (this.selected < 0 || this.selected >= this.rows.length) {
       return '';
-    }
-    if (this.mode === 2) {
-      const el = CurriculumIndex.findElement(this.rows[this.selected].elementNumber);
-      if (el === null) {
-        return '';
-      }
-      let text = '第 ' + el.period + ' 周期 · 第 ' + el.group + ' 族 · ' + el.block + ' 区\n' +
-        '相对原子质量 ' + el.mass + ' · 常温' + el.state + ' · ' + el.kind + '\n' +
-        '常见化合价：' + el.valenceLabel();
-      if (el.note.length > 0) {
-        text = text + '\n\n' + el.note;
-      }
-      return text;
     }
     const id = this.rows[this.selected].id;
     if (this.mode === 0) {
@@ -273,10 +252,6 @@ export struct MapPage {
       return '';
     }
     const id = this.rows[this.selected].id;
-    if (this.mode === 2) {
-      const el = CurriculumIndex.findElement(this.rows[this.selected].elementNumber);
-      return el === null ? '' : el.source;
-    }
     if (this.mode === 0) {
       const e = CurriculumIndex.findExperiment(id);
       return e === null ? '' : e.source;
@@ -304,6 +279,80 @@ export struct MapPage {
     const exp = CurriculumIndex.experimentsOfStage(subject, stage).length;
     return '这张地图上' + where + '还没有收录知识点' +
       (exp > 0 ? ' · 已有 ' + exp + ' 个实验，可切到「实验清单」' : '');
+  }
+
+  /** 选中元素的原文。取不到就返回空 —— 下标可能已经失效 */
+  private elementOf(number: number): ChemicalElement | null {
+    return CurriculumIndex.findElement(number);
+  }
+
+  /**
+   * 元素标题。
+   *
+   * 中文名拿不准能不能显示时退回符号加序数:105 号往后有一批元素名在 CJK 扩展区,
+   * 字体缺字会显示成方框,那比只给个符号更糟。
+   */
+  private elementTitle(): string {
+    const el = this.elementOf(this.selectedNumber);
+    if (el === null) {
+      return '';
+    }
+    const name = PeriodicGrid.safeName(el);
+    if (name.length > 0) {
+      return name + '（' + el.symbol + '）';
+    }
+    return el.symbol + '（原子序数 ' + el.number + '）';
+  }
+
+  private elementBody(): string {
+    const el = this.elementOf(this.selectedNumber);
+    if (el === null) {
+      return '';
+    }
+    let text = '第 ' + el.period + ' 周期 · 第 ' + el.group + ' 族 · ' + el.block + ' 区\n' +
+      '相对原子质量 ' + el.mass + ' · 常温' + el.state + ' · ' + el.kind + '\n' +
+      '常见化合价：' + el.valenceLabel();
+    if (el.note.length > 0) {
+      text = text + '\n\n' + el.note;
+    }
+    return text;
+  }
+
+  private elementSource(): string {
+    const el = this.elementOf(this.selectedNumber);
+    return el === null ? '' : el.source;
+  }
+
+  /** 选中的 f 区系列;下标越界返回 null */
+  private seriesOf(index: number): SeriesInfo | null {
+    const list = PeriodicGrid.series();
+    if (index < 0 || index >= list.length) {
+      return null;
+    }
+    return list[index];
+  }
+
+  private seriesTitle(): string {
+    const list = this.seriesOf(this.selectedSeries);
+    if (list === null) {
+      return '';
+    }
+    return list.label + '（' + list.range + '）';
+  }
+
+  private seriesBody(): string {
+    const list = this.seriesOf(this.selectedSeries);
+    if (list === null) {
+      return '';
+    }
+    const names: string[] = [];
+    for (let i = 0; i < list.elements.length; i++) {
+      const el = list.elements[i];
+      const name = PeriodicGrid.safeName(el);
+      names.push(name.length > 0 ? name : el.symbol);
+    }
+    return list.label + '是 f 区元素，主表里放不下，在表下方单独一行。共 ' +
+      list.elements.length + ' 种：' + names.join('、');
   }
 
   private stageLabels(): string[] {
@@ -408,6 +457,99 @@ export struct MapPage {
     .width('100%')
   }
 
+  /**
+   * 周期表这一档:一张标准长式表,下面是选中项的详情。
+   *
+   * 表格横向滚动(手机档一屏放不下 18 列),详情另开一个竖向滚动区,
+   * 两边各滚各的,不互相抢手势。
+   */
+  @Builder
+  periodicView() {
+    Column({ space: Layout.listGap(this.cls()) }) {
+      PeriodicTableView({
+        hostWidth: this.hostWidth,
+        selectedNumber: this.selectedNumber,
+        selectedSeries: this.selectedSeries,
+        onPick: (n: number): void => {
+          this.selectedNumber = n;
+          this.selectedSeries = -1;
+        },
+        onPickSeries: (index: number): void => {
+          this.selectedSeries = index;
+          this.selectedNumber = -1;
+        }
+      })
+        .width('100%')
+
+      Scroll() {
+        Column({ space: 4 }) {
+          this.periodicDetail()
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .scrollBar(BarState.Auto)
+    }
+    .width('100%')
+    .layoutWeight(1)
+  }
+
+  /** 周期表下方那张详情卡:选中了元素就讲元素,选中了系列就讲系列 */
+  @Builder
+  periodicDetail() {
+    if (this.selectedSeries >= 0) {
+      Column({ space: 6 }) {
+        Text(this.seriesTitle())
+          .fontSize(Layout.sectionSize(this.cls()))
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Theme.TEXT_PRIMARY)
+        Text(this.seriesBody())
+          .fontSize(Layout.labelSize(this.cls()))
+          .fontColor(Theme.TEXT_PRIMARY)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+      .padding({
+        left: Layout.pageInset(this.cls()),
+        right: Layout.pageInset(this.cls()),
+        top: Layout.listGap(this.cls()),
+        bottom: Layout.listGap(this.cls())
+      })
+      .backgroundColor(Theme.BG_CARD)
+      .borderRadius(Layout.cardRadius(this.cls()))
+    } else if (this.selectedNumber > 0) {
+      Column({ space: 6 }) {
+        Text(this.elementTitle())
+          .fontSize(Layout.sectionSize(this.cls()))
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Theme.TEXT_PRIMARY)
+        Text(this.elementBody())
+          .fontSize(Layout.labelSize(this.cls()))
+          .fontColor(Theme.TEXT_PRIMARY)
+        Text('出处 ' + this.elementSource())
+          .fontSize(Layout.microSize(this.cls()))
+          .fontColor(Theme.TEXT_SECONDARY)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+      .padding({
+        left: Layout.pageInset(this.cls()),
+        right: Layout.pageInset(this.cls()),
+        top: Layout.listGap(this.cls()),
+        bottom: Layout.listGap(this.cls())
+      })
+      .backgroundColor(Theme.BG_CARD)
+      .borderRadius(Layout.cardRadius(this.cls()))
+    } else {
+      Text('点表里的一个格子看详情 · 表可以横向滑动')
+        .fontSize(Layout.captionSize(this.cls()))
+        .fontColor(Theme.TEXT_SECONDARY)
+        .width('100%')
+    }
+  }
+
   build() {
     NavDestination() {
       Column({ space: 8 }) {
@@ -425,7 +567,8 @@ export struct MapPage {
         })
           .width('100%')
 
-        if (this.stages.length > 1) {
+        // 周期表不分学段,所以学段那一排只在另外两档出现
+        if (this.stages.length > 1 && this.mode !== 2) {
           AppChips({
             labels: this.stageLabels(),
             selected: this.stageIndex,
@@ -448,7 +591,9 @@ export struct MapPage {
         })
           .width('100%')
 
-        if (this.rows.length === 0) {
+        if (this.mode === 2) {
+          this.periodicView()
+        } else if (this.rows.length === 0) {
           Column() {
             Text(this.emptyText())
               .fontSize(Layout.labelSize(this.cls()))
