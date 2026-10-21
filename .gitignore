@@ -16,3 +16,6 @@ Thumbs.db
 
 # Local config
 local.properties
+
+# Agent scratch workspace (SDD ledgers, temp notes)
+.superpowers/

@@ -4780,12 +4780,15 @@ function findClampedStartRunners() {
   const controls = ['gaugeWidth', 'gaugeHeight', 'vesselCardWidth', 'vesselCardHeight',
     'toggleWidth', 'toggleHeight', 'buttonHeight', 'shelfMaxHeight', 'chartHeight', 'minSceneHeight',
     'panelWidth', 'periodicCellSize'];
+  // minSceneHeight 多一个「矮屏」参数。这里显式给 false —— 这一条量的是常规档那条曲线,
+  // 矮屏那条由横竖屏那组断言单独管,不留"忘了传参就当成矮屏"的解释空间。
+  const extraArgs = { minSceneHeight: [false] };
   for (const name of controls) {
     if (typeof Layout[name] !== 'function') {
       assertTrue(`控件尺寸 ${name} 存在`, false, 'Layout 里没有这个访问器');
       continue;
     }
-    const steps = classes.map((c) => Layout[name](c));
+    const steps = classes.map((c) => Layout[name](c, ...(extraArgs[name] || [])));
     assertTrue(`${name} 三档单调不减`, steps[0] <= steps[1] && steps[1] <= steps[2],
       `${name} = ${steps.join('/')}`);
     assertTrue(`${name} 三档分设备`, !(steps[0] === steps[2]), `${name} 恒为 ${steps[0]}`);
@@ -4797,6 +4800,167 @@ function findClampedStartRunners() {
     assertTrue(`${c} 开关宽大于高`, Layout.toggleWidth(c) > Layout.toggleHeight(c),
       `${Layout.toggleWidth(c)} x ${Layout.toggleHeight(c)}`);
   }
+}
+
+// ---- 横竖屏:设备档位必须同时看宽和高 ----------------------------------------
+// 手机横屏的宽度是 791vp,落在平板区间(600..1100)里。原来的 classify 只看宽度,
+// 于是横着的手机被当成平板:实验页走两栏分支,同时要求一块 240vp 的画面加一整窗图线,
+// 而横屏只剩约 250vp 高 —— 画面被挤没、按钮掉到屏外。所以第二根轴(高度)必须进档位判定。
+//
+// 这组断言钉住五件事:横屏手机仍是手机、平板横屏仍是平板、高度未知时退回只看宽度、
+// 矮屏下阅读列收窄而上下边距反而收窄、以及横屏下画布与操作条放不放得下
+// (最后一条正是原来掉出屏幕的那笔账)。
+{
+  const { Layout, DeviceClass } = require(join(OUT, 'common/Layout.cjs'));
+
+  // 新访问器还没写出来时,先把「缺哪些」报全,而不是让 TypeError 把整轮断言掀掉
+  const hasCompact = typeof Layout.isCompact === 'function';
+  const hasInsetX = typeof Layout.pageInsetX === 'function';
+  const hasInsetY = typeof Layout.pageInsetY === 'function';
+  const hasCap = typeof Layout.COMPACT_CONTENT_WIDTH === 'number';
+  assertTrue('Layout 有紧凑判定 isCompact', hasCompact, '缺 Layout.isCompact');
+  assertTrue('Layout 有左右边距访问器 pageInsetX', hasInsetX, '缺 Layout.pageInsetX');
+  assertTrue('Layout 有上下边距访问器 pageInsetY', hasInsetY, '缺 Layout.pageInsetY');
+  assertTrue('Layout 有阅读列宽上限 COMPACT_CONTENT_WIDTH', hasCap, '缺 Layout.COMPACT_CONTENT_WIDTH');
+
+  // 一、档位:横屏手机不再被当成平板
+  checkText('竖屏手机 360x791 是手机档', Layout.classify(360, 791), DeviceClass.PHONE);
+  checkText('横屏手机 791x360 是手机档(不是平板)', Layout.classify(791, 360), DeviceClass.PHONE);
+  checkText('平板竖屏 768x1024 是平板档', Layout.classify(768, 1024), DeviceClass.PAD);
+  checkText('平板横屏 1024x768 是平板档', Layout.classify(1024, 768), DeviceClass.PAD);
+  checkText('教师大屏 1920x1080 是大屏档', Layout.classify(1920, 1080), DeviceClass.LARGE);
+  checkText('高度未知(0)时退回只看宽度', Layout.classify(1024, 0), DeviceClass.PAD);
+  checkText('宽而矮的大屏不降档(仍是大屏)', Layout.classify(1920, 450), DeviceClass.LARGE);
+
+  // 二、紧凑判定:阈值落在手机横屏(330~440)与平板横屏(≥600)之间的空档
+  if (hasCompact) {
+    checkText('横屏手机高度 360 是紧凑', String(Layout.isCompact(360)), 'true');
+    checkText('阈值下方 499 是紧凑', String(Layout.isCompact(499)), 'true');
+    checkText('阈值 500 不再紧凑', String(Layout.isCompact(500)), 'false');
+    checkText('竖屏手机高度 791 不紧凑', String(Layout.isCompact(791)), 'false');
+    checkText('平板横屏高度 768 不紧凑', String(Layout.isCompact(768)), 'false');
+    checkText('高度未知(0)不算紧凑', String(Layout.isCompact(0)), 'false');
+  }
+
+  // 三、单栏还是两栏
+  checkText('手机竖屏是单栏', String(Layout.isStacked(DeviceClass.PHONE, false)), 'true');
+  checkText('手机横屏是两栏', String(Layout.isStacked(DeviceClass.PHONE, true)), 'false');
+  checkText('平板始终两栏', String(Layout.isStacked(DeviceClass.PAD, false)), 'false');
+  checkText('大屏始终两栏', String(Layout.isStacked(DeviceClass.LARGE, true)), 'false');
+
+  // 四、阅读列收窄:横屏手机上 791vp 宽的一行能塞 100 个汉字,那不是阅读,是刻度
+  if (hasInsetX && hasCap) {
+    const cap = Layout.COMPACT_CONTENT_WIDTH;
+    assertTrue('紧凑档有阅读列宽上限', typeof cap === 'number' && cap > 0, `实得 ${cap}`);
+    for (const w of [640, 700, 791, 900, 1024]) {
+      const inset = Layout.pageInsetX(w, DeviceClass.PHONE, true);
+      const content = w - 2 * inset;
+      assertTrue(`${w}vp 宽的阅读列不超过上限 ${cap}`, content <= cap + 1e-9, `实得 ${content}`);
+      assertTrue(`${w}vp 宽的阅读列不窄于 600`, content >= 600, `实得 ${content}`);
+    }
+    checkText('非紧凑时左右边距就是原来的页边距',
+      String(Layout.pageInsetX(791, DeviceClass.PHONE, false)), String(Layout.pageInset(DeviceClass.PHONE)));
+  }
+
+  // 五、上下边距:矮屏把高度让给内容,而不是像左右那样撑开
+  if (hasInsetY) {
+    checkText('非紧凑时上下边距就是原来的页边距',
+      String(Layout.pageInsetY(DeviceClass.PHONE, false)), String(Layout.pageInset(DeviceClass.PHONE)));
+    checkText('矮屏上下边距收窄到 8vp', String(Layout.pageInsetY(DeviceClass.PHONE, true)), '8');
+    assertTrue('矮屏上下边距比竖屏窄',
+      Layout.pageInsetY(DeviceClass.PHONE, true) < Layout.pageInsetY(DeviceClass.PHONE, false),
+      `紧凑 ${Layout.pageInsetY(DeviceClass.PHONE, true)} 不小于竖屏 ${Layout.pageInsetY(DeviceClass.PHONE, false)}`);
+  }
+
+  // 六、横屏下画布与操作条必须放得下
+  const vh = 360;
+  const scene = Layout.minSceneHeight(DeviceClass.PHONE, true);
+  const insetY = hasInsetY
+    ? Layout.pageInsetY(DeviceClass.PHONE, true)
+    : Layout.pageInset(DeviceClass.PHONE);
+  assertTrue('紧凑档画布比竖屏矮', scene < Layout.minSceneHeight(DeviceClass.PHONE, false),
+    `紧凑 ${scene} 不小于竖屏 ${Layout.minSceneHeight(DeviceClass.PHONE, false)}`);
+  // 画布 + 传输按钮 + 上下边距:这三样是刚性的,剩下的高度才留给「倍速」那一行。
+  // 这里只算令牌能算的账;倍速行的实际像素高度由设备探针量。
+  const fixed = scene + Layout.buttonHeight(DeviceClass.PHONE) + 2 * insetY;
+  assertTrue('紧凑档画布 + 按钮 + 上下边距 ≤ 屏高', fixed <= vh, `合计 ${fixed} > ${vh}`);
+  assertTrue('紧凑档画布 + 按钮 + 上下边距之后还留得下一行倍速(≥24vp)', vh - fixed >= 24,
+    `只剩 ${vh - fixed}vp`);
+  assertTrue('紧凑档画布不低于 120vp(否则世界缩到读不出)', scene >= 120, `实得 ${scene}`);
+  // 两栏:画布那一列不能被参数面板挤没
+  const column = 791 - 2 * Layout.pageInset(DeviceClass.PHONE) - 12 - Layout.panelWidth(DeviceClass.PHONE);
+  assertTrue('横屏两栏里画布列仍有 300vp 以上', column >= 300, `实得 ${column}`);
+}
+
+// ---- 页面问 Layout 时必须把高度一起给 ----------------------------------------
+// 只按宽度问档位这件事本身就是缺陷:横着的手机会被当成平板。所以不靠"记得传",
+// 而是让源码层只放行两个及以上参数的调用 —— 少传一个参数直接红。
+{
+  const { readdirSync, statSync, readFileSync, existsSync } = require('node:fs');
+  const offenders = [];
+  const NEEDS = ['classify', 'isStacked', 'minSceneHeight'];
+
+  /** 数一次调用实参个数(顶层逗号 + 1)。带括号的实参不算逗号 */
+  function argCount(text, name) {
+    const at = text.indexOf(name + '(');
+    if (at < 0) {
+      return 0;
+    }
+    let depth = 0;
+    let commas = 0;
+    let has = false;
+    for (let i = at + name.length; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === '(' || ch === '[' || ch === '{') {
+        depth++;
+      } else if (ch === ')' || ch === ']' || ch === '}') {
+        depth--;
+        if (depth === 0) {
+          break;
+        }
+      } else if (ch === ',' && depth === 1) {
+        commas++;
+      } else if (depth === 1 && ch.trim() !== '') {
+        has = true;
+      }
+    }
+    return has ? commas + 1 : 0;
+  }
+
+  function walkForAxis(dir) {
+    if (!existsSync(dir)) {
+      return;
+    }
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name);
+      if (statSync(p).isDirectory()) {
+        walkForAxis(p);
+      } else if (name.endsWith('.ets')) {
+        const lines = readFileSync(p, 'utf8').split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (/^\s*(\/\/|\*|\/\*)/.test(line)) {
+            continue;
+          }
+          for (const fn of NEEDS) {
+            if (line.indexOf('Layout.' + fn + '(') < 0) {
+              continue;
+            }
+            const n = argCount(line, 'Layout.' + fn);
+            if (n < 2) {
+              offenders.push(`${p}:${i + 1} → Layout.${fn}( 只给了 ${n} 个参数)`);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  for (const dir of ['pages', 'view', 'view3d']) {
+    walkForAxis(join(SRC, dir));
+  }
+  assertTrue('页面与视图层问 Layout 时把高度一起给(不许只按宽度)',
+    offenders.length === 0, `${offenders.length} 处:\n    ${offenders.join('\n    ')}`);
 }
 
 // ---- 圆角必须来自角色,或由自身尺寸推导 --------------------------------------
@@ -7189,10 +7353,10 @@ function findClampedStartRunners() {
     `实得 ${Layout.chartViewportHeight(DeviceClass.PHONE, 4)}`);
   // E3:开图线把 2D 画面挤成一条,画布必须有下限
   for (const [cls, floor] of [[DeviceClass.PHONE, 200], [DeviceClass.PAD, 230], [DeviceClass.LARGE, 260]]) {
-    assertTrue(`${cls} 画布最小高度守住 ${floor}vp 下限`, Layout.minSceneHeight(cls) >= floor,
-      `实得 ${Layout.minSceneHeight(cls)}`);
-    assertTrue(`${cls} 画布下限在阶梯上`, Layout.onLadder(Layout.minSceneHeight(cls)) ||
-      [210, 240, 280].indexOf(Layout.minSceneHeight(cls)) >= 0, `实得 ${Layout.minSceneHeight(cls)}`);
+    assertTrue(`${cls} 画布最小高度守住 ${floor}vp 下限`, Layout.minSceneHeight(cls, false) >= floor,
+      `实得 ${Layout.minSceneHeight(cls, false)}`);
+    assertTrue(`${cls} 画布下限在阶梯上`, Layout.onLadder(Layout.minSceneHeight(cls, false)) ||
+      [210, 240, 280].indexOf(Layout.minSceneHeight(cls, false)) >= 0, `实得 ${Layout.minSceneHeight(cls, false)}`);
   }
   // 太矮时不许静默:必须给出可读的说明文案
   assertTrue('画不出时必须有说明而不是静默返回', PlotLayout.hintFor(phoneW, 90).length > 6, '');
