@@ -281,6 +281,60 @@ export class Probe {
     return this.vp;
   }
 
+  /**
+   * 屏的缩放(px/vp)与虚拟尺寸(vp)。
+   *
+   * 从 DisplayManagerService 取,不从应用自己的布局反推。
+   *
+   * 反推的做法是"找一颗按钮,拿它的高度除以它应该是多少 vp" —— 那要事先知道
+   * 哪颗按钮是几 vp 高,而那正是页面自己的令牌:页面一改布局,折算就错。
+   * 本轮实测就踩了:横屏首页上第一颗按钮是 98px 高的 chip,按 44vp 折出 2.23,
+   * 于是"阅读列 640vp"被判成 965vp —— 一条假红。屏自己报 density,那是屏的事。
+   */
+  display() {
+    const out = this.shell("hidumper -s DisplayManagerService -a '-a'");
+    let density = 0;
+    let virtualWidth = 0;
+    let virtualHeight = 0;
+    for (const line of out.split(/\r?\n/)) {
+      const d = line.match(/^\s*Density:\s*([\d.]+)/);
+      if (d !== null && density === 0) {
+        density = Number(d[1]);
+      }
+      const vw = line.match(/^\s*VirtualWidth:\s*(\d+)/);
+      if (vw !== null && virtualWidth === 0) {
+        virtualWidth = Number(vw[1]);
+      }
+      const vh = line.match(/^\s*VirtualHeight:\s*(\d+)/);
+      if (vh !== null && virtualHeight === 0) {
+        virtualHeight = Number(vh[1]);
+      }
+    }
+    return { density: density, virtualWidth: virtualWidth, virtualHeight: virtualHeight };
+  }
+
+  /**
+   * 系统底部条(手势区)的上沿。
+   *
+   * 应用内容不许画到它下面去 —— 那不是"屏幕窄了点",是按钮被系统条压住一半。
+   * 判据取自 WindowManagerService 的窗口矩形,不用应用自己的布局反推:
+   * 用被测者给自己判卷,判出来的绿不算数。
+   */
+  systemBottom() {
+    const out = this.shell("hidumper -s WindowManagerService -a '-a'");
+    for (const line of out.split(/\r?\n/)) {
+      if (!/Gesture|NavigationBar/i.test(line)) {
+        continue;
+      }
+      // 窗口矩形是 [ x y w h ],不是 [x1 y1 x2 y2]:第二个数才是上沿
+      const m = line.match(/\[\s*(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s*\]/);
+      if (m !== null) {
+        return { top: Number(m[2]), raw: line.trim() };
+      }
+    }
+    return null;
+  }
+
   /** 转屏之后调用:丢掉缓存的视口,下一次 viewport() 重新量 */
   refreshViewport() {
     this.vp = null;
