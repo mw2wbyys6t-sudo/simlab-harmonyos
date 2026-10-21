@@ -20,6 +20,8 @@ export struct SeriesChart {
   chart: ChartDef = new ChartDef();
   controller: RunController = new RunController();
   @Prop hostWidth: number = 0;
+  /** 宿主高度。转屏后高度变了,档位可能变(横屏手机不再是平板) */
+  @Prop hostHeight: number = 0;
   @Prop @Watch('redraw') tick: number = 0;
   private ctx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
 
@@ -28,7 +30,7 @@ export struct SeriesChart {
   }
 
   private cls(): DeviceClass {
-    return Layout.classify(this.hostWidth);
+    return Layout.classify(this.hostWidth, this.hostHeight);
   }
 
   redraw(): void {

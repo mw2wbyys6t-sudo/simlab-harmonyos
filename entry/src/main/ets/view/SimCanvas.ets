@@ -20,9 +20,11 @@ export struct SimCanvas {
   scene: Physics2DRunner | null = null;
   meta: ExperimentMeta = new ExperimentMeta();
   @Prop hostWidth: number = 0;
+  /** 宿主高度。转屏后高度变了,档位可能变(横屏手机不再是平板) */
+  @Prop hostHeight: number = 0;
 
   private cls(): DeviceClass {
-    return Layout.classify(this.hostWidth);
+    return Layout.classify(this.hostWidth, this.hostHeight);
   }
 
   private ctx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));

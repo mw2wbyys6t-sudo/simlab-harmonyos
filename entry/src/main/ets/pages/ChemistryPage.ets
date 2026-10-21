@@ -23,6 +23,8 @@ function bandLabel(band: string): string {
 @Component
 export struct ChemistryPage {
   @Prop hostWidth: number = 0;
+  /** 宿主高度。转屏后高度变了,档位可能变(横屏手机不再是平板) */
+  @Prop hostHeight: number = 0;
   @State reactions: ReactionSpec[] = [];
   @State query: string = '';
 
@@ -32,7 +34,12 @@ export struct ChemistryPage {
   }
 
   private cls(): DeviceClass {
-    return Layout.classify(this.hostWidth);
+    return Layout.classify(this.hostWidth, this.hostHeight);
+  }
+
+  /** 矮屏(横屏手机):阅读列要收窄,一行塞 100 个汉字就不是阅读了 */
+  private compact(): boolean {
+    return Layout.isCompact(this.hostHeight);
   }
 
   private matched(): ReactionSpec[] {
@@ -215,7 +222,11 @@ export struct ChemistryPage {
           .padding(Layout.cardPadding(this.cls()))
         }
       }
-      .padding({ left: 16, right: 16, bottom: 12 })
+      .padding({
+        left: Layout.pageInsetX(this.hostWidth, this.cls(), this.compact()),
+        right: Layout.pageInsetX(this.hostWidth, this.cls(), this.compact()),
+        bottom: Layout.pageInset(this.cls())
+      })
       .width('100%')
       .height('100%')
     }

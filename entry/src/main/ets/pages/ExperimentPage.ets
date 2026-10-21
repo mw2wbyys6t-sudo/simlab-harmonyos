@@ -21,6 +21,8 @@ const SPEEDS: number[] = [0.25, 0.5, 1];
 @Component
 export struct ExperimentPage {
   @Prop hostWidth: number = 0;
+  /** 视口高度。横屏手机是"宽而矮",只看宽度会被当成平板,画面会被挤成一条 */
+  @Prop hostHeight: number = 0;
   @State experimentId: string = '';
 
   @State meta: ExperimentMeta = new ExperimentMeta();
@@ -74,8 +76,8 @@ export struct ExperimentPage {
     this.answerTexts = answers;
     this.scorable = this.meta.rubricId.length > 0 && Rubrics.byId(this.meta.rubricId) !== null;
     this.refreshReadouts();
-    // 手机竖屏纵向空间紧张,图线默认收起;平板与大屏直接展开
-    this.chartsVisible = !Layout.isStacked(this.cls());
+    // 手机竖屏纵向空间紧张,图线默认收起;横屏的图线在侧栏里,不挤画面
+    this.chartsVisible = !Layout.isStacked(this.cls(), this.compact());
     // 读数按 10Hz 刷新:Canvas 自己每帧重绘,不必让整棵状态树跟着 60Hz 重建
     this.ticker = setInterval(() => {
       this.refreshReadouts();
@@ -96,7 +98,12 @@ export struct ExperimentPage {
   }
 
   private cls(): DeviceClass {
-    return Layout.classify(this.hostWidth);
+    return Layout.classify(this.hostWidth, this.hostHeight);
+  }
+
+  /** 矮屏(横屏手机):高度不够一屏铺开,这一页要换排布 */
+  private compact(): boolean {
+    return Layout.isCompact(this.hostHeight);
   }
 
   private refreshReadouts(): void {
@@ -514,7 +521,13 @@ export struct ExperimentPage {
   chartStrip() {
     Column({ space: 10 }) {
       ForEach(this.meta.charts, (chart: ChartDef) => {
-        SeriesChart({ chart: chart, controller: this.controller, hostWidth: this.hostWidth, tick: this.chartTick })
+        SeriesChart({
+          chart: chart,
+          controller: this.controller,
+          hostWidth: this.hostWidth,
+          hostHeight: this.hostHeight,
+          tick: this.chartTick
+        })
           .width('100%')
           .height(Layout.chartHeight(this.cls()))
       }, (chart: ChartDef) => chart.title)
@@ -655,6 +668,33 @@ export struct ExperimentPage {
     .align(Alignment.TopStart)
   }
 
+  /**
+   * 横屏(矮屏)右侧那一栏。
+   *
+   * 图线搬进侧栏,不留在画面下面:横屏只剩约 300vp 高,画面再让出 150vp 给图线,
+   * 世界就被压到读不出来(按算术 36.7 → 27.8 px/vp,小了约三成)。
+   * 侧栏本来就带滚动,图线挪进去只是多了几屏滚动。
+   */
+  @Builder
+  compactPanel() {
+    Scroll() {
+      Column({ space: 10 }) {
+        if (this.chartsVisible && this.meta.charts.length > 0) {
+          this.chartStrip()
+        }
+        this.panelContent()
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+    }
+    .scrollBar(BarState.Auto)
+    .backgroundColor(Theme.BG_CARD)
+    .borderRadius(Layout.cardRadius(this.cls()))
+    .width(Layout.panelWidth(this.cls()))
+    .height('100%')
+    .align(Alignment.TopStart)
+  }
+
   build() {
     NavDestination() {
       if (this.scene === null) {
@@ -667,12 +707,18 @@ export struct ExperimentPage {
         .width('100%')
         .height('100%')
         .justifyContent(FlexAlign.Center)
-      } else if (Layout.isStacked(this.cls())) {
+      } else if (Layout.isStacked(this.cls(), this.compact())) {
         Column({ space: 10 }) {
           // 画面高度给死而不是 layoutWeight:开图线时被挤成一条,2D 世界就没法读了
-          SimCanvas({ controller: this.controller, scene: this.scene, meta: this.meta, hostWidth: this.hostWidth })
+          SimCanvas({
+            controller: this.controller,
+            scene: this.scene,
+            meta: this.meta,
+            hostWidth: this.hostWidth,
+            hostHeight: this.hostHeight
+          })
             .width('100%')
-            .height(Layout.minSceneHeight(this.cls()))
+            .height(Layout.minSceneHeight(this.cls(), this.compact()))
           this.transportBar()
           // 图线与参数面板共用一个滚动区:各自带滚动时,图线一开就把画面顶出屏幕
           Scroll() {
@@ -689,15 +735,57 @@ export struct ExperimentPage {
           .scrollBar(BarState.Auto)
           .width('100%')
         }
-        .padding(Layout.pageInset(this.cls()))
+        .padding({
+          left: Layout.pageInsetX(this.hostWidth, this.cls(), this.compact()),
+          right: Layout.pageInsetX(this.hostWidth, this.cls(), this.compact()),
+          top: Layout.pageInsetY(this.cls(), this.compact()),
+          bottom: Layout.pageInsetY(this.cls(), this.compact())
+        })
+        .width('100%')
+        .height('100%')
+      } else if (this.compact()) {
+        // 横屏:画面在左,图线与参数在右。
+        // 竖着排会同时要一块 240vp 的画面和一整窗图线,而横屏只剩约 250vp 高 ——
+        // 画面被挤没、按钮掉到屏外(这正是横着拿手机时最难受的地方)。
+        Row({ space: 12 }) {
+          Column({ space: 8 }) {
+            SimCanvas({
+              controller: this.controller,
+              scene: this.scene,
+              meta: this.meta,
+              hostWidth: this.hostWidth,
+              hostHeight: this.hostHeight
+            })
+              .layoutWeight(1)
+              .constraintSize({ minHeight: Layout.minSceneHeight(this.cls(), this.compact()) })
+            this.transportBar()
+          }
+          .layoutWeight(1)
+          .height('100%')
+
+          this.compactPanel()
+        }
+        // 左右边距不用阅读列上限:这一页的宽度是画面与侧栏分掉的,不是给长句子铺的
+        .padding({
+          left: Layout.pageInset(this.cls()),
+          right: Layout.pageInset(this.cls()),
+          top: Layout.pageInsetY(this.cls(), this.compact()),
+          bottom: Layout.pageInsetY(this.cls(), this.compact())
+        })
         .width('100%')
         .height('100%')
       } else {
         Row({ space: 12 }) {
           Column({ space: 10 }) {
-            SimCanvas({ controller: this.controller, scene: this.scene, meta: this.meta, hostWidth: this.hostWidth })
+            SimCanvas({
+              controller: this.controller,
+              scene: this.scene,
+              meta: this.meta,
+              hostWidth: this.hostWidth,
+              hostHeight: this.hostHeight
+            })
               .layoutWeight(1)
-              .constraintSize({ minHeight: Layout.minSceneHeight(this.cls()) })
+              .constraintSize({ minHeight: Layout.minSceneHeight(this.cls(), this.compact()) })
             this.transportBar()
             if (this.chartsVisible && this.meta.charts.length > 0) {
               Scroll() {
@@ -713,7 +801,12 @@ export struct ExperimentPage {
 
           this.panel()
         }
-        .padding(Layout.pageInset(this.cls()))
+        .padding({
+          left: Layout.pageInsetX(this.hostWidth, this.cls(), this.compact()),
+          right: Layout.pageInsetX(this.hostWidth, this.cls(), this.compact()),
+          top: Layout.pageInsetY(this.cls(), this.compact()),
+          bottom: Layout.pageInsetY(this.cls(), this.compact())
+        })
         .width('100%')
         .height('100%')
       }

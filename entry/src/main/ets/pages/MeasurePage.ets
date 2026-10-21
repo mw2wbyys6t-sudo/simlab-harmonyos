@@ -53,6 +53,8 @@ function measureMeta(): ExperimentMeta {
 @Component
 export struct MeasurePage {
   @Prop hostWidth: number = 0;
+  /** 视口高度。横屏手机是"宽而矮",只看宽度会被当成平板,这一页就挤没了 */
+  @Prop hostHeight: number = 0;
 
   @State meta: ExperimentMeta = measureMeta();
   @State actual: number = 0;
@@ -85,7 +87,12 @@ export struct MeasurePage {
   private gaugeAccents: ResourceColor[] = [Theme.TEXT_PRIMARY, Theme.ACCENT, Theme.RUNNING];
 
   private cls(): DeviceClass {
-    return Layout.classify(this.hostWidth);
+    return Layout.classify(this.hostWidth, this.hostHeight);
+  }
+
+  /** 矮屏(横屏手机):高度不够一屏铺开,这一页要换排布 */
+  private compact(): boolean {
+    return Layout.isCompact(this.hostHeight);
   }
 
   /**
@@ -410,6 +417,25 @@ export struct MeasurePage {
   @Builder
   statusLine() {
     if (this.verdict.length > 0) {
+      this.verdictCard()
+    } else {
+      this.statusOnly()
+    }
+  }
+
+  /** 实时状态。不装判定语 —— 宽屏档的侧栏要的是这一行,判定语另有整宽一张卡 */
+  @Builder
+  statusOnly() {
+    Text(this.statusText())
+      .fontSize(Layout.captionSize(this.cls()))
+      .fontColor(this.running ? Theme.RUNNING : Theme.TEXT_SECONDARY)
+      .width('100%')
+  }
+
+  /** 判定卡。判完之后才出现,之前是空的 */
+  @Builder
+  verdictCard() {
+    if (this.verdict.length > 0) {
       Text(this.verdict)
         .fontSize(Layout.labelSize(this.cls()))
         .fontColor(Theme.TEXT_PRIMARY)
@@ -417,11 +443,6 @@ export struct MeasurePage {
         .padding(Layout.cardPadding(this.cls()))
         .backgroundColor(Theme.VERDICT_BG)
         .borderRadius(Layout.cardRadius(this.cls()))
-    } else {
-      Text(this.statusText())
-        .fontSize(Layout.captionSize(this.cls()))
-        .fontColor(this.running ? Theme.RUNNING : Theme.TEXT_SECONDARY)
-        .width('100%')
     }
   }
 
@@ -477,26 +498,97 @@ export struct MeasurePage {
     .width('100%')
   }
 
+  /** 引流开关。单独一个 Builder:横屏时它要和两根滑杆并排,不能捆在滑杆组里 */
+  @Builder
+  guidedToggle() {
+    Row() {
+      Text(this.meta.params[2].label)
+        .fontSize(Layout.labelSize(this.cls()))
+        .fontColor(Theme.TEXT_PRIMARY)
+        .layoutWeight(1)
+      Toggle({ type: ToggleType.Switch, isOn: this.guided >= 0.5 })
+        .selectedColor(Theme.ACCENT)
+        .onChange((isOn: boolean) => {
+          this.guided = isOn ? 1 : 0;
+          this.world.setParam('guided', this.guided);
+        })
+    }
+    .width('100%')
+  }
+
   /** 两个滑杆 + 引流开关。它们必须在按钮之前、引导语之下:引导语让学生调的就是这两根 */
   @Builder
   sliderGroup() {
     Column({ space: 12 }) {
       this.sliderRow(0)
       this.sliderRow(1)
-      Row() {
-        Text(this.meta.params[2].label)
-          .fontSize(Layout.labelSize(this.cls()))
-          .fontColor(Theme.TEXT_PRIMARY)
-          .layoutWeight(1)
-        Toggle({ type: ToggleType.Switch, isOn: this.guided >= 0.5 })
-          .selectedColor(Theme.ACCENT)
-          .onChange((isOn: boolean) => {
-            this.guided = isOn ? 1 : 0;
-            this.world.setParam('guided', this.guided);
-          })
-      }
-      .width('100%')
+      this.guidedToggle()
     }
+    .width('100%')
+  }
+
+  /** 读数卡:实际量取 / 你的读数 / 目标 */
+  @Builder
+  gaugeCard() {
+    Row({ space: 10 }) {
+      this.gaugeCell(0)
+      this.gaugeCell(1)
+      this.gaugeCell(2)
+    }
+    .width('100%')
+    .padding(Layout.cardPadding(this.cls()))
+    .backgroundColor(Theme.BG_CARD)
+    .borderRadius(Layout.cardRadius(this.cls()))
+  }
+
+  /**
+   * 横屏排布:器皿在左,读数与操作在右。
+   *
+   * 竖屏那套(器皿一列、控件一列)在横屏排不下:横屏只剩约 300vp 高,
+   * 竖着排的话三个动作按钮整排掉到屏幕外 —— 而按钮正是这一页最要紧的东西。
+   */
+  @Builder
+  compactBody() {
+    Row({ space: 12 }) {
+      Column({ space: 6 }) {
+        this.cylinder()
+
+        // 判完之后三条判读线不再有用,收起来把位置让给判定语
+        if (this.verdict.length === 0) {
+          Column({ space: 2 }) {
+            this.legendRow(0)
+            this.legendRow(1)
+            this.legendRow(2)
+          }
+          .alignItems(HorizontalAlign.Start)
+          .width('100%')
+        }
+      }
+      .alignItems(HorizontalAlign.Start)
+
+      Column({ space: 6 }) {
+        this.gaugeCard()
+        this.statusOnly()
+        Row({ space: 12 }) {
+          Column() {
+            this.sliderRow(0)
+          }
+          .layoutWeight(1)
+
+          Column() {
+            this.sliderRow(1)
+          }
+          .layoutWeight(1)
+        }
+        .width('100%')
+
+        this.guidedToggle()
+        this.transportButtons()
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+    }
+    .alignItems(VerticalAlign.Top)
     .width('100%')
   }
 
@@ -509,60 +601,71 @@ export struct MeasurePage {
   build() {
     NavDestination() {
       Scroll() {
-        Column({ space: 14 }) {
-          Text(this.meta.title)
-            .fontSize(Layout.pageTitleSize(this.cls()))
-            .fontWeight(FontWeight.Bold)
-            .fontColor(Theme.TEXT_PRIMARY)
-          Text(this.meta.summary)
-            .fontSize(Layout.labelSize(this.cls()))
-            .fontColor(Theme.TEXT_SECONDARY)
-
-          Row({ space: 10 }) {
-            this.gaugeCell(0)
-            this.gaugeCell(1)
-            this.gaugeCell(2)
-          }
-          .width('100%')
-          .padding(Layout.cardPadding(this.cls()))
-          .backgroundColor(Theme.BG_CARD)
-          .borderRadius(Layout.cardRadius(this.cls()))
-
-          /* 器皿与操作:手机档上下排,宽屏档并排。
-             两档挤在同一个 Row 里时侧栏只剩 213px(模拟器实测),按钮末字顶到圆角上。 */
-          Column({ space: 12 }) {
-            if (Layout.isStacked(this.cls())) {
-              // 状态 → 判定 → 滑杆 → 按钮:判定必须落在看得见的那一段。
-              // 排在按钮之后时它在屏幕外(实测),学生按完只看到「已暂停」,以为没反应
-              this.cylinder()
-              // 判完之后三条判读线不再有用,收起来把位置让给判定语与按钮
-              if (this.verdict.length === 0) {
-                this.legendStrip()
-              }
-              this.statusLine()
-              this.sliderGroup()
-              this.transportButtons()
-            } else {
-              Row({ space: 12 }) {
-                this.cylinder()
-
-                Column({ space: 10 }) {
-                  this.statusLine()
-                  this.transportButtons()
-                }
+        Column({ space: this.compact() ? 8 : 14 }) {
+          if (this.compact()) {
+            // 横屏:标题与摘要并排一行,竖着排要占掉两行,横屏那点高度全得留给操作区
+            Row({ space: 10 }) {
+              Text(this.meta.title)
+                .fontSize(Layout.pageTitleSize(this.cls()))
+                .fontWeight(FontWeight.Bold)
+                .fontColor(Theme.TEXT_PRIMARY)
+              Text(this.meta.summary)
+                .fontSize(Layout.captionSize(this.cls()))
+                .fontColor(Theme.TEXT_SECONDARY)
                 .layoutWeight(1)
-              }
-              .alignItems(VerticalAlign.Top)
-              .width('100%')
-
-              if (this.verdict.length === 0) {
-                this.legendStrip()
-              }
-              this.statusLine()
-              this.sliderGroup()
             }
+            .width('100%')
+          } else {
+            Text(this.meta.title)
+              .fontSize(Layout.pageTitleSize(this.cls()))
+              .fontWeight(FontWeight.Bold)
+              .fontColor(Theme.TEXT_PRIMARY)
+            Text(this.meta.summary)
+              .fontSize(Layout.labelSize(this.cls()))
+              .fontColor(Theme.TEXT_SECONDARY)
           }
-          .width('100%')
+
+          if (this.compact()) {
+            this.compactBody()
+          } else {
+            this.gaugeCard()
+
+            /* 器皿与操作:手机档上下排,宽屏档并排。
+               两档挤在同一个 Row 里时侧栏只剩 213px(模拟器实测),按钮末字顶到圆角上。 */
+            Column({ space: 12 }) {
+              if (Layout.isStacked(this.cls(), this.compact())) {
+                // 状态 → 判定 → 滑杆 → 按钮:判定必须落在看得见的那一段。
+                // 排在按钮之后时它在屏幕外(实测),学生按完只看到「已暂停」,以为没反应
+                this.cylinder()
+                // 判完之后三条判读线不再有用,收起来把位置让给判定语与按钮
+                if (this.verdict.length === 0) {
+                  this.legendStrip()
+                }
+                this.statusLine()
+                this.sliderGroup()
+                this.transportButtons()
+              } else {
+                Row({ space: 12 }) {
+                  this.cylinder()
+
+                  Column({ space: 10 }) {
+                    this.statusOnly()
+                    this.transportButtons()
+                  }
+                  .layoutWeight(1)
+                }
+                .alignItems(VerticalAlign.Top)
+                .width('100%')
+
+                if (this.verdict.length === 0) {
+                  this.legendStrip()
+                }
+                this.verdictCard()
+                this.sliderGroup()
+              }
+            }
+            .width('100%')
+          }
 
           if (this.savedRuns > 0) {
             Text('已保存 ' + this.savedRuns + ' 次操作记录，可在「报告」里回看')
@@ -571,7 +674,12 @@ export struct MeasurePage {
               .width('100%')
           }
         }
-        .padding(Layout.pageInset(this.cls()))
+        .padding({
+          left: Layout.pageInsetX(this.hostWidth, this.cls(), this.compact()),
+          right: Layout.pageInsetX(this.hostWidth, this.cls(), this.compact()),
+          top: Layout.pageInsetY(this.cls(), this.compact()),
+          bottom: Layout.pageInsetY(this.cls(), this.compact())
+        })
         .width('100%')
       }
       .width('100%')

@@ -31,6 +31,8 @@ class MapRow {
 @Component
 export struct MapPage {
   @Prop hostWidth: number = 0;
+  /** 宿主高度。转屏后高度变了,档位可能变(横屏手机不再是平板) */
+  @Prop hostHeight: number = 0;
   @State subjectIndex: number = 0;
   /** 指向 this.stages,不是固定三档 —— 只有物理现在有初中与高中数据 */
   @State stageIndex: number = 0;
@@ -69,7 +71,12 @@ export struct MapPage {
   }
 
   private cls(): DeviceClass {
-    return Layout.classify(this.hostWidth);
+    return Layout.classify(this.hostWidth, this.hostHeight);
+  }
+
+  /** 矮屏(横屏手机):高度只够放两样东西,所以排布要换 */
+  private compact(): boolean {
+    return Layout.isCompact(this.hostHeight);
   }
 
   private currentSubject(): MapSubject {
@@ -464,36 +471,67 @@ export struct MapPage {
    * 两边各滚各的,不互相抢手势。
    */
   @Builder
-  periodicView() {
-    Column({ space: Layout.listGap(this.cls()) }) {
-      PeriodicTableView({
-        hostWidth: this.hostWidth,
-        selectedNumber: this.selectedNumber,
-        selectedSeries: this.selectedSeries,
-        onPick: (n: number): void => {
-          this.selectedNumber = n;
-          this.selectedSeries = -1;
-        },
-        onPickSeries: (index: number): void => {
-          this.selectedSeries = index;
-          this.selectedNumber = -1;
-        }
-      })
-        .width('100%')
+  periodicTable() {
+    PeriodicTableView({
+      hostWidth: this.hostWidth,
+      hostHeight: this.hostHeight,
+      selectedNumber: this.selectedNumber,
+      selectedSeries: this.selectedSeries,
+      onPick: (n: number): void => {
+        this.selectedNumber = n;
+        this.selectedSeries = -1;
+      },
+      onPickSeries: (index: number): void => {
+        this.selectedSeries = index;
+        this.selectedNumber = -1;
+      }
+    })
+      .width('100%')
+  }
 
-      Scroll() {
-        Column({ space: 4 }) {
-          this.periodicDetail()
+  @Builder
+  periodicView() {
+    if (this.compact()) {
+      // 横屏:表在左、详情在右。表本身 429vp 高,竖屏屏高放得下、横屏放不下,
+      // 所以左边这一列还要能竖着滚 —— 不然最后两行(镧系、锕系)直接被切掉。
+      Row({ space: Layout.listGap(this.cls()) }) {
+        Scroll() {
+          this.periodicTable()
         }
-        .width('100%')
-        .alignItems(HorizontalAlign.Start)
+        .scrollable(ScrollDirection.Vertical)
+        .scrollBar(BarState.Auto)
+        .layoutWeight(1)
+
+        Scroll() {
+          Column({ space: 4 }) {
+            this.periodicDetail()
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Start)
+        }
+        .layoutWeight(1)
+        .scrollBar(BarState.Auto)
       }
       .width('100%')
       .layoutWeight(1)
-      .scrollBar(BarState.Auto)
+    } else {
+      Column({ space: Layout.listGap(this.cls()) }) {
+        this.periodicTable()
+
+        Scroll() {
+          Column({ space: 4 }) {
+            this.periodicDetail()
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Start)
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .scrollBar(BarState.Auto)
+      }
+      .width('100%')
+      .layoutWeight(1)
     }
-    .width('100%')
-    .layoutWeight(1)
   }
 
   /** 周期表下方那张详情卡:选中了元素就讲元素,选中了系列就讲系列 */
@@ -550,6 +588,87 @@ export struct MapPage {
     }
   }
 
+  @Builder
+  subjectChips() {
+    AppChips({
+      labels: this.subjectNames,
+      selected: this.subjectIndex,
+      onPick: (index: number): void => {
+        this.pickSubject(index);
+      }
+    })
+      .width('100%')
+  }
+
+  @Builder
+  stageChips() {
+    AppChips({
+      labels: this.stageLabels(),
+      selected: this.stageIndex,
+      onPick: (index: number): void => {
+        this.stageIndex = index;
+        this.rebuild();
+      }
+    })
+      .width('100%')
+  }
+
+  @Builder
+  modeChips() {
+    AppChips({
+      labels: this.modeLabels(),
+      selected: this.mode,
+      accent: Theme.SUBJECT_CHEMISTRY,
+      onPick: (index: number): void => {
+        this.mode = index;
+        this.rebuild();
+      }
+    })
+      .width('100%')
+  }
+
+  /**
+   * 学科 / 学段 / 视图这三排筛选器。
+   *
+   * 横屏时并成一行:竖排三排要占掉 150vp,而横屏整屏只剩 300vp ——
+   * 筛选器吃掉一半,周期表就没地方放了。
+   */
+  @Builder
+  chipRows() {
+    if (this.compact()) {
+      Row({ space: Layout.listGap(this.cls()) }) {
+        Column() {
+          this.subjectChips()
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+
+        // 周期表不分学段,所以学段那一排只在另外两档出现
+        if (this.stages.length > 1 && this.mode !== 2) {
+          Column() {
+            this.stageChips()
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+        }
+
+        Column() {
+          this.modeChips()
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+      }
+      .width('100%')
+    } else {
+      this.subjectChips()
+      // 周期表不分学段,所以学段那一排只在另外两档出现
+      if (this.stages.length > 1 && this.mode !== 2) {
+        this.stageChips()
+      }
+      this.modeChips()
+    }
+  }
+
   build() {
     NavDestination() {
       Column({ space: 8 }) {
@@ -558,38 +677,7 @@ export struct MapPage {
           .fontColor(Theme.TEXT_SECONDARY)
           .width('100%')
 
-        AppChips({
-          labels: this.subjectNames,
-          selected: this.subjectIndex,
-          onPick: (index: number): void => {
-            this.pickSubject(index);
-          }
-        })
-          .width('100%')
-
-        // 周期表不分学段,所以学段那一排只在另外两档出现
-        if (this.stages.length > 1 && this.mode !== 2) {
-          AppChips({
-            labels: this.stageLabels(),
-            selected: this.stageIndex,
-            onPick: (index: number): void => {
-              this.stageIndex = index;
-              this.rebuild();
-            }
-          })
-            .width('100%')
-        }
-
-        AppChips({
-          labels: this.modeLabels(),
-          selected: this.mode,
-          accent: Theme.SUBJECT_CHEMISTRY,
-          onPick: (index: number): void => {
-            this.mode = index;
-            this.rebuild();
-          }
-        })
-          .width('100%')
+        this.chipRows()
 
         if (this.mode === 2) {
           this.periodicView()
@@ -621,8 +709,8 @@ export struct MapPage {
       .width('100%')
       .height('100%')
       .padding({
-        left: Layout.pageInset(this.cls()),
-        right: Layout.pageInset(this.cls()),
+        left: Layout.pageInsetX(this.hostWidth, this.cls(), this.compact()),
+        right: Layout.pageInsetX(this.hostWidth, this.cls(), this.compact()),
         top: Layout.listGap(this.cls())
       })
     }

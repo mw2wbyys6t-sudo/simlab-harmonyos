@@ -8,8 +8,36 @@ export enum DeviceClass {
 export class Layout {
   static readonly PHONE_MAX: number = 600;
   static readonly PAD_MAX: number = 1100;
+  /**
+   * 「矮屏」的判定阈值。
+   *
+   * 手机横屏之后高度只有 330~440vp,而平板横屏最矮也有 600vp(1024x600)——
+   * 500 就落在这段空档里,两类设备不会互相误判。
+   */
+  static readonly COMPACT_HEIGHT_MAX: number = 500;
+  /**
+   * 阅读列的宽度上限。
+   *
+   * 横屏手机有 791vp 宽,一行能塞 100 个汉字:那不是阅读,是刻度。
+   * 640vp 约合 42 个汉字,是一行长文能读下去的上限。
+   */
+  static readonly COMPACT_CONTENT_WIDTH: number = 640;
 
-  static classify(widthVp: number): DeviceClass {
+  /**
+   * 设备档位。宽度与高度都要看。
+   *
+   * 只看宽度会出事:手机横屏的宽度是 791vp,落在平板区间(600..1100)里,
+   * 于是横着的手机被当成平板 —— 实验页走两栏分支,同时要一块 240vp 的画面
+   * 加一整窗图线,而横屏只剩约 250vp 高,画面被挤没、按钮掉到屏外。
+   *
+   * 高度=0 表示还没量到(首帧),此时退回只看宽度。
+   */
+  static classify(widthVp: number, heightVp: number): DeviceClass {
+    // 宽而矮 = 横着拿的手机。宽度够大屏的(≥1100)不降档:教师大屏哪怕摆成
+    // 一条窄带也不该缩成手机字号。
+    if (Layout.isCompact(heightVp) && widthVp < Layout.PAD_MAX) {
+      return DeviceClass.PHONE;
+    }
     if (widthVp < Layout.PHONE_MAX) {
       return DeviceClass.PHONE;
     }
@@ -17,6 +45,15 @@ export class Layout {
       return DeviceClass.PAD;
     }
     return DeviceClass.LARGE;
+  }
+
+  /**
+   * 矮屏判定:视口高度不足以像竖屏那样一屏一栏地铺。
+   *
+   * 高度=0(还没量到)不算矮屏 —— 那时按竖屏那套走,首帧不会突然换布局。
+   */
+  static isCompact(heightVp: number): boolean {
+    return heightVp > 0 && heightVp < Layout.COMPACT_HEIGHT_MAX;
   }
 
   /** 参数面板宽度。大屏要更宽,因为教师站在讲台前需要更远的可读性 */
@@ -241,8 +278,14 @@ export class Layout {
   /**
    * 仿真画面的最小高度。开启图线后画面被 layoutWeight 挤成一条,2D 世界就没有可读性了
    * —— 下限由这里说一次,而不是让布局在运行时碰运气。
+   *
+   * 矮屏(横屏手机)另给一档:那里只剩约 250vp 高,竖屏的 210vp 下限会把
+   * 操作条顶出屏幕,画面反而更小。
    */
-  static minSceneHeight(cls: DeviceClass): number {
+  static minSceneHeight(cls: DeviceClass, compact: boolean): number {
+    if (compact) {
+      return 150;
+    }
     if (cls === DeviceClass.LARGE) {
       return 280;
     }
@@ -287,8 +330,14 @@ export class Layout {
     return cls === DeviceClass.PAD ? 20 : 16;
   }
 
-  static isStacked(cls: DeviceClass): boolean {
-    return cls === DeviceClass.PHONE;
+  /**
+   * 单栏还是两栏。
+   *
+   * 手机竖屏是单栏(画布在上、控件在下,一屏一件);手机横屏是矮屏,
+   * 单栏会把画布压成一条,所以改两栏(画布在左、面板在右)。
+   */
+  static isStacked(cls: DeviceClass, compact: boolean): boolean {
+    return cls === DeviceClass.PHONE && !compact;
   }
 
   // ---- 阶梯与角色尺寸 -------------------------------------------------------
@@ -304,6 +353,33 @@ export class Layout {
       return 32;
     }
     return cls === DeviceClass.PAD ? 24 : 16;
+  }
+
+  /**
+   * 左右外边距。与上下分开,因为矮屏要收窄的是**阅读列**,不是高度。
+   *
+   * 横屏手机有 791vp 宽,一行塞得下 100 个汉字 —— 那不是阅读,是刻度。
+   * 所以矮屏把左右边距撑开,让内容列不超过 COMPACT_CONTENT_WIDTH(约 42 个汉字),
+   * 多出来的宽度变成左右留白,内容居中。非矮屏时就是原来的页边距,一个数都不改。
+   */
+  static pageInsetX(widthVp: number, cls: DeviceClass, compact: boolean): number {
+    const base = Layout.pageInset(cls);
+    if (!compact) {
+      return base;
+    }
+    const side = (widthVp - Layout.COMPACT_CONTENT_WIDTH) / 2;
+    return side > base ? side : base;
+  }
+
+  /**
+   * 上下外边距。矮屏收窄这一档,因为横屏手机的高度是稀缺资源:
+   * 上下各 16vp 就是 32vp,差不多是一根滑杆的高度,而操作区正是横屏最挤的地方。
+   */
+  static pageInsetY(cls: DeviceClass, compact: boolean): number {
+    if (!compact) {
+      return Layout.pageInset(cls);
+    }
+    return 8;
   }
 
   static cardPadding(cls: DeviceClass): number {

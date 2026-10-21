@@ -52,6 +52,8 @@ class HistoryLine {
 @Component
 export struct ReportPage {
   @Prop hostWidth: number = 0;
+  /** 宿主高度。转屏后高度变了,档位可能变(横屏手机不再是平板) */
+  @Prop hostHeight: number = 0;
   @State score: number = 0;
   @State total: number = 100;
   @State deductions: Deduction[] = [];
@@ -70,7 +72,12 @@ export struct ReportPage {
   private scroller: Scroller = new Scroller();
 
   private cls(): DeviceClass {
-    return Layout.classify(this.hostWidth);
+    return Layout.classify(this.hostWidth, this.hostHeight);
+  }
+
+  /** 矮屏(横屏手机):阅读列要收窄,一行塞 100 个汉字就不是阅读了 */
+  private compact(): boolean {
+    return Layout.isCompact(this.hostHeight);
   }
 
   /**
@@ -496,7 +503,10 @@ export struct ReportPage {
       }
       .width('100%')
       .height('100%')
-      .padding({ left: 14, right: 14 })
+      .padding({
+        left: Layout.pageInsetX(this.hostWidth, this.cls(), this.compact()),
+        right: Layout.pageInsetX(this.hostWidth, this.cls(), this.compact())
+      })
       .align(Alignment.TopStart)
     }
     .title('操作记录与评分')

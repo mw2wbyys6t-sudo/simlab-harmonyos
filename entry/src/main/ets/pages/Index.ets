@@ -25,6 +25,8 @@ import { SettingsPage } from './SettingsPage';
 struct Index {
   @State pathStack: NavPathStack = new NavPathStack();
   @State widthVp: number = 0;
+  /** 视口高度。转屏后靠它把「宽而矮」和「宽而高」分开 */
+  @State heightVp: number = 0;
   /** 指向 this.chips 的下标,0 恒为「全部」 */
   @State activeChip: number = 0;
   @State currentId: string = '';
@@ -44,7 +46,12 @@ struct Index {
   }
 
   private cls(): DeviceClass {
-    return Layout.classify(this.widthVp);
+    return Layout.classify(this.widthVp, this.heightVp);
+  }
+
+  /** 矮屏(横屏手机):高度不够一屏铺开,页面要换排布 */
+  private compact(): boolean {
+    return Layout.isCompact(this.heightVp);
   }
 
   private visible(): FeedItem[] {
@@ -96,19 +103,19 @@ struct Index {
   @Builder
   routeMap(name: string) {
     if (name === 'experiment') {
-      ExperimentPage({ experimentId: this.currentId, hostWidth: this.widthVp })
+      ExperimentPage({ experimentId: this.currentId, hostWidth: this.widthVp, hostHeight: this.heightVp })
     } else if (name === 'reactions') {
-      ChemistryPage({ hostWidth: this.widthVp })
+      ChemistryPage({ hostWidth: this.widthVp, hostHeight: this.heightVp })
     } else if (name === 'bench') {
-      BenchPage({ hostWidth: this.widthVp })
+      BenchPage({ hostWidth: this.widthVp, hostHeight: this.heightVp })
     } else if (name === 'measure') {
-      MeasurePage({ hostWidth: this.widthVp })
+      MeasurePage({ hostWidth: this.widthVp, hostHeight: this.heightVp })
     } else if (name === 'report') {
-      ReportPage({ hostWidth: this.widthVp })
+      ReportPage({ hostWidth: this.widthVp, hostHeight: this.heightVp })
     } else if (name === 'curriculum') {
-      MapPage({ hostWidth: this.widthVp })
+      MapPage({ hostWidth: this.widthVp, hostHeight: this.heightVp })
     } else if (name === 'settings') {
-      SettingsPage({ hostWidth: this.widthVp })
+      SettingsPage({ hostWidth: this.widthVp, hostHeight: this.heightVp })
     } else {
       NavDestination() {
         // 这条只在路由名写错时才会看到。原来直接把内部路由名印在屏幕上
@@ -220,8 +227,8 @@ struct Index {
       .width('100%')
       .height('100%')
       .padding({
-        left: Layout.pageInset(this.cls()),
-        right: Layout.pageInset(this.cls()),
+        left: Layout.pageInsetX(this.widthVp, this.cls(), this.compact()),
+        right: Layout.pageInsetX(this.widthVp, this.cls(), this.compact()),
         bottom: Layout.pageInset(this.cls())
       })
     }
@@ -234,6 +241,7 @@ struct Index {
     .backgroundColor(Theme.BG_PAGE)
     .onAreaChange((_oldValue: Area, newValue: Area) => {
       this.widthVp = Number(newValue.width);
+      this.heightVp = Number(newValue.height);
     })
   }
 }

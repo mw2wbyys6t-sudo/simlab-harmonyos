@@ -13,6 +13,8 @@ import { GridCell, GridRow, PeriodicGrid } from "../content/map/PeriodicGrid";
 @Component
 export struct PeriodicTableView {
   @Prop hostWidth: number = 0;
+  /** 宿主高度。转屏后高度变了,档位可能变(横屏手机不再是平板) */
+  @Prop hostHeight: number = 0;
   /** 选中的元素原子序数;-1 表示没选 */
   @Prop selectedNumber: number = -1;
   /** 选中的系列下标(0 镧系 / 1 锕系);-1 表示没选 */
@@ -26,7 +28,7 @@ export struct PeriodicTableView {
   private readonly line: number = 1;
 
   private cls(): DeviceClass {
-    return Layout.classify(this.hostWidth);
+    return Layout.classify(this.hostWidth, this.hostHeight);
   }
 
   private cell(): number {

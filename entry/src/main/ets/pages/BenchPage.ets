@@ -28,6 +28,8 @@ function newVessel(kind: VesselKind, title: string, capacity: number): Vessel {
 @Component
 export struct BenchPage {
   @Prop hostWidth: number = 0;
+  /** 宿主高度。转屏后高度变了,档位可能变(横屏手机不再是平板) */
+  @Prop hostHeight: number = 0;
   @State shelf: Substance[] = [];
   @State cards: VesselCard[] = [];
   @State log: string[] = [];
@@ -59,7 +61,12 @@ export struct BenchPage {
   }
 
   private cls(): DeviceClass {
-    return Layout.classify(this.hostWidth);
+    return Layout.classify(this.hostWidth, this.hostHeight);
+  }
+
+  /** 矮屏(横屏手机):一屏放不下"药柜 + 器皿 + 按钮 + 日志",要分两栏 */
+  private compact(): boolean {
+    return Layout.isCompact(this.hostHeight);
   }
 
   /** 越界时回一张空卡:重绘与数组替换之间总有一瞬对不齐,不该崩 */
@@ -311,69 +318,129 @@ export struct BenchPage {
       : '「' + card.title + '」里还没有药品，从上方药品柜把试剂拖进来。';
   }
 
+  /** 药品柜:试剂瓶排成能拖动的格子 */
+  @Builder
+  shelfPanel() {
+    Column({ space: 4 }) {
+      Text('药品柜').fontSize(Layout.labelSize(this.cls())).fontColor(Theme.TEXT_SECONDARY)
+      Scroll() {
+        Flex({ wrap: FlexWrap.Wrap }) {
+          ForEach(this.shelf, (item: Substance) => {
+            this.bottle(item)
+          }, (item: Substance) => item.key)
+        }
+      }
+      .constraintSize({ maxHeight: Layout.shelfMaxHeight(this.cls()) })
+      .scrollBar(BarState.Auto)
+      .width('100%')
+    }
+    .alignItems(HorizontalAlign.Start)
+    .width('100%')
+  }
+
+  /** 三只容器并排 */
+  @Builder
+  vesselRow() {
+    Row() {
+      ForEach(this.cards, (card: VesselCard, index: number) => {
+        this.vesselCard(index)
+      }, (card: VesselCard, index: number) => card.title + index)
+    }
+    .justifyContent(FlexAlign.SpaceAround)
+    .alignItems(VerticalAlign.Bottom)
+    .width('100%')
+  }
+
+  /** 两个动作按钮 */
+  @Builder
+  actionRow() {
+    Row({ space: 8 }) {
+      this.action(0)
+      this.action(1)
+    }
+    .width('100%')
+  }
+
+  /** 现象日志 */
+  @Builder
+  logPanel() {
+    Scroll() {
+      Column({ space: 2 }) {
+        ForEach(this.log, (line: string) => {
+          Text(line)
+            .fontSize(Layout.captionSize(this.cls()))
+            .fontColor(line.startsWith('  ') ? Theme.TEXT_SECONDARY : Theme.TEXT_PRIMARY)
+            .width('100%')
+        }, (line: string, index: number) => index + ':' + line)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+    }
+    .layoutWeight(1)
+    .padding(Layout.cardPadding(this.cls()))
+    .backgroundColor(Theme.BG_CARD)
+    .borderRadius(Layout.cardRadius(this.cls()))
+    .width('100%')
+    .align(Alignment.TopStart)
+  }
+
   build() {
     NavDestination() {
-      Column({ space: 12 }) {
-        Column({ space: 4 }) {
-          Text('药品柜').fontSize(Layout.labelSize(this.cls())).fontColor(Theme.TEXT_SECONDARY)
-          Scroll() {
-            Flex({ wrap: FlexWrap.Wrap }) {
-              ForEach(this.shelf, (item: Substance) => {
-                this.bottle(item)
-              }, (item: Substance) => item.key)
+      if (this.compact()) {
+        // 横屏:药柜在左、器皿与日志在右。
+        // 竖屏那一摞(药柜 130 + 器皿 150 + 按钮 44 + 日志)在 300vp 高的屏上根本放不下,
+        // 而把容器拖到药柜那一侧反而更顺手:目标就在手边。
+        Row({ space: 12 }) {
+          Column({ space: 4 }) {
+            Text('药品柜').fontSize(Layout.labelSize(this.cls())).fontColor(Theme.TEXT_SECONDARY)
+            Scroll() {
+              Flex({ wrap: FlexWrap.Wrap }) {
+                ForEach(this.shelf, (item: Substance) => {
+                  this.bottle(item)
+                }, (item: Substance) => item.key)
+              }
             }
-          }
-          .constraintSize({ maxHeight: Layout.shelfMaxHeight(this.cls()) })
-          .scrollBar(BarState.Auto)
-          .width('100%')
-        }
-        .alignItems(HorizontalAlign.Start)
-        .width('100%')
-
-        Row() {
-          ForEach(this.cards, (card: VesselCard, index: number) => {
-            this.vesselCard(index)
-          }, (card: VesselCard, index: number) => card.title + index)
-        }
-        .justifyContent(FlexAlign.SpaceAround)
-        .alignItems(VerticalAlign.Bottom)
-        .width('100%')
-
-        Row({ space: 8 }) {
-          this.action(0)
-          this.action(1)
-        }
-        .width('100%')
-
-        if (this.cards.length > this.selected) {
-          Text(this.contentsLabel())
-            .fontSize(Layout.captionSize(this.cls()))
-            .fontColor(Theme.TEXT_SECONDARY)
+            .scrollBar(BarState.Auto)
             .width('100%')
-        }
-
-        Scroll() {
-          Column({ space: 2 }) {
-            ForEach(this.log, (line: string) => {
-              Text(line)
-                .fontSize(Layout.captionSize(this.cls()))
-                .fontColor(line.startsWith('  ') ? Theme.TEXT_SECONDARY : Theme.TEXT_PRIMARY)
-                .width('100%')
-            }, (line: string, index: number) => index + ':' + line)
+            .layoutWeight(1)
           }
           .alignItems(HorizontalAlign.Start)
-          .width('100%')
+          .layoutWeight(1)
+
+          Column({ space: 8 }) {
+            this.vesselRow()
+            this.actionRow()
+            if (this.cards.length > this.selected) {
+              Text(this.contentsLabel())
+                .fontSize(Layout.captionSize(this.cls()))
+                .fontColor(Theme.TEXT_SECONDARY)
+                .width('100%')
+            }
+            this.logPanel()
+          }
+          .layoutWeight(1)
+          .height('100%')
         }
-        .layoutWeight(1)
-        .padding(Layout.cardPadding(this.cls()))
-        .backgroundColor(Theme.BG_CARD)
-        .borderRadius(Layout.cardRadius(this.cls()))
         .width('100%')
-        .align(Alignment.TopStart)
+        .height('100%')
+        .padding(Layout.pageInset(this.cls()))
+      } else {
+        Column({ space: 12 }) {
+          this.shelfPanel()
+          this.vesselRow()
+          this.actionRow()
+          if (this.cards.length > this.selected) {
+            Text(this.contentsLabel())
+              .fontSize(Layout.captionSize(this.cls()))
+              .fontColor(Theme.TEXT_SECONDARY)
+              .width('100%')
+          }
+          this.logPanel()
+        }
+        .padding(Layout.pageInset(this.cls()))
+        .width('100%')
+        .height('100%')
       }
-      .padding(Layout.pageInset(this.cls()))
-      .width('100%')
-      .height('100%')
     }
     .title('化学实验台')
     .backgroundColor(Theme.BG_PAGE)
